@@ -3,7 +3,7 @@
 
 This repository contains **reusable GitHub Actions workflows** designed to standardize CI/CD processes across multiple repositories
 in `SCORE`. 
-These workflows integrate with **Bazel** and provide a consistent way to run **documentation builds, license checks, static analysis, tests, and copyright verification**
+These workflows integrate with **Bazel** and provide a consistent way to run **documentation builds, license checks, static analysis, tests, copyright verification and git commit message linting**
 
 ## Available Workflows
 
@@ -14,6 +14,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **Static Code Analysis** | Runs Clang-Tidy, Clippy, Pylint, and other linters based on project type |
 | **Tests** | Executes tests using GoogleTest, Rust test or pytest |
 | **Copyright Check** | Ensures all source files have the required copyright headers |
+| **Git Lint** | Checks git commit message format against project rules |
 
 ---
 
@@ -99,6 +100,7 @@ jobs:
 ```
 
 This workflow:
+
 ✅ Runs **Clang-Tidy** for C++  
 ✅ Runs **Rust Clippy, Cargo Audit, and Cargo Geiger** for Rust  
 ✅ Runs **Pylint** for Python  
@@ -125,6 +127,7 @@ jobs:
 ```
 
 This workflow:
+
 ✅ Runs **GoogleTest** for C++  
 ✅ Runs **Rust Unit Tests**  
 ✅ Runs **pytest** for Python  
@@ -150,11 +153,38 @@ jobs:
 ```
 
 This workflow:
-✅ Runs a **Bazel-based copyright**
-✅ Ensures all source files have **Eclipse Foundation** headers
+
+✅ Runs a **Bazel-based copyright**  
+✅ Ensures all source files have   **Eclipse Foundation** headers
 
 > ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  
 > **Default:** `run //:copyright-check`
+
+---
+
+### **6️ Git Lint Workflow**
+**Usage Example**
+```yaml
+name: Git Lint CI
+
+on:
+  pull_request:
+
+jobs:
+  git-lint:
+    uses: eclipse-score/cicd-workflows/.github/workflows/gitlint.yml@main
+    with:
+      gitlint-file: ".gitlint" # optional, defaults to ".gitlint"
+      workflow-version: "main" # optional, defaults to "main"
+```
+
+This workflow:
+
+✅ Checks **commit messages** against GitLint rules  
+✅ Provides **warnings** if a commit message doesn’t follow the required format  
+
+> ℹ️ **Note:** You can customize GitLint settings via an optional `.gitlint` file.  
+> **Default:** `.gitlint`
 
 ---
 
@@ -169,4 +199,4 @@ uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@v1.0.0
 ### **Summary**
 ✅ **Standardized** CI/CD workflows across all projects  
 ✅ **Reusable & Maintainable** with centralized updates  
-✅ **Bazel-powered** for consistent testing & analysis  
+✅ **Bazel-powered** for consistent testing & analysis
