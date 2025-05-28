@@ -34,6 +34,9 @@ runs:
         tree /home/runner/work/_actions
         echo "Running test.sh from Test-Action-1"
         test.sh
+        printenv
 
-    - name: Call Test-Action-2b
-      uses: .github/actions/test-action-2
+    - name: Call Test-Action-2
+      env:
+        GITHUB_ACTION_PATH: ${{ github.action_path }}
+      uses: $GITHUB_ACTION_PATH/.github/actions/test-action-2
