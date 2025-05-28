@@ -23,6 +23,10 @@ runs:
 
     - name: Checkout cicd-workflows repository
       uses: actions/checkout@v4
+      with:
+        repository: eclipse-score/cicd-workflows
+        branch: dump
+        path: local-cicd-workflows
 
     - name: Call Test-Action-2
-      uses: ./.github/actions/test-action-2
+      uses: ./local-cicd-workflows/.github/actions/test-action-2
