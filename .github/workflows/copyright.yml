@@ -24,33 +24,33 @@ on:
 
 jobs:
   format:
-    name: Copyright Check
+    name: Calling Testing Workflow
     uses: ./.github/workflows/testing.yml
 
   copyright-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Dump GitHub context
+      - name: Dump GitHub context 1
         env:
           GITHUB_CONTEXT: ${{ toJson(github) }}
         run: echo "$GITHUB_CONTEXT"
-      - name: Dump job context
+      - name: Dump job context 1
         env:
           JOB_CONTEXT: ${{ toJson(job) }}
         run: echo "$JOB_CONTEXT"
-      - name: Dump steps context
+      - name: Dump steps context 1
         env:
           STEPS_CONTEXT: ${{ toJson(steps) }}
         run: echo "$STEPS_CONTEXT"
-      - name: Dump runner context
+      - name: Dump runner context 1
         env:
           RUNNER_CONTEXT: ${{ toJson(runner) }}
         run: echo "$RUNNER_CONTEXT"
-      - name: Dump strategy context
+      - name: Dump strategy context 1
         env:
           STRATEGY_CONTEXT: ${{ toJson(strategy) }}
         run: echo "$STRATEGY_CONTEXT"
-      - name: Dump matrix context
+      - name: Dump matrix context 1
         env:
           MATRIX_CONTEXT: ${{ toJson(matrix) }}
         run: echo "$MATRIX_CONTEXT"
