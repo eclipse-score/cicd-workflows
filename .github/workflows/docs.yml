@@ -44,6 +44,11 @@ jobs:
     permissions:
       pull-requests: write
     steps:
+      - name: print
+        run:
+          echo "Running license check for ${GITHUB_REPOSITORY} on branch ${GITHUB_REF_NAME}"
+          echo "${github}"
+
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@v4.2.2
         with:
