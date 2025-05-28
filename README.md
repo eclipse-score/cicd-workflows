@@ -1,7 +1,7 @@
 # Reusable GitHub Actions Workflows
 
 This repository contains **reusable GitHub Actions workflows** designed to standardize CI/CD processes across multiple repositories
-in `SCORE`.  
+in `S-CORE`.
 These workflows integrate with **Bazel** and provide a consistent way to run **documentation builds, license checks, static analysis, tests, formatting checks and copyright verification**
 
 ## Available Workflows
