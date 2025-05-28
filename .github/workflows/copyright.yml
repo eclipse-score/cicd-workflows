@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: print
-        run:
+        run: |
           echo "Running license check for ${GITHUB_REPOSITORY} on branch ${GITHUB_REF_NAME}"
           echo "${github}"
 
