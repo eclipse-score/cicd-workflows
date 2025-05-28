@@ -25,7 +25,9 @@ runs:
       shell: bash
       run: |
         echo "Running test.sh from Test-Action-1"
-        ./test.sh
+        ls -al
+        tree
+        .github/actions/test-action-1/test.sh
 
     - name: Checkout cicd-workflows repository
       uses: actions/checkout@v4
