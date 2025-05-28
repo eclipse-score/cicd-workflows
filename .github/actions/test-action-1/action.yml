@@ -21,22 +21,6 @@ runs:
       shell: bash
       run: |
         echo "Hello, World from Test-Action-1! This is a test action."
-        ls -al
-        tree
-        echo "cd into _temp"
-        cd /home/runner/work/_temp
-        ls -al
-        tree
-
-    - name: Checkout cicd-workflows repository
-      uses: actions/checkout@v4
-      with:
-        repository: eclipse-score/cicd-workflows
-        path: local-cicd-workflows
-
-    - shell: bash
-      run: git rev-parse HEAD
-      working-directory: ${{ github.action_path }}
 
     - name: Set GitHub Path
       run: echo "$GITHUB_ACTION_PATH" >> $GITHUB_PATH
