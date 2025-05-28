@@ -15,6 +15,7 @@ name: Test-Action-1
 description: A simple test action 1 that prints "Hello, World!"
 
 runs:
+  using: composite
   steps:
     - name: Hello World
       shell: bash
