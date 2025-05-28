@@ -15,19 +15,10 @@ name: Copyright Check
 
 on:
   workflow_call:
-    inputs:
-      bazel-target:
-        description: "Custom Bazel target to run (e.g.: 'run //:copyright-check')"
-        required: false
-        default: "run //:copyright-check"
-        type: string
 
 jobs:
-  format:
-    name: Copyright Check
-    uses: ./.github/workflows/testing.yml
-
-  copyright-check:
+  testing:
+    name: Testing workflow
     runs-on: ubuntu-latest
     steps:
       - name: Dump GitHub context
@@ -54,18 +45,3 @@ jobs:
         env:
           MATRIX_CONTEXT: ${{ toJson(matrix) }}
         run: echo "$MATRIX_CONTEXT"
-
-      - name: Checkout repository
-        uses: actions/checkout@v4.2.2
-
-      - name: Setup Bazel with shared caching
-        uses: bazel-contrib/setup-bazel@0.14.0
-        with:
-          disk-cache: true
-          repository-cache: true
-          bazelisk-cache: true
-
-      - name: Run Copyright Check
-        run: |
-          echo "Running: bazel ${{ inputs.bazel-target }}"
-          bazel ${{ inputs.bazel-target }}

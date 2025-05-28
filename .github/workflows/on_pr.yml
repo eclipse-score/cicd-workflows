@@ -1,0 +1,64 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_call:
+    inputs:
+      docs-retention-days:
+        description: Number of days to retain the artifact
+        required: false
+        default: 1
+        type: number
+      docs-workflow-version:
+        description: Version or branch of deploy docs action file
+        required: false
+        default: main
+        type: string
+      docs-bazel-target:
+        description: The Bazel target to build (e.g., //docs:github_pages)
+        required: false
+        type: string
+        default: //docs:github_pages
+      docs-deployment_type:
+        description: "Type of deployment: legacy or workflow"
+        type: string
+        required: false
+        default: workflow
+
+jobs:
+  documentation:
+    name: Documentation Build
+    uses: ./.github/workflows/docs.yml
+    with:
+      retention-days: ${{ inputs.docs-retention-days }}
+      workflow-version: ${{ inputs.docs-workflow-version }}
+      bazel-target: ${{ inputs.docs-bazel-target }}
+      deployment_type: ${{ inputs.docs-deployment_type }}
+
+  license-check:
+    name: License Compliance
+    uses: ./.github/workflows/license-check.yml
+    secrets:
+      dash-api-token: ${{ secrets.DASH_API_TOKEN }}
+
+  format-check:
+    name: Code Formatting
+    uses: ./.github/workflows/format.yml
+
+  copyright-check:
+    name: Copyright Headers
+    uses: ./.github/workflows/copyright.yml
