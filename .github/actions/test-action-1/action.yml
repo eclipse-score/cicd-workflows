@@ -31,7 +31,6 @@ runs:
     - name: run test.sh
       shell: bash
       run: |
-        ls -al
-        tree
+        tree /home/runner/work/_actions
         echo "Running test.sh from Test-Action-1"
-        ./test.sh
+        test.sh
