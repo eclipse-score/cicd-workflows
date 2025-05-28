@@ -11,29 +11,24 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
-name: License Check
+name: License Check [Deprecated, use Action instead!]
 
 on:
   workflow_call:
     inputs:
       repo-url:
-        description: Repository URL. If not provided, the current repository will be used.
+        description: "Repository URL"
         required: false
         type: string
-
       bazel-target:
-        description: Custom Bazel target to run (e.g., 'run //:license-check')
+        description: "Custom Bazel target to run (e.g., 'run //:license-check')"
         required: false
-        default: run //:license-check
+        default: "run //:license-check"
         type: string
-
     secrets:
       dash-api-token:
-        description: Eclipse DASH API Token for automatic ticket creation for unknown packages
-        required: true # TODO: make this optional
-
-# Change default from write to read
-permissions: read-all
+        description: "Eclipse DASH API Token for license verification"
+        required: true
 
 jobs:
   license-check:
@@ -55,12 +50,37 @@ jobs:
           repository-cache: true
           bazelisk-cache: true
 
-      - name: Run license check via Bazel
-        env:
-          REPO_URL: ${{ inputs.repo-url }}
-          BAZEL_TARGET: ${{ inputs.bazel-target }}
-          DASH_API_TOKEN: ${{ secrets.dash-api-token }}
-        run: ./.github/scripts/license-check.sh
+      - name: Run License Check via Bazel
+        run: |
+          set +e  # Allow execution to continue even if a command fails
+
+          REPO_URL="${{ inputs.repo-url }}"
+          if [[ -z "$REPO_URL" ]]; then
+            REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          fi
+
+          OUTPUT=""
+          EXIT_CODE=0
+
+          # Use org secret as fallback if dash-api-token is not provided
+          TOKEN="${{ secrets.dash-api-token }}"
+          
+          CMD="bazel ${{ inputs.bazel-target }} -- -review -project automotive.score -repo $REPO_URL -token $TOKEN"
+          echo "Running: $CMD"
+          
+          CHECK_OUTPUT=$($CMD 2>&1)
+          CHECK_EXIT_CODE=$?
+
+          OUTPUT="[License Check Output]\n$CHECK_OUTPUT"
+          if [ $CHECK_EXIT_CODE -ne 0 ]; then
+            EXIT_CODE=$CHECK_EXIT_CODE
+          fi
+          
+          echo -e "$OUTPUT" | tee license-check-output.txt
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_ENV
+          echo "output<<EOF" >> $GITHUB_ENV
+          echo -e "$OUTPUT" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Find Existing Comment
         if: github.event.pull_request
@@ -68,7 +88,7 @@ jobs:
         id: fc
         with:
           issue-number: ${{ github.event.pull_request.number }}
-          comment-author: github-actions[bot]
+          comment-author: 'github-actions[bot]'
           body-includes: License Check Results
 
       - name: Comment on PR with License Check Results
