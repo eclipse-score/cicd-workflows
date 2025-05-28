@@ -28,18 +28,6 @@ runs:
         ls -al
         tree
 
-    - name: run test.sh
-      shell: bash
-      run: |
-        ls -al
-        tree
-        echo "cd into _temp"
-        cd /home/runner/work/_temp
-        ls -al
-        tree
-        echo "Running test.sh from Test-Action-1"
-        .github/actions/test-action-1/test.sh
-
     - name: Checkout cicd-workflows repository
       uses: actions/checkout@v4
       with:
@@ -56,5 +44,10 @@ runs:
       env:
         GITHUB_ACTION_PATH: ${{ github.action_path }}
 
-    - name: Call Test-Action-2
-      uses: ./local-cicd-workflows/.github/actions/test-action-2
+    - name: run test.sh
+      shell: bash
+      run: |
+        ls -al
+        tree
+        echo "Running test.sh from Test-Action-1"
+        ./test.sh
