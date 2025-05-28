@@ -15,7 +15,6 @@ name: Test-Action-1
 description: A simple test action 1 that prints "Hello, World!"
 
 runs:
-  using: composite
   steps:
     - name: Hello World
       shell: bash
@@ -44,8 +43,17 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: eclipse-score/cicd-workflows
-        ref: dump
         path: local-cicd-workflows
+
+    - shell: bash
+      run: git rev-parse HEAD
+      working-directory: ${{ github.action_path }}
+
+    - name: Set GitHub Path
+      run: echo "$GITHUB_ACTION_PATH" >> $GITHUB_PATH
+      shell: bash
+      env:
+        GITHUB_ACTION_PATH: ${{ github.action_path }}
 
     - name: Call Test-Action-2
       uses: ./local-cicd-workflows/.github/actions/test-action-2
