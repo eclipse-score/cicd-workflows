@@ -35,9 +35,5 @@ runs:
         echo "Running test.sh from Test-Action-1"
         test.sh
 
-    - name: Call Test-Action-2
-      uses: ${{ github.action_path }}/.github/actions/test-action-2
-
-
     - name: Call Test-Action-2b
       uses: .github/actions/test-action-2
