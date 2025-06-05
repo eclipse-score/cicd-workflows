@@ -1,0 +1,90 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: License Check
+description: |
+  Runs a license check using Bazel and comments the results on the pull request.
+  If the check fails, it creates an issue in Eclipse DASH for unknown packages.
+
+inputs:
+  repo-url:
+    description: Repository URL. If not provided, the current repository will be used.
+    required: false
+
+  bazel-target:
+    description: Custom Bazel target to run (e.g., 'run //:license-check')
+    required: false
+    default: run //:license-check
+
+  dash-api-token:
+    description: Eclipse DASH API Token for automatic ticket creation for unknown packages
+    required: true # TODO: make this optional
+
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4.2.2
+      with:
+        ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
+        repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+    - name: Setup Bazel with shared caching
+      uses: bazel-contrib/setup-bazel@0.14.0
+      with:
+        disk-cache: true
+        repository-cache: true
+        bazelisk-cache: true
+
+    - name: Run license check via Bazel
+      env:
+        REPO_URL: ${{ inputs.repo-url }}
+        BAZEL_TARGET: ${{ inputs.bazel-target }}
+        DASH_API_TOKEN: ${{ secrets.dash-api-token }}
+      shell: bash
+      run: ./.github/scripts/license-check.sh
+
+    - name: Find Existing Comment
+      if: github.event.pull_request
+      uses: peter-evans/find-comment@v3
+      id: fc
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        comment-author: github-actions[bot]
+        body-includes: License Check Results
+
+    - name: Comment on PR with License Check Results
+      if: github.event.pull_request
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        comment-id: ${{ steps.fc.outputs.comment-id }}
+        issue-number: ${{ github.event.pull_request.number }}
+        body: |
+          ### License Check Results
+          🚀 The **license check** job ran with the Bazel command:
+          ```bash
+          bazel ${{ inputs.bazel-target }}
+          ```
+
+          **Status:** ${{ env.exit_code == 0 && '✅ Passed' || '⚠️ Needs Review' }}
+
+          <details>
+          <summary>Click to expand output</summary>
+
+          ```
+          ${{ env.output }}
+          ```
+
+          </details>
+        edit-mode: replace
