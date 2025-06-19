@@ -65,8 +65,16 @@ jobs:
           repository-cache: true
           bazelisk-cache: true
 
-      - name: Install Graphviz
-        run: sudo apt update && sudo apt install -y graphviz
+      - name: "Option 1: Disable mandb updates"
+        uses: eclipse-score/cicd-workflows/.github/actions/disable-mandb@main
+
+      - name: "Option 1: Install Graphviz"
+        run: sudo apt install -y graphviz --no-install-recommends
+
+      - name: "Option 2: Install additional packages"
+        uses: eclipse-score/cicd-workflows/.github/actions/apt-install@main
+        with:
+          packages: graphviz
 
       - name: Build documentation
         run: |
