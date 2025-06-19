@@ -11,7 +11,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
-name: License Check
+name: License Check [Deprecated, use Action instead!]
 
 on:
   workflow_call:
@@ -114,5 +114,4 @@ jobs:
             ```
 
             </details>
-          reactions: eyes
           edit-mode: replace
