@@ -1,0 +1,60 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Disable mandb updates
+description: Disables the mandb updates on the system to prevent unnecessary delays during the build process.
+
+inputs:
+  skip-mandb:
+    description: Disables the mandb updates on the system to prevent unnecessary delays during the build process.
+    default: "true"
+  run_update:
+    description: Run apt-get update before installing packages.
+    default: "false"
+  no-install-recommends:
+    description: Disable installation of recommended packages.
+    default: "true"
+  packages:
+    description: List of packages to install, separated by spaces.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      if: ${{ inputs.skip-mandb == 'true' }}
+      # run: |
+      #   echo "⚙️  Disabling man-db trigger..."
+      #   sudo ln -sf /bin/true /usr/bin/mandb
+      uses: eclipse-score/cicd-actions/.github/actions/disable-mandb@v2.0.0
+      
+    - name: Update package lists
+      if: ${{ inputs.run_update == 'true' }}
+      shell: bash
+      run: |
+        echo "Running apt-get update..."
+        sudo apt-get update
+        echo "Package lists updated successfully."
+
+    - name: Install packages
+      shell: bash
+      run: |
+        echo "Installing packages: ${{ inputs.packages }}"
+        sudo apt-get update
+        if [[ "${{ inputs.no-install-recommends }}" == "true" ]]; then
+          NOIR = "--no-install-recommends"
+        else
+          NOIR = ""
+        fi
+        sudo apt-get install -y $NOIR ${{ inputs.packages }}
+        echo "Packages installed successfully."
