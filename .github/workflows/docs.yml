@@ -69,6 +69,7 @@ jobs:
         uses: eclipse-score/apt-install@main
         with:
           packages: graphviz
+          cache: false
 
       - name: Build documentation
         run: |
