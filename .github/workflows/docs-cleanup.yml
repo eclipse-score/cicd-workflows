@@ -21,11 +21,6 @@ permissions:
 on:
   workflow_call:
     inputs:
-      workflow-version:
-        description: "Version or branch to checkout"
-        required: false
-        default: "main"
-        type: string
       deployment_type:
         description: "Type of deployment: legacy or workflow"
         type: string
@@ -45,6 +40,13 @@ jobs:
       contents: write
       id-token: write
     steps:
+      - name: Checkout repository root for deploy context
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: gh-pages
+          fetch-depth: 0
+
       - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
@@ -84,7 +86,14 @@ jobs:
 
           jq '[.[] | select((.version | IN($folders[])))]' --argjson folders "$(ls -1 | jq -R -s -c 'split("\n")[:-1]')" versions_tmp.json > versions_tmp_clean.json
 
-          jq --arg repo "${{ github.repository }}" '[.[] | select(.version != "main")] | sort_by(.version) | [{"version": "main", "url": ("https://eclipse-score.github.io/" + ($repo | split("/")[1]) + "/main/")}] + .' versions_tmp_clean.json > versions.json
+          jq --arg repo "${{ github.repository }}" \
+             --arg owner "${{ github.repository_owner }}" \
+             '[.[] | select(.version != "main")]
+              | sort_by(.version)
+              | [{"version":"main",
+                  "url":("https://" + $owner + ".github.io/" + ($repo | split("/")[1]) + "/main/")}]
+              + .' \
+             versions_tmp_clean.json > versions.json
 
           rm versions_tmp.json versions_tmp_clean.json
 
@@ -94,25 +103,3 @@ jobs:
           branch: gh-pages
           folder: gh-pages-cleanup
           commit-message: "Daily cleanup of outdated documentation"
-
-     # Workflow-based GitHub Pages deployment
-      - name: Workflow Configure GitHub Pages
-        if: ${{ inputs.deployment_type == 'workflow' }}
-        uses: actions/configure-pages@v3
-
-      - name: Workflow Checkout gh-pages branch
-        if: ${{ inputs.deployment_type == 'workflow' }}
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages-content
-
-      - name: Workflow Upload site artifacts
-        if: ${{ inputs.deployment_type == 'workflow' }}
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: gh-pages-content
-
-      - name: Workflow Deploy site
-        if: ${{ inputs.deployment_type == 'workflow' }}
-        uses: actions/deploy-pages@v4
