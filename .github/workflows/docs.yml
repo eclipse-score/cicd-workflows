@@ -27,15 +27,23 @@ on:
         default: "main"
         type: string
       bazel-target:
-        description: "The Bazel target to build (e.g., //docs:github_pages)"
+        description: "The Bazel target to build (e.g., //docs)"
         required: false
         type: string
-        default: "//docs:github_pages"
+        default: "//:docs"
+      tests-report-artifact:
+        description: "Name of the artifact that contains test reports"
+        required: false
+        default: ""
+        type: string
       deployment_type:
         description: "Type of deployment: legacy or workflow"
         type: string
         required: false
         default: "workflow"
+
+env:
+  CACHE_KEY_PREFIX: bazel-cache
 
 jobs:
   docs-build:
@@ -43,6 +51,7 @@ jobs:
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
       pull-requests: write
+      contents: read
     steps:
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@v4.2.2
@@ -58,12 +67,49 @@ jobs:
           ref: ${{ inputs.workflow-version }}
           path: ./cicd-workflows
 
-      - name: Setup Bazel with shared caching
+      - name: Compute cache paths (Linux)
+        id: paths
+        shell: bash
+        run: |
+          BASE="/home/runner/.cache"
+          echo "bazelisk_home=${BASE}/bazelisk" >> "$GITHUB_OUTPUT"
+          echo "output_base=${BASE}/bazel/output_base" >> "$GITHUB_OUTPUT"
+          echo "repo_contents=${BASE}/bazel/repo_contents" >> "$GITHUB_OUTPUT"
+          echo "repo_cache=${BASE}/bazel/repo" >> "$GITHUB_OUTPUT"
+          echo "disk_cache=${BASE}/bazel/disk" >> "$GITHUB_OUTPUT"
+          echo "pip_cache=${BASE}/pip" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Bazel
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
-          disk-cache: true
-          repository-cache: true
+          disk-cache: false
+          repository-cache: false
           bazelisk-cache: true
+
+      - name: Prepare cache dirs
+        shell: bash
+        run: |
+          mkdir -p \
+            "${{ steps.paths.outputs.bazelisk_home }}" \
+            "${{ steps.paths.outputs.output_base }}" \
+            "${{ steps.paths.outputs.repo_contents }}" \
+            "${{ steps.paths.outputs.repo_cache }}" \
+            "${{ steps.paths.outputs.disk_cache }}" \
+            "${{ steps.paths.outputs.pip_cache }}"
+
+      - name: Restore content cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ steps.paths.outputs.bazelisk_home }}
+            ${{ steps.paths.outputs.output_base }}
+            ${{ steps.paths.outputs.repo_contents }}
+            ${{ steps.paths.outputs.repo_cache }}
+            ${{ steps.paths.outputs.disk_cache }}
+            ${{ steps.paths.outputs.pip_cache }}
+          key: ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE*', '.bazelrc*') }}
+          restore-keys: |
+            ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-
 
       - name: Install Graphviz
         uses: eclipse-score/apt-install@main
@@ -71,9 +117,30 @@ jobs:
           packages: graphviz
           cache: false
 
+      - name: Download test report
+        if: ${{ inputs.tests-report-artifact != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.tests-report-artifact }}
+          path: tests-report
+
+      - name: List downloaded test report contents
+        if: ${{ inputs.tests-report-artifact != '' }}
+        run: |
+          echo "Contents of downloaded test report artifact:"
+          find tests-report -type f -exec ls -la {} \;
+          echo ""
+          echo "Directory structure:"
+          find tests-report -type d | sort
+
       - name: Build documentation
         run: |
-          bazel run ${{ inputs.bazel-target }}
+          bazel --output_base="${{ steps.paths.outputs.output_base }}" run \
+            --repo_contents_cache="${{ steps.paths.outputs.repo_contents }}" \
+            --repository_cache="${{ steps.paths.outputs.repo_cache }}" \
+            --disk_cache="${{ steps.paths.outputs.disk_cache }}" \
+              ${{ inputs.bazel-target }}
+
           tar -cf github-pages.tar _build
 
       - name: Upload documentation artifact
@@ -83,6 +150,20 @@ jobs:
           path: github-pages.tar
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
+
+      - name: Save content cache (branch)
+        if: success()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ steps.paths.outputs.bazelisk_home }}
+            ${{ steps.paths.outputs.output_base }}
+            ${{ steps.paths.outputs.repo_contents }}
+            ${{ steps.paths.outputs.repo_cache }}
+            ${{ steps.paths.outputs.disk_cache }}
+            ${{ steps.paths.outputs.pip_cache }}
+          key: ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE*', '.bazelrc*') }}
 
   docs-deploy:
     name: Deploy Documentation to GitHub Pages

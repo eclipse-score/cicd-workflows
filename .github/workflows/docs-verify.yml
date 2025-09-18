@@ -1,0 +1,105 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Documentation Verification
+
+on:
+  workflow_call:
+    inputs:
+      bazel-docs-verify-target:
+        description: "Bazel target for docs verification"
+        required: false
+        type: string
+        default: "//:docs_check"
+    outputs:
+      verification-result:
+        description: "Result of the docs verification"
+        value: ${{ jobs.docs-verify.outputs.verification-result }}
+
+env:
+  CACHE_KEY_PREFIX: bazel-cache
+
+jobs:
+  docs-verify:
+    name: Docs Verification
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    outputs:
+      verification-result: ${{ steps.verify.outcome }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository (Handle all events)
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Compute cache paths (Linux)
+        id: paths
+        shell: bash
+        run: |
+          BASE="/home/runner/.cache"
+          echo "bazelisk_home=${BASE}/bazelisk" >> "$GITHUB_OUTPUT"
+          echo "output_base=${BASE}/bazel/output_base" >> "$GITHUB_OUTPUT"
+          echo "repo_contents=${BASE}/bazel/repo_contents" >> "$GITHUB_OUTPUT"
+          echo "repo_cache=${BASE}/bazel/repo" >> "$GITHUB_OUTPUT"
+          echo "disk_cache=${BASE}/bazel/disk" >> "$GITHUB_OUTPUT"
+          echo "pip_cache=${BASE}/pip" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          disk-cache: false
+          repository-cache: false
+          bazelisk-cache: true
+
+      - name: Prepare cache dirs
+        shell: bash
+        run: |
+          mkdir -p \
+            "${{ steps.paths.outputs.bazelisk_home }}" \
+            "${{ steps.paths.outputs.output_base }}" \
+            "${{ steps.paths.outputs.repo_contents }}" \
+            "${{ steps.paths.outputs.repo_cache }}" \
+            "${{ steps.paths.outputs.disk_cache }}" \
+            "${{ steps.paths.outputs.pip_cache }}"
+
+      - name: Restore content cache
+        id: restore-content
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ steps.paths.outputs.bazelisk_home }}
+            ${{ steps.paths.outputs.output_base }}
+            ${{ steps.paths.outputs.repo_contents }}
+            ${{ steps.paths.outputs.repo_cache }}
+            ${{ steps.paths.outputs.disk_cache }}
+            ${{ steps.paths.outputs.pip_cache }}
+          key: ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE*', '.bazelrc*') }}
+          restore-keys: |
+            ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-
+
+      - name: Install Graphviz
+        uses: eclipse-score/apt-install@main
+        with:
+          packages: graphviz
+          cache: false
+
+      - name: Run docs verification
+        id: verify
+        run: |
+          bazel --output_base="${{ steps.paths.outputs.output_base }}" run \
+            --repo_contents_cache="${{ steps.paths.outputs.repo_contents }}" \
+            --repository_cache="${{ steps.paths.outputs.repo_cache }}" \
+            --disk_cache="${{ steps.paths.outputs.disk_cache }}" \
+            ${{ inputs.bazel-docs-verify-target }}
