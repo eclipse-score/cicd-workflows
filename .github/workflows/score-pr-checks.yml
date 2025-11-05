@@ -40,7 +40,7 @@ jobs:
           fi
 
           # Extract the module name from the module() declaration
-          MODULE_NAME=$(echo "$MODULE_LINE" | sed 's/^module(\s*name\s*=\s*"\([^"]*\)".*/\1/' | sed 's/^module(\s*"\([^"]*\)".*/\1/')
+          MODULE_NAME=$(echo "$MODULE_LINE" | sed 's/^module([[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/' | sed 's/^module([[:space:]]*"\([^"]*\)".*/\1/')
 
           # Alternative extraction method if the above doesn't work
           if [[ -z "$MODULE_NAME" || "$MODULE_NAME" == "$MODULE_LINE" ]]; then
