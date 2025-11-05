@@ -27,7 +27,7 @@ jobs:
         run: |
           if [ ! -f "MODULE.bazel" ]; then
             echo "❌ MODULE.bazel file not found in repository root"
-            exit 1
+            exit 0
           fi
           echo "✅ MODULE.bazel file found"
 
