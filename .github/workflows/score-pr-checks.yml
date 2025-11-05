@@ -23,16 +23,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check if MODULE.bazel exists
+      - name: Check MODULE.bazel and validate module name
         run: |
+          # Check if MODULE.bazel exists
           if [ ! -f "MODULE.bazel" ]; then
-            echo "❌ MODULE.bazel file not found in repository root"
+            echo "ℹ️  MODULE.bazel file not found in repository root - skipping Bazel module validation"
             exit 0
           fi
+          
           echo "✅ MODULE.bazel file found"
 
-      - name: Validate Bazel module name
-        run: |
           # Extract module name from MODULE.bazel
           if ! MODULE_LINE=$(grep '^module(' MODULE.bazel | head -1); then
             echo "❌ No module declaration found in MODULE.bazel"
