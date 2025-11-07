@@ -1,0 +1,46 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+name: Required Approvals
+
+on:
+  workflow_call:
+    inputs:
+      min_approvals: { type: number, default: 1, required: false }
+      approval_mode: { type: string, default: ALL, required: false }
+      org_name:      { type: string, default: score, required: false }
+      pat_secret:    { type: string, required: false, description: "Override secret name" }
+
+jobs:
+  check-approvals:
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check for required approvals (CODEOWNERS)
+        id: check-approvals
+        uses: skymoore/required-approvals@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Fallback to SCORE_APPROVALS_PAT if no override is provided
+          read_org_scoped_token: ${{ secrets[inputs.pat_secret] || secrets.SCORE_APPROVALS_PAT }}
+          org_name: ${{ inputs.org_name }}
+          min_approvals: ${{ inputs.min_approvals }}
+          approval_mode: ${{ inputs.approval_mode }}
+          require_all_approvals_latest_commit: true
+
+      - name: Run action if all required approvals are met
+        if: ${{ steps.check-approvals.outputs.approved == 'true' }}
+        run: |
+          echo "✅ All required approvals are met. Proceeding."          

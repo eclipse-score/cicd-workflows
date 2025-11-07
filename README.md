@@ -15,6 +15,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **Tests**               | Executes tests using GoogleTest, Rust test, or pytest              |
 | **Formatting Check**    | Verifies code formatting using Bazel-based tools                   |
 | **Copyright Check**     | Ensures all source files have the required copyright headers        |
+| **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
 
 ---
 
@@ -211,6 +212,49 @@ This workflow:
 > **Default:** `test //:format.check`
 
 ---
+### **8️ Required Approvals Workflow**
+
+This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.  
+Normally, GitHub requires approval from *any one* codeowner when multiple are listed.  
+With this workflow, you can enforce that **all required teams approve** (or set a minimum count).
+
+**Usage Example**
+
+```yaml
+name: Enforce Approvals
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+jobs:
+  enforce:
+    uses: eclipse-score/cicd-workflows/.github/workflows/required-approvals.yml@main
+    with:
+      pat_secret: SCORE_BOT_PAT
+      # Optional overrides:
+      # min_approvals: 2
+      # approval_mode: ALL
+      # org_name: qorix-group
+```
+
+**Defaults**  
+- `org_name`: `score`  
+- `min_approvals`: `1`  
+- `approval_mode`: `ALL`  
+- `require_all_approvals_latest_commit`: always `true`  
+
+**Key Features**  
+✅ Enforces that *all relevant CODEOWNERS* approve (`ALL` mode)  
+✅ Invalidates approvals on new commits (`require_all_approvals_latest_commit`)  
+✅ Works with **org secrets** (e.g. `SCORE_BOT_PAT`) that must have `repo` + `read:org` scopes  
+✅ Compatible with branch protection rules → can be marked as **required**  
+
+---
+
+
 
 ##  How to Update Workflows
 Since these workflows are centralized, updates in the `cicd-workflows` repository will **automatically apply to all repositories using them**. If you need a specific version, reference a **tagged release** instead of `main`:
