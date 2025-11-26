@@ -16,6 +16,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **Formatting Check**    | Verifies code formatting using Bazel-based tools                   |
 | **Copyright Check**     | Ensures all source files have the required copyright headers        |
 | **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
+| **QNX Build (Gated)**   | Builds QNX Bazel targets with environment-gated secrets for forks   |
 
 ---
 
@@ -254,6 +255,43 @@ jobs:
 
 ---
 
+
+
+### **9️ QNX Build (Gated) Workflow**
+
+Use this workflow when you need QNX secrets for forked PRs and want a manual approval gate via an environment.
+
+**Usage Example**
+
+```yaml
+name: Scrample QNX (gated)
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  qnx-build:
+    uses: eclipse-score/cicd-workflows/.github/workflows/qnx-build.yml@main
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      bazel-target: "//..." # optional, default shown
+      bazel-config: "x86_64-qnx"     # optional, default shown
+      credential-helper: ".github/tools/qnx_credential_helper.py" # optional, default shown
+      environment-name: "workflow-approval" # optional, default shown
+    secrets:
+      score-qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
+      score-qnx-user: ${{ secrets.SCORE_QNX_USER }}
+      score-qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
+```
+
+**Notes**
+- Runs on `pull_request_target` so maintainers can approve the `workflow-approval` environment before secrets are used.
+- Installs the QNX license, builds with the configured Bazel target/config, and cleans up the license directory.
+
+---
 
 
 ##  How to Update Workflows
