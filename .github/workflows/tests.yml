@@ -21,6 +21,13 @@ on:
         required: false
         default: "test //..."
         type: string
+      result-paths:
+        description: "Custom paths to upload test results from (e.g.: 'bazel-testlogs/**/*.xml')"
+        required: false
+        default: |
+          bazel-testlogs/**/*.xml
+          bazel-testlogs/**/test.log
+        type: string
 
 jobs:
   unit-tests:
@@ -45,5 +52,15 @@ jobs:
         run: |
           echo "Running: bazel ${{ inputs.bazel-target }}"
           bazel ${{ inputs.bazel-target }}
+        continue-on-error: true # Always continue to upload artifacts
 
-
+      - name: Upload Bazel test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bazel Test Results
+          path: |
+            ${{ inputs.result-paths }}
+          if-no-files-found: warn
+          retention-days: 0
+          compression-level: 6
