@@ -57,11 +57,12 @@ jobs:
           echo "pip_cache=${BASE}/pip" >> "$GITHUB_OUTPUT"
 
       - name: Setup Bazel
-        uses: bazel-contrib/setup-bazel@0.14.0
+        uses: bazel-contrib/setup-bazel@0.18.0
         with:
           disk-cache: false
           repository-cache: false
           bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' }}
 
       - name: Prepare cache dirs
         shell: bash
