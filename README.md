@@ -308,11 +308,12 @@ To improve performance and reduce redundant downloads across workflow runs, the 
 
 ```yaml
 - name: Setup Bazel with shared caching
-  uses: bazel-contrib/setup-bazel@0.14.0
+  uses: bazel-contrib/setup-bazel@0.18.0
   with:
     disk-cache: true
     repository-cache: true
     bazelisk-cache: true
+    cache-save: ${{ github.event_name == 'push' }}
 ```
 
 ### Benefits
@@ -320,6 +321,7 @@ To improve performance and reduce redundant downloads across workflow runs, the 
 - **`disk-cache`**: Stores compiled Bazel outputs across jobs.
 - **`repository-cache`**: Caches external dependencies (e.g., modules, WORKSPACE fetches).
 - **`bazelisk-cache`**: Avoids re-downloading Bazel binaries.
+- **`cache-save`**: Saves the cache only on push events to avoid unnecessary cache updates (e.g., from pull requests).
 
 This setup significantly reduces CI build time and improves reuse across different workflows.
 

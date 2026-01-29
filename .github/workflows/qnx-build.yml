@@ -36,6 +36,11 @@ on:
         required: false
         default: "workflow-approval"
         type: string
+      bazel-disk-cache:
+        description: "Enable Bazel disk cache on GitHub. The value can be a string to use as cache key for separating workflows"
+        required: false
+        default: "true"
+        type: string
     secrets:
       score-qnx-license:
         description: "Base64-encoded QNX license content"
@@ -64,11 +69,12 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Setup Bazel with shared caching
-        uses: bazel-contrib/setup-bazel@0.14.0
+        uses: bazel-contrib/setup-bazel@0.18.0
         with:
-          disk-cache: true
+          disk-cache: ${{ inputs.bazel-disk-cache }}
           repository-cache: true
           bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' }}
 
       - name: Prepare QNX license
         env:
