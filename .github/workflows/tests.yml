@@ -62,7 +62,7 @@ jobs:
 
       - name: Upload Bazel test artifacts
         if: ${{ inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.upload-name }}
           path: |
