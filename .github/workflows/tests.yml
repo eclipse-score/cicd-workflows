@@ -25,6 +25,7 @@ on:
         description: "Custom name to upload test results to (e.g. Bazel Test Results). Leave as default to skip upload."
         required: false
         default: "NO UPLOAD OF TEST RESULTS CONFIGURED"
+        type: string
       result-paths:
         description: "Custom paths to upload test results from (e.g.: 'bazel-testlogs/**/*.xml')"
         required: false
