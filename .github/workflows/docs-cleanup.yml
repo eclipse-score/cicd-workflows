@@ -67,7 +67,8 @@ jobs:
 
           ACTIVE_BRANCHES=$(gh api --paginate repos/${{ github.repository }}/branches --jq '.[].name')
           OPEN_PRS=$(gh api --paginate repos/${{ github.repository }}/pulls --jq '.[].number' | sed 's/^/pr-/')
-          VALID_ENTRIES=$(echo -e "$ACTIVE_BRANCHES\n$OPEN_PRS")
+          RELEASES=$(gh api --paginate repos/${{ github.repository }}/releases --jq '.[].name')
+          VALID_ENTRIES=$(echo -e "$ACTIVE_BRANCHES\n$OPEN_PRS\n$RELEASES")
           CURRENT_FOLDERS=$(find . -maxdepth 1 -type d -not -name '.' -not -path './.*' -exec basename {} \;)
 
           if [[ -f versions.json ]]; then
