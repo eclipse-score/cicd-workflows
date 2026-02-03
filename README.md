@@ -124,16 +124,21 @@ jobs:
   static-analysis:
     uses: eclipse-score/cicd-workflows/.github/workflows/static-analysis.yml@main
     with:
-      bazel-target: "run //:static-analysis" # optional, this is the default
+      bazel-targets: "//..."            # optional, default
+      bazel-config: "lint"             # optional, default
+      bazel-args: "--@aspect_rules_lint//lint:fail_on_violation=true"  # optional
 ```
 
 This workflow:  
-✅ Runs **Clang-Tidy** for C++  
-✅ Runs **Rust Clippy, Cargo Audit, and Cargo Geiger** for Rust  
-✅ Runs **Pylint** for Python  
+✅ Runs **Clippy** via Bazel on the selected targets  
+✅ Publishes **Clippy reports** as an artifact  
+✅ Fails the job if Bazel fails or if any Clippy report is non-empty  
+✅ Writes a summary to the GitHub job summary  
 
-> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  
-> **Default:** `run //:static-analysis`
+Inputs:
+- `bazel-targets`: Bazel targets to build (default: `//...`)
+- `bazel-config`: Bazel config to apply (default: `lint`, set empty to disable)
+- `bazel-args`: Extra Bazel args (e.g., `--@aspect_rules_lint//lint:fail_on_violation=true`)
 
 ---
 
