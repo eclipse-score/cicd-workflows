@@ -47,6 +47,8 @@ runs:
       run: |
         if [[ "${{ github.event_name }}" == 'pull_request_target' || "${{ github.event_name }}" == 'pull_request' ]]; then
           target_folder="pr-${{ github.event.pull_request.number }}"
+        elif [[ "${{ github.event_name }}" == 'release' ]]; then
+          target_folder="${{ github.event.release.tag_name }}"
         else
           target_folder="${{github.ref_name}}"
         fi
