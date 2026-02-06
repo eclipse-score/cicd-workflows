@@ -13,6 +13,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **License Check**       | Verifies OSS licenses and compliance                               |
 | **Static Code Analysis**| Runs Clang-Tidy, Clippy, Pylint, and other linters                 |
 | **Tests**               | Executes tests using GoogleTest, Rust test, or pytest              |
+| **Rust Coverage**       | Computes Rust code coverage and uploads HTML reports              |
 | **Formatting Check**    | Verifies code formatting using Bazel-based tools                   |
 | **Copyright Check**     | Ensures all source files have the required copyright headers        |
 | **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
@@ -165,7 +166,36 @@ This workflow:
 
 ---
 
-### **6️ Copyright Check Workflow**
+### **6️ Rust Coverage Workflow**
+**Usage Example**
+```yaml
+name: Rust Coverage CI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+jobs:
+  rust-coverage:
+    uses: eclipse-score/cicd-workflows/.github/workflows/rust-coverage.yml@main
+    with:
+      bazel-test-targets: "//src/rust/..."
+      bazel-test-config-flags: "--config=per-x86_64-linux --config=ferrocene-coverage"
+      bazel-test-args: "--nocache_test_results"
+      coverage-target: "//:rust_coverage"
+      min-coverage: 90
+      coverage-artifact-name: "rust-coverage-html"
+```
+
+This workflow:  
+✅ Runs **Rust tests** with coverage instrumentation  
+✅ Generates **coverage reports** via Bazel  
+✅ Uploads the **HTML coverage report** as an artifact  
+
+---
+
+### **7️ Copyright Check Workflow**
 **Usage Example**
 ```yaml
 name: Copyright Check CI
@@ -192,7 +222,7 @@ This workflow:
 
 ---
 
-### **7️ Formatting Check Workflow**
+### **8️ Formatting Check Workflow**
 **Usage Example**
 ```yaml
 name: Formatting Check CI
@@ -218,7 +248,7 @@ This workflow:
 > **Default:** `test //:format.check`
 
 ---
-### **8️ Required Approvals Workflow**
+### **9️ Required Approvals Workflow**
 
 This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.  
 Normally, GitHub requires approval from *any one* codeowner when multiple are listed.  
@@ -262,7 +292,7 @@ jobs:
 
 
 
-### **9️ QNX Build (Gated) Workflow**
+### **10️ QNX Build (Gated) Workflow**
 
 Use this workflow when you need QNX secrets for forked PRs and want a manual approval gate via an environment.
 

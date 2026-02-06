@@ -34,7 +34,7 @@ on:
 jobs:
   static-analysis:
     name: Static Code Analysis
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4.2.2
