@@ -68,5 +68,4 @@ jobs:
           path: |
             ${{ inputs.result-paths }}
           if-no-files-found: warn
-          retention-days: 0
           compression-level: 6
