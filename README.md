@@ -13,6 +13,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **License Check**       | Verifies OSS licenses and compliance                               |
 | **Static Code Analysis**| Runs Clang-Tidy, Clippy, Pylint, and other linters                 |
 | **Tests**               | Executes tests using GoogleTest, Rust test, or pytest              |
+| **Rust Coverage**       | Computes Rust code coverage and uploads HTML reports              |
 | **Formatting Check**    | Verifies code formatting using Bazel-based tools                   |
 | **Copyright Check**     | Ensures all source files have the required copyright headers        |
 | **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
@@ -124,16 +125,21 @@ jobs:
   static-analysis:
     uses: eclipse-score/cicd-workflows/.github/workflows/static-analysis.yml@main
     with:
-      bazel-target: "run //:static-analysis" # optional, this is the default
+      bazel-targets: "//..."            # optional, default
+      bazel-config: "lint"             # optional, default
+      bazel-args: "--@aspect_rules_lint//lint:fail_on_violation=true"  # optional
 ```
 
 This workflow:  
-✅ Runs **Clang-Tidy** for C++  
-✅ Runs **Rust Clippy, Cargo Audit, and Cargo Geiger** for Rust  
-✅ Runs **Pylint** for Python  
+✅ Runs **Clippy** via Bazel on the selected targets  
+✅ Publishes **Clippy reports** as an artifact  
+✅ Fails the job if Bazel fails or if any Clippy report is non-empty  
+✅ Writes a summary to the GitHub job summary  
 
-> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  
-> **Default:** `run //:static-analysis`
+Inputs:
+- `bazel-targets`: Bazel targets to build (default: `//...`)
+- `bazel-config`: Bazel config to apply (default: `lint`, set empty to disable)
+- `bazel-args`: Extra Bazel args (e.g., `--@aspect_rules_lint//lint:fail_on_violation=true`)
 
 ---
 
@@ -160,7 +166,36 @@ This workflow:
 
 ---
 
-### **6️ Copyright Check Workflow**
+### **6️ Rust Coverage Workflow**
+**Usage Example**
+```yaml
+name: Rust Coverage CI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+jobs:
+  rust-coverage:
+    uses: eclipse-score/cicd-workflows/.github/workflows/rust-coverage.yml@main
+    with:
+      bazel-test-targets: "//src/rust/..."
+      bazel-test-config-flags: "--config=per-x86_64-linux --config=ferrocene-coverage"
+      bazel-test-args: "--nocache_test_results"
+      coverage-target: "//:rust_coverage"
+      min-coverage: 90
+      coverage-artifact-name: "rust-coverage-html"
+```
+
+This workflow:  
+✅ Runs **Rust tests** with coverage instrumentation  
+✅ Generates **coverage reports** via Bazel  
+✅ Uploads the **HTML coverage report** as an artifact  
+
+---
+
+### **7️ Copyright Check Workflow**
 **Usage Example**
 ```yaml
 name: Copyright Check CI
@@ -187,7 +222,7 @@ This workflow:
 
 ---
 
-### **7️ Formatting Check Workflow**
+### **8️ Formatting Check Workflow**
 **Usage Example**
 ```yaml
 name: Formatting Check CI
@@ -213,7 +248,7 @@ This workflow:
 > **Default:** `test //:format.check`
 
 ---
-### **8️ Required Approvals Workflow**
+### **9️ Required Approvals Workflow**
 
 This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.  
 Normally, GitHub requires approval from *any one* codeowner when multiple are listed.  
@@ -257,7 +292,7 @@ jobs:
 
 
 
-### **9️ QNX Build (Gated) Workflow**
+### **10️ QNX Build (Gated) Workflow**
 
 Use this workflow when you need QNX secrets for forked PRs and want a manual approval gate via an environment.
 

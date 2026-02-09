@@ -1,0 +1,110 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Rust Coverage
+
+on:
+  workflow_call:
+    inputs:
+      bazel-test-targets:
+        description: "Bazel targets to test (default: //src/rust/...)"
+        required: false
+        default: "//src/rust/..."
+        type: string
+      bazel-test-config-flags:
+        description: "Bazel config flags for coverage (e.g., --config=per-x86_64-linux --config=ferrocene-coverage)"
+        required: false
+        default: "--config=per-x86_64-linux --config=ferrocene-coverage"
+        type: string
+      bazel-test-args:
+        description: "Extra Bazel args for test (e.g., --nocache_test_results)"
+        required: false
+        default: "--nocache_test_results"
+        type: string
+      coverage-target:
+        description: "Bazel target that generates coverage artifacts"
+        required: false
+        default: "//:rust_coverage"
+        type: string
+      min-coverage:
+        description: "Minimum line coverage percentage passed as --min-line-coverage"
+        required: false
+        default: 90
+        type: number
+      coverage-artifact-name:
+        description: "Artifact name for uploaded coverage HTML"
+        required: false
+        default: "rust-coverage-html"
+        type: string
+      coverage-artifact-path:
+        description: "Path to coverage HTML directory (leave empty to auto-detect)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  rust-coverage:
+    name: Rust Coverage
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout repository (Handle all events)
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: true
+          repository-cache: true
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' }}
+
+      - name: Run Rust tests with coverage instrumentation
+        run: |
+          set -euo pipefail
+          echo "Running: bazel test ${{ inputs.bazel-test-config-flags }} ${{ inputs.bazel-test-args }} ${{ inputs.bazel-test-targets }}"
+          bazel test ${{ inputs.bazel-test-config-flags }} ${{ inputs.bazel-test-args }} ${{ inputs.bazel-test-targets }}
+
+      - name: Generate coverage reports
+        run: |
+          set -euo pipefail
+          coverage_args=""
+          if [ -n "${{ inputs.min-coverage }}" ]; then
+            coverage_args="--min-line-coverage ${{ inputs.min-coverage }}"
+          fi
+          if [ -n "${coverage_args}" ]; then
+            echo "Running: bazel run ${{ inputs.coverage-target }} -- ${coverage_args}"
+            bazel run ${{ inputs.coverage-target }} -- ${coverage_args}
+          else
+            echo "Running: bazel run ${{ inputs.coverage-target }}"
+            bazel run ${{ inputs.coverage-target }}
+          fi
+
+      - name: Locate coverage artifacts
+        id: coverage
+        run: |
+          set -euo pipefail
+          coverage_path="${{ inputs.coverage-artifact-path }}"
+          if [ -z "${coverage_path}" ]; then
+            coverage_path="$(bazel info bazel-bin)/coverage/rust-tests"
+          fi
+          echo "coverage_path=${coverage_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4.4.0
+        with:
+          name: ${{ inputs.coverage-artifact-name }}
+          path: ${{ steps.coverage.outputs.coverage_path }}
+          if-no-files-found: warn
