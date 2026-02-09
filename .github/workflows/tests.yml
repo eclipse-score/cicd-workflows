@@ -21,6 +21,18 @@ on:
         required: false
         default: "test //..."
         type: string
+      upload-name:
+        description: "Custom name to upload test results to (e.g. Bazel Test Results). Leave as default to skip upload."
+        required: false
+        default: "NO UPLOAD OF TEST RESULTS CONFIGURED"
+        type: string
+      result-paths:
+        description: "Custom paths to upload test results from (e.g.: 'bazel-testlogs/**/*.xml')"
+        required: false
+        default: |
+          bazel-testlogs/**/*.xml
+          bazel-testlogs/**/test.log
+        type: string
 
 jobs:
   unit-tests:
@@ -46,5 +58,14 @@ jobs:
         run: |
           echo "Running: bazel ${{ inputs.bazel-target }}"
           bazel ${{ inputs.bazel-target }}
+        continue-on-error: true # Always continue to upload artifacts
 
-
+      - name: Upload Bazel test artifacts
+        if: ${{ inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.upload-name }}
+          path: |
+            ${{ inputs.result-paths }}
+          if-no-files-found: warn
+          compression-level: 6
