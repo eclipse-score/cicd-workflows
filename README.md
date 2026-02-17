@@ -14,6 +14,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **Static Code Analysis**| Runs Clang-Tidy, Clippy, Pylint, and other linters                 |
 | **Tests**               | Executes tests using GoogleTest, Rust test, or pytest              |
 | **Rust Coverage**       | Computes Rust code coverage and uploads HTML reports              |
+| **C++ Coverage**        | Computes C++ code coverage using LCOV and uploads HTML reports     |
 | **Formatting Check**    | Verifies code formatting using Bazel-based tools                   |
 | **Copyright Check**     | Ensures all source files have the required copyright headers        |
 | **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
