@@ -41,6 +41,10 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Sync concurrent deployments
+      uses: softprops/turnstyle@v3
+      with:
+        continue-after-seconds: 120
     - name: Determine target_folder
       id: calc
       shell: bash
