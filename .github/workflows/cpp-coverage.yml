@@ -1,0 +1,202 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: C++ Coverage
+
+on:
+  workflow_call:
+    inputs:
+      bazel-target:
+        description: "Bazel target(s) to run coverage on (supports whitespace/newline separated targets and negative targets)"
+        required: false
+        default: "//..."
+        type: string
+      bazel-config:
+        description: "Optional Bazel config name (passed via --config=<name>)"
+        required: false
+        default: ""
+        type: string
+      extra-bazel-flags:
+        description: "Additional Bazel flags to pass to the coverage command (whitespace separated)"
+        required: false
+        default: ""
+        type: string
+      runner-label:
+        description: "Label of GitHub runner to use (used if REPO_RUNNER_LABELS is not set)"
+        required: false
+        default: "ubuntu-22.04"
+        type: string
+      artifact-name-suffix:
+        description: "Optional suffix for artifact names (e.g., -v2, -nightly)"
+        required: false
+        default: ""
+        type: string
+      genhtml-extra-flags:
+        description: "Extra flags to pass to genhtml (whitespace separated; avoid embedded quotes)"
+        required: false
+        default: ""
+        type: string
+      retention-days:
+        description: "Days to keep uploaded artifacts"
+        required: false
+        default: 30
+        type: number
+      min-coverage:
+        description: "Minimum line coverage percentage (0 disables check)"
+        required: false
+        default: 0
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  coverage-report:
+    name: C++ Coverage
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || inputs.runner-label }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name != 'pull_request' }}
+
+      - name: Install lcov (+ bc for threshold check)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lcov bc
+
+      - name: Run Bazel Coverage
+        env:
+          BAZEL_CONFIG: ${{ inputs.bazel-config }}
+          BAZEL_FLAGS: ${{ inputs.extra-bazel-flags }}
+          BAZEL_TARGET: ${{ inputs.bazel-target }}
+        run: |
+          set -euo pipefail
+          set -f  # disable globbing
+
+          cmd=(bazel coverage)
+
+          if [[ -n "${BAZEL_CONFIG}" ]]; then
+            cmd+=(--config="${BAZEL_CONFIG}")
+          fi
+
+          # split flags/targets on ANY whitespace (spaces/newlines/tabs)
+          # shellcheck disable=SC2206
+          extra_flags=(${BAZEL_FLAGS})
+          if [ ${#extra_flags[@]} -gt 0 ]; then
+            cmd+=("${extra_flags[@]}")
+          fi
+
+          # shellcheck disable=SC2206
+          targets=(${BAZEL_TARGET})
+          cmd+=(-- "${targets[@]}")
+
+          echo "Running: ${cmd[*]}"
+          "${cmd[@]}"
+
+      - name: Generate HTML Coverage Report
+        if: ${{ always() }}
+        env:
+          GENHTML_EXTRA_FLAGS: ${{ inputs.genhtml-extra-flags }}
+        run: |
+          set -euo pipefail
+          set -f
+
+          output_path="$(bazel info output_path)"
+          coverage_dat="${output_path}/_coverage/_coverage_report.dat"
+
+          if [[ ! -f "${coverage_dat}" ]]; then
+            echo "::warning::Coverage data not found: ${coverage_dat}"
+            exit 0
+          fi
+
+          # shellcheck disable=SC2206
+          genhtml_flags=(${GENHTML_EXTRA_FLAGS})
+
+          genhtml "${coverage_dat}" \
+            -o cpp_coverage \
+            --show-details \
+            --legend \
+            --function-coverage \
+            --branch-coverage \
+            "${genhtml_flags[@]}"
+
+          cp "${coverage_dat}" coverage.lcov
+
+      - name: Check Coverage Threshold
+        if: ${{ always() && inputs.min-coverage > 0 }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f coverage.lcov ]]; then
+            echo "::warning::No coverage.lcov found; skipping threshold check"
+            exit 0
+          fi
+
+          lines_found="$(awk -F: '/^LF:/{sum+=$2} END{print sum+0}' coverage.lcov)"
+          lines_hit="$(awk -F: '/^LH:/{sum+=$2} END{print sum+0}' coverage.lcov)"
+
+          if [[ "${lines_found}" -eq 0 ]]; then
+            echo "::warning::No lines found in coverage report; skipping threshold check"
+            exit 0
+          fi
+
+          coverage_percent="$(echo "scale=2; ${lines_hit} * 100 / ${lines_found}" | bc -l)"
+          min_coverage="${{ inputs.min-coverage }}"
+
+          echo "Coverage: ${coverage_percent}% (${lines_hit}/${lines_found} lines)"
+          echo "Minimum: ${min_coverage}%"
+
+          if (( $(echo "${coverage_percent} < ${min_coverage}" | bc -l) )); then
+            echo "::error::Coverage ${coverage_percent}% is below minimum ${min_coverage}%"
+            exit 1
+          fi
+
+          echo "::notice::Coverage threshold met: ${coverage_percent}% >= ${min_coverage}%"
+
+      - name: Upload coverage HTML report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ format('{0}_cpp_coverage_report{1}', github.event.repository.name, inputs.artifact-name-suffix) }}
+          path: cpp_coverage/
+          if-no-files-found: ignore
+          retention-days: ${{ inputs.retention-days }}
+
+      - name: Upload raw LCOV file
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ format('{0}_cpp_coverage_lcov{1}', github.event.repository.name, inputs.artifact-name-suffix) }}
+          path: coverage.lcov
+          if-no-files-found: ignore
+          retention-days: ${{ inputs.retention-days }}
+
+      - name: Upload test logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ format('{0}_cpp_test_logs{1}', github.event.repository.name, inputs.artifact-name-suffix) }}
+          path: |
+            bazel-testlogs/**/*.log
+            bazel-testlogs/**/*.xml
+          if-no-files-found: ignore
+          retention-days: ${{ inputs.retention-days }}
