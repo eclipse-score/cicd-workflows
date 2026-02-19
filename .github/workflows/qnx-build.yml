@@ -82,6 +82,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [[ -z "${SCORE_QNX_LICENSE}" ]]; then
+            echo "::error::score-qnx-license secret is not set."
+            exit 1
+          fi
+
           LICENSE_DIR="/opt/score_qnx/license"
           sudo mkdir -p "${LICENSE_DIR}"
           echo "${SCORE_QNX_LICENSE}" | base64 --decode | sudo tee "${LICENSE_DIR}/licenses" >/dev/null
