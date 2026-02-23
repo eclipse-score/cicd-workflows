@@ -60,10 +60,15 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
 jobs:
   coverage-report:
     name: C++ Coverage
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || inputs.runner-label }}
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
 
     steps:
       - name: Checkout repository

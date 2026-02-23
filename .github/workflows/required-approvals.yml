@@ -20,9 +20,14 @@ on:
       org_name:      { type: string, default: score, required: false }
       pat_secret:    { type: string, required: false, description: "Override secret name" }
 
+defaults:
+  run:
+    shell: bash
 jobs:
   check-approvals:
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     permissions:
       id-token: write
       contents: read

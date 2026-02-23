@@ -45,10 +45,15 @@ on:
 env:
   CACHE_KEY_PREFIX: bazel-cache
 
+defaults:
+  run:
+    shell: bash
 jobs:
   docs-build:
     name: Build Documentation
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     permissions:
       pull-requests: write
       contents: read
@@ -170,6 +175,8 @@ jobs:
   docs-deploy:
     name: Deploy Documentation to GitHub Pages
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     needs: docs-build
     permissions:
       pages: write

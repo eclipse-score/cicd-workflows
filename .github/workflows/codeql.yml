@@ -20,10 +20,15 @@ on:
         required: true
         default: "bazel build //..."
         type: string
+defaults:
+  run:
+    shell: bash
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     permissions:
       security-events: write
       packages: read

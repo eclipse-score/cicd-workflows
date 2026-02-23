@@ -30,9 +30,14 @@ on:
         description: "Eclipse DASH API Token for license verification"
         required: true
 
+defaults:
+  run:
+    shell: bash
 jobs:
   license-check:
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     permissions:
       pull-requests: write
       issues: write

@@ -31,10 +31,15 @@ on:
         description: "GitHub Token"
         required: true
 
+defaults:
+  run:
+    shell: bash
 jobs:
   docs-cleanup:
     name: Cleanup old documentation
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     permissions:
       pages: write
       contents: write

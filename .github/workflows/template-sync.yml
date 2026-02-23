@@ -28,9 +28,14 @@ on:
         type: string
         default: ".github/.templatesyncignore"
 
+defaults:
+  run:
+    shell: bash
 jobs:
   repo-sync:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     permissions:
       contents: write
       pull-requests: write

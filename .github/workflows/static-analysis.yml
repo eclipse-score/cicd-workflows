@@ -31,10 +31,15 @@ on:
         default: ""
         type: string
 
+defaults:
+  run:
+    shell: bash
 jobs:
   static-analysis:
     name: Static Code Analysis
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4.2.2

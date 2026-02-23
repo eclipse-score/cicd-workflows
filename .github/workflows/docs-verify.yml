@@ -29,10 +29,15 @@ on:
 env:
   CACHE_KEY_PREFIX: bazel-cache
 
+defaults:
+  run:
+    shell: bash
 jobs:
   docs-verify:
     name: Docs Verification
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     outputs:
       verification-result: ${{ steps.verify.outcome }}
     permissions:

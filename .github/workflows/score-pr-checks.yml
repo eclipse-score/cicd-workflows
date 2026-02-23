@@ -16,9 +16,14 @@ name: SCORE PR Checks
 on:
   workflow_call:
 
+defaults:
+  run:
+    shell: bash
 jobs:
   bazel-module-name-check:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/eclipse-score/devcontainer:v1.1.0
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

@@ -17,6 +17,9 @@ on:
   pull_request:
     branches: [ main ]
 
+defaults:
+  run:
+    shell: bash
 jobs:
   score-pr-checks:
     uses: ./.github/workflows/score-pr-checks.yml
