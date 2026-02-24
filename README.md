@@ -196,7 +196,30 @@ This workflow:
 
 ---
 
-### **7️ Copyright Check Workflow**
+### **7️ C++ Coverage Workflow**
+**Usage Example**
+```yaml
+name: C++ Coverage CI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  coverage-report:
+    uses: eclipse-score/cicd-workflows/.github/workflows/cpp-coverage.yml@main
+    with:
+      bazel-target: "//..."
+```
+
+---
+
+### **8️ Copyright Check Workflow**
 **Usage Example**
 ```yaml
 name: Copyright Check CI
@@ -223,7 +246,7 @@ This workflow:
 
 ---
 
-### **8️ Formatting Check Workflow**
+### **9️ Formatting Check Workflow**
 **Usage Example**
 ```yaml
 name: Formatting Check CI
@@ -249,7 +272,7 @@ This workflow:
 > **Default:** `test //:format.check`
 
 ---
-### **9️ Required Approvals Workflow**
+### **10️ Required Approvals Workflow**
 
 This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.  
 Normally, GitHub requires approval from *any one* codeowner when multiple are listed.  
@@ -292,8 +315,7 @@ jobs:
 ---
 
 
-
-### **10️ QNX Build (Gated) Workflow**
+### **11️ QNX Build (Gated) Workflow**
 
 Use this workflow when you need QNX secrets for forked PRs and want a manual approval gate via an environment.
 
