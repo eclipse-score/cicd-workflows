@@ -69,16 +69,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      # Note: This action writes cache config to ~/.bazelrc
-      # Projects must include "try-import ~/.bazelrc" in their .bazelrc to enable caching
-      # See: https://github.com/eclipse-score/reference_integration/blob/main/.bazelrc#L84
       - name: Setup Bazel with shared caching
         uses: bazel-contrib/setup-bazel@0.18.0
         with:
-          disk-cache: ${{ format('{0}_{1}', github.workflow, github.ref_name) }}
+          disk-cache: ${{ github.workflow }}
           repository-cache: true
           bazelisk-cache: true
-          cache-save: ${{ github.event_name == 'push' }}
+          cache-save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Install lcov (+ bc for threshold check)
         run: |
