@@ -19,6 +19,10 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **Copyright Check**     | Ensures all source files have the required copyright headers        |
 | **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
 | **QNX Build (Gated)**   | Builds QNX Bazel targets with environment-gated secrets for forks   |
+| **Documentation Verification** | Verifies documentation builds correctly and uploads results    |
+| **CodeQL Scan**         | Performs security and quality analysis using GitHub CodeQL          |
+| **SCORE PR Checks**     | Validates Bazel module naming conventions in pull requests          |
+| **Template Sync**       | Synchronizes repository with eclipse-score/module_template          |
 
 ---
 
@@ -348,6 +352,147 @@ jobs:
 **Notes**
 - Runs on `pull_request_target` so maintainers can approve the `workflow-approval` environment before secrets are used.
 - Installs the QNX license, builds with the configured Bazel target/config, and cleans up the license directory.
+
+---
+
+### **12️ Documentation Verification Workflow**
+
+This workflow verifies that documentation builds correctly and can be used to validate documentation changes in pull requests.
+
+**Usage Example**
+
+```yaml
+name: Documentation Verification
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  docs-verify:
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-verify.yml@main
+    with:
+      bazel-docs-verify-target: "//:docs_check" # optional, default shown
+```
+
+**Defaults**  
+- `bazel-docs-verify-target`: `//:docs_check`  
+
+**Key Features**  
+✅ Verifies documentation builds successfully  
+✅ Uses Bazel-based documentation checks  
+✅ Provides verification result as output  
+✅ Integrates with Bazel shared caching for performance  
+
+---
+
+### **13️ CodeQL Security Scan Workflow**
+
+This workflow performs security and quality analysis using GitHub's CodeQL with MISRA C++ coding standards.
+
+**Usage Example**
+
+```yaml
+name: CodeQL Security Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 1' # Weekly on Monday
+
+jobs:
+  codeql-scan:
+    uses: eclipse-score/cicd-workflows/.github/workflows/codeql.yml@main
+    with:
+      build-script: "bazel build //..." # optional, default shown
+```
+
+**Defaults**  
+- `build-script`: `bazel build //...`  
+
+**Key Features**  
+✅ Scans C/C++ code for security vulnerabilities and bugs  
+✅ Applies MISRA C++ coding standards  
+✅ Uploads SARIF results as artifacts  
+✅ Integrates with GitHub Security tab  
+✅ Supports custom Bazel build commands  
+
+---
+
+### **14️ SCORE PR Checks Workflow**
+
+This workflow enforces SCORE-specific standards, particularly Bazel module naming conventions.
+
+**Usage Example**
+
+```yaml
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  score-checks:
+    uses: eclipse-score/cicd-workflows/.github/workflows/score-pr-checks.yml@main
+```
+
+**No inputs required**
+
+**Key Features**  
+✅ Validates Bazel module names follow the pattern `^score_[[:lower:]_]+$`  
+✅ Ensures module names start with `score_`  
+✅ Allows only lowercase letters and underscores  
+✅ Skips validation if no `MODULE.bazel` file exists  
+
+**Examples of valid module names:**  
+- `score_cli`  
+- `score_compose`  
+- `score_web_api`  
+
+---
+
+### **15️ Template Sync Workflow**
+
+This workflow automatically synchronizes your repository with the latest changes from `eclipse-score/module_template`.
+
+**Usage Example**
+
+```yaml
+name: Template Sync
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly on Sunday
+  workflow_dispatch:
+
+jobs:
+  template-sync:
+    uses: eclipse-score/cicd-workflows/.github/workflows/template-sync.yml@main
+    with:
+      pr_title: "[Template Sync] Upstream template update" # optional, default shown
+      pr_commit_msg: "chore(template): upstream template update" # optional, default shown
+      template_sync_ignore_file_path: ".github/.templatesyncignore" # optional, default shown
+    secrets:
+      SCORE_APPROVALS_PAT: ${{ secrets.SCORE_APPROVALS_PAT }}
+```
+
+**Defaults**  
+- `pr_title`: `[Template Sync] Upstream template update`  
+- `pr_commit_msg`: `chore(template): upstream template update`  
+- `template_sync_ignore_file_path`: `.github/.templatesyncignore`  
+
+**Key Features**  
+✅ Automatically creates PRs with template updates  
+✅ Respects `.templatesyncignore` file to exclude specific files  
+✅ Uses `SCORE_APPROVALS_PAT` secret for authentication  
+✅ Configurable PR titles and commit messages  
+✅ Can be triggered on schedule or manually  
+
+> ℹ️ **Note:** This workflow requires the `SCORE_APPROVALS_PAT` secret with appropriate permissions to create pull requests.
 
 ---
 
