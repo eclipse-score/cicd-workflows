@@ -30,7 +30,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 
 To use a reusable workflow, create a workflow file inside **your repository** (e.g., `.github/workflows/ci.yml`) and reference the appropriate workflow from this repository.
 
-### **1️ Documentation Build Workflow**
+### **1. Documentation Build Workflow**
 **Usage Example**
 ```yaml 
 name: Documentation CI
@@ -58,7 +58,7 @@ This workflow:
 
 ---
 
-### **2️ Documentation Cleanup Workflow**
+### **2. Documentation Cleanup Workflow**
 **Usage Example**
 ```yaml
 name: Documentation Cleanup
@@ -83,7 +83,7 @@ This workflow:
 
 ---
 
-### **3️ License Check Workflow**
+### **3. License Check Workflow**
 **Usage Example**
 ```yaml
 name: License Check CI
@@ -115,7 +115,7 @@ This workflow:
 
 ---
 
-### **4️ Static Code Analysis Workflow**
+### **4. Static Code Analysis Workflow**
 **Usage Example**
 ```yaml
 name: Static Analysis CI
@@ -148,7 +148,7 @@ Inputs:
 
 ---
 
-### **5️ Tests Workflow**
+### **5. Tests Workflow**
 **Usage Example**
 ```yaml
 name: Test CI
@@ -171,7 +171,7 @@ This workflow:
 
 ---
 
-### **6️ Rust Coverage Workflow**
+### **6. Rust Coverage Workflow**
 **Usage Example**
 ```yaml
 name: Rust Coverage CI
@@ -200,7 +200,7 @@ This workflow:
 
 ---
 
-### **7️ C++ Coverage Workflow**
+### **7. C++ Coverage Workflow**
 **Usage Example**
 ```yaml
 name: C++ Coverage CI
@@ -223,7 +223,7 @@ jobs:
 
 ---
 
-### **8️ Copyright Check Workflow**
+### **8. Copyright Check Workflow**
 **Usage Example**
 ```yaml
 name: Copyright Check CI
@@ -250,7 +250,7 @@ This workflow:
 
 ---
 
-### **9️ Formatting Check Workflow**
+### **9. Formatting Check Workflow**
 **Usage Example**
 ```yaml
 name: Formatting Check CI
@@ -276,7 +276,7 @@ This workflow:
 > **Default:** `test //:format.check`
 
 ---
-### **10️ Required Approvals Workflow**
+### **10. Required Approvals Workflow**
 
 This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.  
 Normally, GitHub requires approval from *any one* codeowner when multiple are listed.  
@@ -319,7 +319,7 @@ jobs:
 ---
 
 
-### **11️ QNX Build (Gated) Workflow**
+### **11. QNX Build (Gated) Workflow**
 
 Use this workflow when you need QNX secrets for forked PRs and want a manual approval gate via an environment.
 
@@ -355,7 +355,7 @@ jobs:
 
 ---
 
-### **12️ Documentation Verification Workflow**
+### **12. Documentation Verification Workflow**
 
 This workflow verifies that documentation builds correctly and can be used to validate documentation changes in pull requests.
 
@@ -386,7 +386,7 @@ jobs:
 
 ---
 
-### **13️ CodeQL Security Scan Workflow**
+### **13. CodeQL Security Scan Workflow**
 
 This workflow performs security and quality analysis using GitHub's CodeQL with MISRA C++ coding standards.
 
@@ -422,7 +422,7 @@ jobs:
 
 ---
 
-### **14️ SCORE PR Checks Workflow**
+### **14. SCORE PR Checks Workflow**
 
 This workflow enforces SCORE-specific standards, particularly Bazel module naming conventions.
 
@@ -455,7 +455,7 @@ jobs:
 
 ---
 
-### **15️ Template Sync Workflow**
+### **15. Template Sync Workflow**
 
 This workflow automatically synchronizes your repository with the latest changes from `eclipse-score/module_template`.
 
