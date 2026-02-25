@@ -18,6 +18,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **Formatting Check**    | Verifies code formatting using Bazel-based tools                   |
 | **Copyright Check**     | Ensures all source files have the required copyright headers        |
 | **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
+| **Sanitizers**          | Runs Google Sanitizers (ASan, TSan, UBSan, LSan) for C++ modules   |
 | **QNX Build (Gated)**   | Builds QNX Bazel targets with environment-gated secrets for forks   |
 | **Documentation Verification** | Verifies documentation builds correctly and uploads results    |
 | **CodeQL Scan**         | Performs security and quality analysis using GitHub CodeQL          |
@@ -318,8 +319,37 @@ jobs:
 
 ---
 
+### **11️⃣ Sanitizers Workflow**
 
-### **11. QNX Build (Gated) Workflow**
+**Usage Example**
+```yaml
+name: Sanitizers CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  sanitizers:
+    uses: eclipse-score/cicd-workflows/.github/workflows/sanitizers.yml@main
+    with:
+      sanitizer_configs: 'asan_ubsan_lsan,tsan' # optional
+      test_targets: '//tests/...' # optional
+```
+
+This workflow:  
+✅ Runs sanitizers (ASan, TSan, UBSan, LSan)  
+✅ Executes tests in parallel  
+✅ Uploads logs on failure
+
+> ℹ️ **Note:** Module must define configs in `quality/sanitizer/sanitizer.bazelrc` and import via `.bazelrc`
+
+---
+
+
+### **12. QNX Build (Gated) Workflow**
 
 Use this workflow when you need QNX secrets for forked PRs and want a manual approval gate via an environment.
 
@@ -355,7 +385,7 @@ jobs:
 
 ---
 
-### **12. Documentation Verification Workflow**
+### **13. Documentation Verification Workflow**
 
 This workflow verifies that documentation builds correctly and can be used to validate documentation changes in pull requests.
 
@@ -386,7 +416,7 @@ jobs:
 
 ---
 
-### **13. CodeQL Security Scan Workflow**
+### **14. CodeQL Security Scan Workflow**
 
 This workflow performs security and quality analysis using GitHub's CodeQL with MISRA C++ coding standards.
 
@@ -422,7 +452,7 @@ jobs:
 
 ---
 
-### **14. SCORE PR Checks Workflow**
+### **15. SCORE PR Checks Workflow**
 
 This workflow enforces SCORE-specific standards, particularly Bazel module naming conventions.
 
@@ -455,7 +485,7 @@ jobs:
 
 ---
 
-### **15. Template Sync Workflow**
+### **16. Template Sync Workflow**
 
 This workflow automatically synchronizes your repository with the latest changes from `eclipse-score/module_template`.
 
