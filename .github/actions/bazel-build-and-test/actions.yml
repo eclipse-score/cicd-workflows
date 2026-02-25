@@ -1,0 +1,96 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: 'S-CORE Bazel command Action'
+description: 'A composite action to run Bazel build, run, and test targets'
+inputs:
+  command:
+    description: 'The Bazel command to run (e.g., build, test, run)'
+    required: true
+    default: 'build'
+  targets:
+    description: 'The Bazel targets to operate on'
+    required: true
+    default: '//...'
+    type: string[]
+  configs:
+    description: 'Bazel configuration flags'
+    required: false
+    default: ''
+  options:
+    description: 'Additional options to pass to the Bazel command'
+    required: false
+    default: ''
+  working_directory:
+    description: 'The working directory where the Bazel command should be executed'
+    required: false
+    default: '.'
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Bazelisk
+      uses: bazelbuild/setup-bazel@v5.0.0
+      with:
+        bazel-version: 'latest'
+    - name: Prepare build targets
+      shell: bash
+      run: |
+        # Process the input string to remove leading dashes and quotes for build_targets
+        input_string="${{ inputs.targets }}"
+        if [ ! -z "$input_string" ]; then
+          targets=$(echo "$input_string" | tr '\n' ' ' | sed -e 's/- //g' | awk '{$1=$1; print}')
+          echo "Parsed string: $targets"
+          echo "targets=$targets" >> $GITHUB_ENV
+        else
+          echo "targets=" >> $GITHUB_ENV
+        fi
+    - name: Prepare targets configs
+      shell: bash
+      run: |
+        # Process the input string to remove leading dashes and quotes for build_targets
+        input_string="${{ inputs.configs }}"
+        if [ ! -z "$input_string" ]; then
+          configs=$(echo "$input_string" | tr '\n' ' ' | sed -e 's/- //g' | awk '{$1=$1; print}' | sed -e 's/ / --config=/g' -e 's/^/--config=/')
+          echo "Parsed string: $configs"
+          echo "configs=$configs" >> $GITHUB_ENV
+        else
+          echo "configs=" >> $GITHUB_ENV
+        fi
+    - name: Prepare targets options
+      shell: bash
+      run: |
+        # Process the input string to remove leading dashes and quotes for build_targets
+        input_string="${{ inputs.options }}"
+        if [ ! -z "$input_string" ]; then
+          options=$(echo "$input_string" | tr '\n' ' ' | sed -e 's/- //g' | awk '{$1=$1; print}')
+          echo "Parsed string: $options"
+          echo "options=$options" >> $GITHUB_ENV
+        else
+          echo "options=" >> $GITHUB_ENV
+        fi
+
+    - name: Run Bazel Command
+      working-directory: ${{ inputs.working_directory }}
+      shell: bash
+      run: |
+        echo "Running command: \
+        bazel \
+        ${{ inputs.command }} \
+        $configs \
+        $targets \
+        $options"
+        bazel \
+        ${{ inputs.command }} \
+        $configs \
+        $targets \
+        $options
