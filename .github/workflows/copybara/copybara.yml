@@ -1,0 +1,74 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Copybara (manual with branch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_branch:
+        description: 'Name of the PR-Branch'
+        required: true
+        default: 'copybara-branch'
+      pr_title:
+        description: 'Title of the Pull Requests'
+        required: true
+        default: 'Copybara PR'
+      pr_body:
+        description: 'Description of the PR'
+        required: false
+        default: '---\n\nName <E-Mail>, company'
+
+jobs:
+  run-copybara:
+    runs-on: [self-hosted, linux, x64]
+    env:
+      ENTERPRISE_GITHUB_API_URL: https://api.git.i.yourdomain.com
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+
+      # Copybara-JAR need Java 21+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      #example with internal enterprise git. Uses the forked version of copybara that supports enterprise git (https://github.com/google/copybara/pull/319)   
+      - name: Run Copybara
+        env:
+          COPYBARA_CONF: 'your_local/copy.bara.sky'
+        run: |
+          git config --global user.name  "git_user"
+          git config --global user.email "email_address"
+        
+          git config --global credential.helper 'store'
+        
+          printf 'https://x-access-token:%s@github.com\n'      ${{ secrets.PAT_GITHUB }} >> "$HOME/.git-credentials"
+          printf 'https://x-access-token:%s@api.github.com\n'  ${{ secrets.PAT_GITHUB }} >> "$HOME/.git-credentials"
+          printf 'https://x-acces-token:%s@$ENTERPRISE_GITHUB_API_URL\n' ${{ secrets.PAT_GITHUB_ENTERPRISE }} >> "$HOME/.git-credentials"
+
+          sed -i "s|{{PR_BRANCH}}|${{ github.event.inputs.pr_branch }}|g" $COPYBARA_CONF
+          sed -i "s|{{PR_TITLE}}|${{ github.event.inputs.pr_title }}|g" $COPYBARA_CONF
+          sed -i "s|{{PR_BODY}}|${{ github.event.inputs.pr_body }}|g" $COPYBARA_CONF
+
+          curl -LO https://github.com/qorix-group/copybara/releases/download/v20250508/copybara_deploy.jar
+          java -jar copybara_deploy.jar migrate $COPYBARA_CONF sync_to_open_source
