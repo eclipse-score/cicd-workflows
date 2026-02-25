@@ -1,0 +1,97 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Sanitizers (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      sanitizer_configs:
+        description: 'Comma-separated list of sanitizer configs (e.g., asan_ubsan_lsan,tsan)'
+        required: false
+        default: 'asan_ubsan_lsan,tsan'
+        type: string
+      test_targets:
+        description: 'Bazel test targets'
+        required: false
+        default: '//tests/...'
+        type: string
+      bazelisk_version:
+        description: 'Bazelisk version'
+        required: false
+        default: '1.26.0'
+        type: string
+      runner_label:
+        description: 'Runner label fallback'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-matrix:
+    name: Prepare Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      configs: ${{ steps.parse.outputs.configs }}
+    steps:
+      - name: Parse configs
+        id: parse
+        run: |
+          CONFIGS='${{ inputs.sanitizer_configs }}'
+          CONFIGS=$(echo "$CONFIGS" | tr -d ' ' | tr ',' '\n' | jq -R . | jq -s .)
+          echo "configs=$CONFIGS" >> $GITHUB_OUTPUT
+
+  sanitizer-tests:
+    name: ${{ matrix.sanitizer_config }}
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || inputs.runner_label }}
+    needs: prepare-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer_config: ${{ fromJson(needs.prepare-matrix.outputs.configs) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          bazelisk-version: ${{ inputs.bazelisk_version }}
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' }}
+
+      - name: Run tests
+        run: |
+          bazel test \
+            --config=${{ matrix.sanitizer_config }} \
+            ${{ inputs.test_targets }} \
+            --test_output=errors \
+            --verbose_failures
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: testlogs-${{ matrix.sanitizer_config }}-${{ github.run_id }}
+          path: bazel-testlogs/**/test.log
+          if-no-files-found: warn
+          retention-days: 7
+
