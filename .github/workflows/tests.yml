@@ -72,7 +72,7 @@ jobs:
           bazel ${{ inputs.bazel-target }}
 
       - name: Upload Bazel test artifacts
-        if: ${{ inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
+        if: ${{ always() && inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.upload-name }}
