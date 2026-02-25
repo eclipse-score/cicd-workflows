@@ -15,14 +15,28 @@ name: "CodeQL Scan"
 on:
   workflow_call:
     inputs:
-      build-script:
-        description: "bazel run command to run (e.g.: 'bazel build //src/...')"
+      language:
+        description: "The language to scan (e.g., 'c-cpp', 'java', 'python')"
         required: true
-        default: "bazel build //..."
         type: string
+      build-mode:
+        description: "The build mode for CodeQL (e.g., 'manual', 'autobuild', 'none'). For compiled languages, 'manual' requires 'build-script'."
+        required: true
+        type: string
+      build-script:
+        description: "Command to run for manual build mode (e.g.: 'bazel build //src/...'). Required if build-mode is 'manual'."
+        required: false
+        default: ""
+        type: string
+      codeql-packs:
+        description: "Comma-separated list of CodeQL packs to use (e.g., 'codeql/misra-cpp-coding-standards')."
+        required: false
+        default: ""
+        type: string
+
 jobs:
   analyze:
-    name: Analyze (${{ matrix.language }})
+    name: Analyze (${{ inputs.language }})
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -30,12 +44,6 @@ jobs:
       actions: read
       contents: read
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - language: c-cpp
-            build-mode: manual
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -44,18 +52,20 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
-          packs: codeql/misra-cpp-coding-standards
+          languages: ${{ inputs.language }}
+          build-mode: ${{ inputs.build-mode }}
+          packs: ${{ inputs.codeql-packs }} # Pass the packs input
 
-      - if: matrix.build-mode == 'manual'
+      # Only run the build script if build-mode is 'manual' and a script is provided.
+      # CodeQL supports 'manual', 'autobuild', and 'none' build modes for compiled languages.
+      - if: inputs.build-mode == 'manual' && inputs.build-script != ''
         shell: bash
         run: ${{ inputs.build-script }}
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:${{matrix.language}}"
+          category: "/language:${{ inputs.language }}" # Category helps distinguish analyses for the same tool and commit.
           output: sarif-results.sarif
 
       - name: Upload Artifact
