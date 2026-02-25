@@ -33,6 +33,11 @@ on:
           bazel-testlogs/**/*.xml
           bazel-testlogs/**/test.log
         type: string
+      packages:
+        description: "Custom packages to install before running tests"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   unit-tests:
@@ -46,6 +51,13 @@ jobs:
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
+      - name: Install dependencies
+        if: ${{ inputs.packages != '' }}
+        uses: eclipse-score/apt-install@main
+        with:
+          packages: ${{ inputs.packages }}
+          cache: false
+
       - name: Setup Bazel with shared caching
         uses: bazel-contrib/setup-bazel@0.18.0
         with:
@@ -58,10 +70,9 @@ jobs:
         run: |
           echo "Running: bazel ${{ inputs.bazel-target }}"
           bazel ${{ inputs.bazel-target }}
-        continue-on-error: true # Always continue to upload artifacts
 
       - name: Upload Bazel test artifacts
-        if: ${{ inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
+        if: ${{ always() && inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.upload-name }}
