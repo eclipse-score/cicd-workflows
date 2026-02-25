@@ -33,6 +33,11 @@ on:
           bazel-testlogs/**/*.xml
           bazel-testlogs/**/test.log
         type: string
+      packages:
+        description: "Custom packages to install before running tests"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   unit-tests:
@@ -46,10 +51,11 @@ jobs:
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
-      - name: Install fakechroot
+      - name: Install dependencies
+        if: ${{ inputs.packages != '' }}
         uses: eclipse-score/apt-install@main
         with:
-          packages: fakechroot
+          packages: ${{ inputs.packages }}
           cache: false
 
       - name: Setup Bazel with shared caching
