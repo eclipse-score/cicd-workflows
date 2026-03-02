@@ -22,6 +22,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **Documentation Verification** | Verifies documentation builds correctly and uploads results    |
 | **CodeQL Scan**         | Performs security and quality analysis using GitHub CodeQL          |
 | **SCORE PR Checks**     | Validates Bazel module naming conventions in pull requests          |
+| **Bzlmod Lockfile Check** | Enforces `MODULE.bazel.lock` consistency via `bazel mod tidy`      |
 | **Template Sync**       | Synchronizes repository with eclipse-score/module_template          |
 
 ---
@@ -493,6 +494,38 @@ jobs:
 ✅ Can be triggered on schedule or manually  
 
 > ℹ️ **Note:** This workflow requires the `SCORE_APPROVALS_PAT` secret with appropriate permissions to create pull requests.
+
+---
+
+### **16. Bzlmod Lockfile Check Workflow**
+
+This workflow enforces Bzlmod lockfile consistency by running `bazel mod tidy`.
+
+**Usage Example**
+
+```yaml
+name: Bzlmod Lockfile Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  bzlmod-lock:
+    uses: eclipse-score/cicd-workflows/.github/workflows/bzlmod-lock-check.yml@main
+    with:
+      working-directory: .
+```
+
+**Defaults**  
+- `working-directory`: `.`  
+
+This workflow:  
+✅ Fails if `MODULE.bazel.lock` is missing  
+✅ Runs `bazel mod tidy`  
+✅ Fails if `MODULE.bazel` or `MODULE.bazel.lock` changes after tidy  
 
 ---
 
