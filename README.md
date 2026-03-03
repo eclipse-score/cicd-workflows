@@ -499,7 +499,7 @@ jobs:
 
 ### **16. Bzlmod Lockfile Check Workflow**
 
-This workflow enforces Bzlmod lockfile consistency by running `bazel mod tidy`.
+This workflow keeps Bazel's lockfile in sync with your module declarations. It records the exact set of resolved module versions and extension outputs so builds are reproducible across machines. The job fails if the lockfile is missing or out of date after running `bazel mod tidy`, which means someone changed `MODULE.bazel` without updating the lockfile.
 
 **Usage Example**
 
