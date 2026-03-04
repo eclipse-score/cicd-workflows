@@ -17,7 +17,7 @@ on:
     inputs:
       build-script:
         description: "bazel run command to run (e.g.: 'bazel build //src/...')"
-        required: true
+        required: false
         default: "bazel build //..."
         type: string
 jobs:

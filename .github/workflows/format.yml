@@ -35,7 +35,6 @@ jobs:
           repository-cache: false
           bazelisk-cache: true
           cache-save: ${{ github.event_name == 'push' }}
-      
 
       - name: Run Formatting Check
         run: |

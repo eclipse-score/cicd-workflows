@@ -30,7 +30,7 @@ jobs:
             echo "ℹ️  MODULE.bazel file not found in repository root - skipping Bazel module validation"
             exit 0
           fi
-          
+
           echo "✅ MODULE.bazel file found"
 
           # Extract module name from MODULE.bazel

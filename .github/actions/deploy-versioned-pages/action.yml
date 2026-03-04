@@ -82,7 +82,6 @@ runs:
         target="${{ steps.calc.outputs.target_folder }}"
         new_version="${{ steps.calc.outputs.target_folder }}"
 
-
         if jq -e --arg version "$new_version" 'map(select(.version == $version)) | length > 0' "${{ inputs.versions_file }}" > /dev/null; then
           echo "Version '$new_version' already exists in ${{ inputs.versions_file }}"
         else
@@ -118,8 +117,8 @@ runs:
         folder: version_root
         clean: false
 
-# Workflow-based GitHub Pages deployment
     - name: Workflow Configure GitHub Pages
+      # Workflow-based GitHub Pages deployment
       if: ${{ inputs.deployment_type == 'workflow' }}
       uses: actions/configure-pages@v3
 

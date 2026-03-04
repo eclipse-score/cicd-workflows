@@ -65,10 +65,10 @@ jobs:
 
           # Use org secret as fallback if dash-api-token is not provided
           TOKEN="${{ secrets.dash-api-token }}"
-          
+
           CMD="bazel ${{ inputs.bazel-target }} -- -review -project automotive.score -repo $REPO_URL -token $TOKEN"
           echo "Running: $CMD"
-          
+
           CHECK_OUTPUT=$($CMD 2>&1)
           CHECK_EXIT_CODE=$?
 
@@ -76,7 +76,7 @@ jobs:
           if [ $CHECK_EXIT_CODE -ne 0 ]; then
             EXIT_CODE=$CHECK_EXIT_CODE
           fi
-          
+
           echo -e "$OUTPUT" | tee license-check-output.txt
           echo "exit_code=$EXIT_CODE" >> $GITHUB_ENV
           echo "output<<EOF" >> $GITHUB_ENV

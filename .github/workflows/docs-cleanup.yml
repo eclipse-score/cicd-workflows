@@ -15,7 +15,7 @@ name: Daily Documentation Cleanup
 
 permissions:
   contents: write
-  pages:   write
+  pages: write
   id-token: write
 
 on:
