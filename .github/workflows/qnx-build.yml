@@ -41,6 +41,11 @@ on:
         required: false
         default: "true"
         type: string
+      extra-bazel-flags:
+        description: "Additional Bazel flags to pass to the build command (whitespace separated)"
+        required: false
+        default: ""
+        type: string
     secrets:
       score-qnx-license:
         description: "Base64-encoded QNX license content"
@@ -108,7 +113,8 @@ jobs:
           fi
 
           echo "Using credential helper at ${CRED_HELPER}"
-          bazel build --config ${{ inputs.bazel-config }} --credential_helper=*.qnx.com="${CRED_HELPER}" -- \
+          bazel build --config ${{ inputs.bazel-config }} --lockfile_mode=error \
+            --credential_helper=*.qnx.com="${CRED_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
             ${{ inputs.bazel-target }}
 
       - name: Cleanup QNX license
