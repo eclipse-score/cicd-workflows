@@ -6,24 +6,24 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 
 ## Available Workflows
 
-| Workflow                | Description                                                        |
-|-------------------------|--------------------------------------------------------------------|
-| **Documentation Build** | Builds project documentation and deploys it to GitHub Pages         |
-| **Documentation Cleanup** | Cleans up old documentation versions from the `gh-pages` branch   |
-| **License Check**       | Verifies OSS licenses and compliance                               |
-| **Static Code Analysis**| Runs Clang-Tidy, Clippy, Pylint, and other linters                 |
-| **Tests**               | Executes tests using GoogleTest, Rust test, or pytest              |
-| **Rust Coverage**       | Computes Rust code coverage and uploads HTML reports              |
-| **C++ Coverage**        | Computes C++ code coverage using LCOV and uploads HTML reports     |
-| **Formatting Check**    | Verifies code formatting using Bazel-based tools                   |
-| **Copyright Check**     | Ensures all source files have the required copyright headers        |
-| **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
-| **QNX Build (Gated)**   | Builds QNX Bazel targets with environment-gated secrets for forks   |
-| **Documentation Verification** | Verifies documentation builds correctly and uploads results    |
-| **CodeQL Scan**         | Performs security and quality analysis using GitHub CodeQL          |
-| **SCORE PR Checks**     | Validates Bazel module naming conventions in pull requests          |
-| **Bzlmod Lockfile Check** | Enforces `MODULE.bazel.lock` consistency via `bazel mod tidy`      |
-| **Template Sync**       | Synchronizes repository with eclipse-score/module_template          |
+| Workflow                       | Description                                                       |
+| ------------------------------ | ----------------------------------------------------------------- |
+| **Documentation Build**        | Builds project documentation and deploys it to GitHub Pages       |
+| **Documentation Cleanup**      | Cleans up old documentation versions from the `gh-pages` branch   |
+| **License Check**              | Verifies OSS licenses and compliance                              |
+| **Static Code Analysis**       | Runs Clang-Tidy, Clippy, Pylint, and other linters                |
+| **Tests**                      | Executes tests using GoogleTest, Rust test, or pytest             |
+| **Rust Coverage**              | Computes Rust code coverage and uploads HTML reports              |
+| **C++ Coverage**               | Computes C++ code coverage using LCOV and uploads HTML reports    |
+| **Formatting Check**           | Verifies code formatting using Bazel-based tools                  |
+| **Copyright Check**            | Ensures all source files have the required copyright headers      |
+| **Required Approvals**         | Enforces stricter CODEOWNERS rules for multi-team approvals       |
+| **QNX Build (Gated)**          | Builds QNX Bazel targets with environment-gated secrets for forks |
+| **Documentation Verification** | Verifies documentation builds correctly and uploads results       |
+| **CodeQL Scan**                | Performs security and quality analysis using GitHub CodeQL        |
+| **SCORE PR Checks**            | Validates Bazel module naming conventions in pull requests        |
+| **Bzlmod Lockfile Check**      | Enforces `MODULE.bazel.lock` consistency via `bazel mod tidy`     |
+| **Template Sync**              | Synchronizes repository with eclipse-score/module_template        |
 
 ---
 
@@ -44,7 +44,7 @@ on:
 
 jobs:
   docs:
-    uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@v0.0.0
     with:
       retention-days: 3
       # Optionally override:
@@ -70,7 +70,7 @@ on:
 
 jobs:
   docs-cleanup:
-    uses: eclipse-score/cicd-workflows/.github/workflows/docs-cleanup.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-cleanup.yml@v0.0.0
     with:
       workflow-version: main
     secrets:
@@ -97,7 +97,7 @@ on:
 
 jobs:
   license-check:
-    uses: eclipse-score/cicd-workflows/.github/workflows/license-check.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/license-check.yml@v0.0.0
     with:
       repo-url: "${{ github.server_url }}/${{ github.repository }}" # optional, this is the default
       bazel-target: "run //:license-check" # optional, this is the default
@@ -129,7 +129,7 @@ on:
 
 jobs:
   static-analysis:
-    uses: eclipse-score/cicd-workflows/.github/workflows/static-analysis.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/static-analysis.yml@v0.0.0
     with:
       bazel-targets: "//..."            # optional, default
       bazel-config: "lint"             # optional, default
@@ -162,7 +162,7 @@ on:
 
 jobs:
   tests:
-    uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@v0.0.0
 ```
 
 This workflow:  
@@ -184,7 +184,7 @@ on:
 
 jobs:
   rust-coverage:
-    uses: eclipse-score/cicd-workflows/.github/workflows/rust-coverage.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/rust-coverage.yml@v0.0.0
     with:
       bazel-test-targets: "//src/rust/..."
       bazel-test-config-flags: "--config=per-x86_64-linux --config=ferrocene-coverage"
@@ -217,7 +217,7 @@ on:
 
 jobs:
   coverage-report:
-    uses: eclipse-score/cicd-workflows/.github/workflows/cpp-coverage.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/cpp-coverage.yml@v0.0.0
     with:
       bazel-target: "//..."
 ```
@@ -237,7 +237,7 @@ on:
 
 jobs:
   copyright-check:
-    uses: eclipse-score/cicd-workflows/.github/workflows/copyright.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/copyright.yml@v0.0.0
     with:
       bazel-target: "run //:copyright-check" # optional, this is the default
 ```
@@ -263,7 +263,7 @@ on:
 
 jobs:
   formatting-check:
-    uses: eclipse-score/cicd-workflows/.github/workflows/format-check.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/format-check.yml@v0.0.0
     with:
       bazel-target: "test //:format.check" # optional, this is the default
 ```
@@ -296,7 +296,7 @@ on:
 
 jobs:
   enforce:
-    uses: eclipse-score/cicd-workflows/.github/workflows/required-approvals.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/required-approvals.yml@v0.0.0
     with:
       pat_secret: SCORE_BOT_PAT
       # Optional overrides:
@@ -335,7 +335,7 @@ on:
 
 jobs:
   qnx-build:
-    uses: eclipse-score/cicd-workflows/.github/workflows/qnx-build.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/qnx-build.yml@v0.0.0
     permissions:
       contents: read
       pull-requests: read
@@ -371,7 +371,7 @@ on:
 
 jobs:
   docs-verify:
-    uses: eclipse-score/cicd-workflows/.github/workflows/docs-verify.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-verify.yml@v0.0.0
     with:
       bazel-docs-verify-target: "//:docs_check" # optional, default shown
 ```
@@ -406,7 +406,7 @@ on:
 
 jobs:
   codeql-scan:
-    uses: eclipse-score/cicd-workflows/.github/workflows/codeql.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/codeql.yml@v0.0.0
     with:
       build-script: "bazel build //..." # optional, default shown
 ```
@@ -438,7 +438,7 @@ on:
 
 jobs:
   score-checks:
-    uses: eclipse-score/cicd-workflows/.github/workflows/score-pr-checks.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/score-pr-checks.yml@v0.0.0
 ```
 
 **No inputs required**
@@ -472,7 +472,7 @@ on:
 
 jobs:
   template-sync:
-    uses: eclipse-score/cicd-workflows/.github/workflows/template-sync.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/template-sync.yml@v0.0.0
     with:
       pr_title: "[Template Sync] Upstream template update" # optional, default shown
       pr_commit_msg: "chore(template): upstream template update" # optional, default shown
@@ -514,7 +514,7 @@ on:
 
 jobs:
   bzlmod-lock:
-    uses: eclipse-score/cicd-workflows/.github/workflows/bzlmod-lock-check.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/bzlmod-lock-check.yml@v0.0.0
     with:
       working-directory: .
 ```
