@@ -113,7 +113,7 @@ jobs:
           fi
 
           echo "Using credential helper at ${CRED_HELPER}"
-          bazel build --config ${{ inputs.bazel-config }} --lockfile_mode=error \
+          bazel build --config ${{ inputs.bazel-config }} \
             --credential_helper=*.qnx.com="${CRED_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
             ${{ inputs.bazel-target }}
 

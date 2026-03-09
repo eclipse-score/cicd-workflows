@@ -344,6 +344,7 @@ jobs:
       bazel-config: "x86_64-qnx"     # optional, default shown
       credential-helper: ".github/tools/qnx_credential_helper.py" # optional, default shown
       environment-name: "workflow-approval" # optional, default shown
+      extra-bazel-flags: "--lockfile_mode=error" # optional, pass explicitly when needed
     secrets:
       score-qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
       score-qnx-user: ${{ secrets.SCORE_QNX_USER }}
@@ -353,6 +354,7 @@ jobs:
 **Notes**
 - Runs on `pull_request_target` so maintainers can approve the `workflow-approval` environment before secrets are used.
 - Installs the QNX license, builds with the configured Bazel target/config, and cleans up the license directory.
+- Additional Bazel flags are caller-controlled via `extra-bazel-flags`; the workflow does not enable `--lockfile_mode=error` by default.
 
 ---
 
