@@ -20,7 +20,7 @@ jobs:
 
   self_test:
     name: 🔬 Self Test
-    runs-on: ${{ vars.runner_labels_gh-ub_standard_x64 && fromJSON(vars.runner_labels_gh-ub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     steps:
       - name: 📥 Check out
         uses: actions/checkout@v6

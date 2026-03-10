@@ -574,19 +574,19 @@ This setup significantly reduces CI build time and improves reuse across differe
 All workflows in this repository use the following logic for selecting the runner:
 
 ```yaml
-runs-on: ${{ vars.runner_labels_gh-ub_standard_x64 && fromJSON(vars.runner_labels_gh-ub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
 ```
 
 This means:
 
-- If your repository defines a variable named `runner_labels_gh-ub_standard_x64` or `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).  
+- If your repository defines a variable named `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).  
   This allows you to use **self-hosted runners** or any custom runner configuration.
-- If `runner_labels_gh-ub_standard_x64` or `REPO_RUNNER_LABELS` is **not set**, the workflow will default to GitHub-hosted `ubuntu-latest`.
+- If `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` is **not set**, the workflow will default to GitHub-hosted `ubuntu-latest`.
 
 **Why?**  
 This approach allows forked repositories or projects with special requirements to use their own runners, while everyone else gets a reliable default.
 
-> ℹ️ **Tip:** To use a self-hosted runner, set the `runner_labels_gh-ub_standard_x64` or `REPO_RUNNER_LABELS` variable in your repository or organization settings to the label(s) of your runner.
+> ℹ️ **Tip:** To use a self-hosted runner, set the `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` variable in your repository or organization settings to the label(s) of your runner.
 
 ### Runner labels variable naming convention
 
@@ -596,8 +596,8 @@ Since it is very likely the case that different workflows will need different ru
 
 As of today following runner label variables are supported:
 
-- runner_labels_gh-ub_standard_x64
-  - os: gh-ub - GitHub Ubuntu latest OS image
+- runner_labels_ghub_standard_x64
+  - os: ghub - GitHub Ubuntu latest OS image
   - size: standard - Maps to the specs of the "Ubuntu latest" GitHub hosted runner
   - architecture: x64 - Maps to the architecture of the standard "Ubuntu latest" GitHub hosted runner. The value is taken from the [GitHub hosted runners reference page](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 
