@@ -1,7 +1,7 @@
 # Reusable GitHub Actions Workflows
 
 This repository contains **reusable GitHub Actions workflows** designed to standardize CI/CD processes across multiple repositories
-in `SCORE`.  
+in `SCORE`.
 These workflows integrate with **Bazel** and provide a consistent way to run **documentation builds, license checks, static analysis, tests, formatting checks and copyright verification**
 
 ## Available Workflows
@@ -33,7 +33,7 @@ To use a reusable workflow, create a workflow file inside **your repository** (e
 
 ### **1. Documentation Build Workflow**
 **Usage Example**
-```yaml 
+```yaml
 name: Documentation CI
 
 on:
@@ -53,9 +53,9 @@ jobs:
 ```
 This workflow:
 
-✅ Builds project documentation  
-✅ Uploads it as an artifact  
-✅ Deploys it to **GitHub Pages** on push to `main`  
+✅ Builds project documentation
+✅ Uploads it as an artifact
+✅ Deploys it to **GitHub Pages** on push to `main`
 
 ---
 
@@ -79,8 +79,8 @@ jobs:
 
 This workflow:
 
-✅ Cleans up old documentation versions from the `gh-pages` branch  
-✅ Runs daily at 2am UTC  
+✅ Cleans up old documentation versions from the `gh-pages` branch
+✅ Runs daily at 2am UTC
 
 ---
 
@@ -102,16 +102,16 @@ jobs:
       repo-url: "${{ github.server_url }}/${{ github.repository }}" # optional, this is the default
       bazel-target: "run //:license-check" # optional, this is the default
     secrets:
-      dash-api-token: ${{ secrets.ECLIPSE_GITLAB_API_TOKEN }} # mandatory - the Eclispe DASH API token 
+      dash-api-token: ${{ secrets.ECLIPSE_GITLAB_API_TOKEN }} # mandatory - the Eclispe DASH API token
 ```
 
 This workflow:
 
-✅ Runs **DASH license compliance checks** for **Rust, C++, and Python**  
-✅ Uses the **organization secret** `ECLIPSE_GITLAB_API_TOKEN`  
+✅ Runs **DASH license compliance checks** for **Rust, C++, and Python**
+✅ Uses the **organization secret** `ECLIPSE_GITLAB_API_TOKEN`
 ✅ Comments results directly on the **Pull Request**
 
-> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  
+> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.
 > **Default:** `run //:license-check`
 
 ---
@@ -136,11 +136,11 @@ jobs:
       bazel-args: "--@aspect_rules_lint//lint:fail_on_violation=true"  # optional
 ```
 
-This workflow:  
-✅ Runs **Clippy** via Bazel on the selected targets  
-✅ Publishes **Clippy reports** as an artifact  
-✅ Fails the job if Bazel fails or if any Clippy report is non-empty  
-✅ Writes a summary to the GitHub job summary  
+This workflow:
+✅ Runs **Clippy** via Bazel on the selected targets
+✅ Publishes **Clippy reports** as an artifact
+✅ Fails the job if Bazel fails or if any Clippy report is non-empty
+✅ Writes a summary to the GitHub job summary
 
 Inputs:
 - `bazel-targets`: Bazel targets to build (default: `//...`)
@@ -165,10 +165,10 @@ jobs:
     uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@main
 ```
 
-This workflow:  
-✅ Runs **GoogleTest** for C++  
-✅ Runs **Rust Unit Tests**  
-✅ Runs **pytest** for Python  
+This workflow:
+✅ Runs **GoogleTest** for C++
+✅ Runs **Rust Unit Tests**
+✅ Runs **pytest** for Python
 
 ---
 
@@ -194,10 +194,10 @@ jobs:
       coverage-artifact-name: "rust-coverage-html"
 ```
 
-This workflow:  
-✅ Runs **Rust tests** with coverage instrumentation  
-✅ Generates **coverage reports** via Bazel  
-✅ Uploads the **HTML coverage report** as an artifact  
+This workflow:
+✅ Runs **Rust tests** with coverage instrumentation
+✅ Generates **coverage reports** via Bazel
+✅ Uploads the **HTML coverage report** as an artifact
 
 ---
 
@@ -242,11 +242,11 @@ jobs:
       bazel-target: "run //:copyright-check" # optional, this is the default
 ```
 
-This workflow:  
+This workflow:
 ✅ Runs a **Bazel-based copyright**
 ✅ Ensures all source files have **Eclipse Foundation** headers
 
-> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  
+> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.
 > **Default:** `run //:copyright-check`
 
 ---
@@ -268,19 +268,19 @@ jobs:
       bazel-target: "test //:format.check" # optional, this is the default
 ```
 
-This workflow:  
-✅ Runs a **Bazel-based formatting check** (e.g., `buildifier`, `clang-format`, etc.)  
-✅ Can be integrated into Pull Requests and Merge Queues  
+This workflow:
+✅ Runs a **Bazel-based formatting check** (e.g., `buildifier`, `clang-format`, etc.)
+✅ Can be integrated into Pull Requests and Merge Queues
 ✅ Ensures code adheres to formatting rules before merge
 
-> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  
+> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.
 > **Default:** `test //:format.check`
 
 ---
 ### **10. Required Approvals Workflow**
 
-This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.  
-Normally, GitHub requires approval from *any one* codeowner when multiple are listed.  
+This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.
+Normally, GitHub requires approval from *any one* codeowner when multiple are listed.
 With this workflow, you can enforce that **all required teams approve** (or set a minimum count).
 
 **Usage Example**
@@ -305,17 +305,17 @@ jobs:
       # org_name: qorix-group
 ```
 
-**Defaults**  
-- `org_name`: `score`  
-- `min_approvals`: `1`  
-- `approval_mode`: `ALL`  
-- `require_all_approvals_latest_commit`: always `true`  
+**Defaults**
+- `org_name`: `score`
+- `min_approvals`: `1`
+- `approval_mode`: `ALL`
+- `require_all_approvals_latest_commit`: always `true`
 
-**Key Features**  
-✅ Enforces that *all relevant CODEOWNERS* approve (`ALL` mode)  
-✅ Invalidates approvals on new commits (`require_all_approvals_latest_commit`)  
-✅ Works with **org secrets** (e.g. `SCORE_BOT_PAT`) that must have `repo` + `read:org` scopes  
-✅ Compatible with branch protection rules → can be marked as **required**  
+**Key Features**
+✅ Enforces that *all relevant CODEOWNERS* approve (`ALL` mode)
+✅ Invalidates approvals on new commits (`require_all_approvals_latest_commit`)
+✅ Works with **org secrets** (e.g. `SCORE_BOT_PAT`) that must have `repo` + `read:org` scopes
+✅ Compatible with branch protection rules → can be marked as **required**
 
 ---
 
@@ -378,14 +378,14 @@ jobs:
       bazel-docs-verify-target: "//:docs_check" # optional, default shown
 ```
 
-**Defaults**  
-- `bazel-docs-verify-target`: `//:docs_check`  
+**Defaults**
+- `bazel-docs-verify-target`: `//:docs_check`
 
-**Key Features**  
-✅ Verifies documentation builds successfully  
-✅ Uses Bazel-based documentation checks  
-✅ Provides verification result as output  
-✅ Integrates with Bazel shared caching for performance  
+**Key Features**
+✅ Verifies documentation builds successfully
+✅ Uses Bazel-based documentation checks
+✅ Provides verification result as output
+✅ Integrates with Bazel shared caching for performance
 
 ---
 
@@ -413,15 +413,15 @@ jobs:
       build-script: "bazel build //..." # optional, default shown
 ```
 
-**Defaults**  
-- `build-script`: `bazel build //...`  
+**Defaults**
+- `build-script`: `bazel build //...`
 
-**Key Features**  
-✅ Scans C/C++ code for security vulnerabilities and bugs  
-✅ Applies MISRA C++ coding standards  
-✅ Uploads SARIF results as artifacts  
-✅ Integrates with GitHub Security tab  
-✅ Supports custom Bazel build commands  
+**Key Features**
+✅ Scans C/C++ code for security vulnerabilities and bugs
+✅ Applies MISRA C++ coding standards
+✅ Uploads SARIF results as artifacts
+✅ Integrates with GitHub Security tab
+✅ Supports custom Bazel build commands
 
 ---
 
@@ -445,16 +445,16 @@ jobs:
 
 **No inputs required**
 
-**Key Features**  
-✅ Validates Bazel module names follow the pattern `^score_[[:lower:]_]+$`  
-✅ Ensures module names start with `score_`  
-✅ Allows only lowercase letters and underscores  
-✅ Skips validation if no `MODULE.bazel` file exists  
+**Key Features**
+✅ Validates Bazel module names follow the pattern `^score_[[:lower:]_]+$`
+✅ Ensures module names start with `score_`
+✅ Allows only lowercase letters and underscores
+✅ Skips validation if no `MODULE.bazel` file exists
 
-**Examples of valid module names:**  
-- `score_cli`  
-- `score_compose`  
-- `score_web_api`  
+**Examples of valid module names:**
+- `score_cli`
+- `score_compose`
+- `score_web_api`
 
 ---
 
@@ -483,17 +483,17 @@ jobs:
       SCORE_APPROVALS_PAT: ${{ secrets.SCORE_APPROVALS_PAT }}
 ```
 
-**Defaults**  
-- `pr_title`: `[Template Sync] Upstream template update`  
-- `pr_commit_msg`: `chore(template): upstream template update`  
-- `template_sync_ignore_file_path`: `.github/.templatesyncignore`  
+**Defaults**
+- `pr_title`: `[Template Sync] Upstream template update`
+- `pr_commit_msg`: `chore(template): upstream template update`
+- `template_sync_ignore_file_path`: `.github/.templatesyncignore`
 
-**Key Features**  
-✅ Automatically creates PRs with template updates  
-✅ Respects `.templatesyncignore` file to exclude specific files  
-✅ Uses `SCORE_APPROVALS_PAT` secret for authentication  
-✅ Configurable PR titles and commit messages  
-✅ Can be triggered on schedule or manually  
+**Key Features**
+✅ Automatically creates PRs with template updates
+✅ Respects `.templatesyncignore` file to exclude specific files
+✅ Uses `SCORE_APPROVALS_PAT` secret for authentication
+✅ Configurable PR titles and commit messages
+✅ Can be triggered on schedule or manually
 
 > ℹ️ **Note:** This workflow requires the `SCORE_APPROVALS_PAT` secret with appropriate permissions to create pull requests.
 
@@ -521,13 +521,13 @@ jobs:
       working-directory: .
 ```
 
-**Defaults**  
-- `working-directory`: `.`  
+**Defaults**
+- `working-directory`: `.`
 
-This workflow:  
-✅ Fails if `MODULE.bazel.lock` is missing  
-✅ Runs `bazel mod tidy`  
-✅ Fails if `MODULE.bazel` or `MODULE.bazel.lock` changes after tidy  
+This workflow:
+✅ Fails if `MODULE.bazel.lock` is missing
+✅ Runs `bazel mod tidy`
+✅ Fails if `MODULE.bazel` or `MODULE.bazel.lock` changes after tidy
 
 ---
 
@@ -565,8 +565,8 @@ This setup significantly reduces CI build time and improves reuse across differe
 
 
 ### **Summary**
-✅ **Standardized** CI/CD workflows across all projects  
-✅ **Reusable & Maintainable** with centralized updates  
+✅ **Standardized** CI/CD workflows across all projects
+✅ **Reusable & Maintainable** with centralized updates
 ✅ **Bazel-powered** for consistent testing & analysis
 
 ## 🏃‍♂️ Runner Selection Logic
@@ -574,16 +574,31 @@ This setup significantly reduces CI build time and improves reuse across differe
 All workflows in this repository use the following logic for selecting the runner:
 
 ```yaml
-runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+runs-on: ${{ vars.runner_labels_gh-ub_standard_x64 && fromJSON(vars.runner_labels_gh-ub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
 ```
 
 This means:
 
-- If your repository defines a variable named `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).  
+- If your repository defines a variable named `runner_labels_gh-ub_standard_x64` or `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).
   This allows you to use **self-hosted runners** or any custom runner configuration.
-- If `REPO_RUNNER_LABELS` is **not set**, the workflow will default to GitHub-hosted `ubuntu-latest`.
+- If `runner_labels_gh-ub_standard_x64` or `REPO_RUNNER_LABELS` is **not set**, the workflow will default to GitHub-hosted `ubuntu-latest`.
 
-**Why?**  
+**Why?**
 This approach allows forked repositories or projects with special requirements to use their own runners, while everyone else gets a reliable default.
 
-> ℹ️ **Tip:** To use a self-hosted runner, set the `REPO_RUNNER_LABELS` variable in your repository or organization settings to the label(s) of your runner.
+> ℹ️ **Tip:** To use a self-hosted runner, set the `runner_labels_gh-ub_standard_x64` or `REPO_RUNNER_LABELS` variable in your repository or organization settings to the label(s) of your runner.
+
+### Runner labels variable naming convention
+
+Since it is very likely the case that different workflows will need different runners of different sizes, oses and architectures to be cost efficiently using the runner infrastructure the variable that specifies the runner labels shall follow this naming convention:
+
+`runner_labels_<os>_<size>_<architecture>`
+
+As of today following runner label variables are supported:
+
+- runner_labels_gh-ub_standard_x64
+  - os: gh-ub - GitHub Ubuntu latest OS image
+  - size: standard - Maps to the specs of the "Ubuntu latest" GitHub hosted runner
+  - architecture: x64 - Maps to the architecture of the standard "Ubuntu latest" GitHub hosted runner. The value is taken from the [GitHub hosted runners reference page](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+
+Due to this new naming convention the variable **REPO_RUNNER_LABELS is deprecated** and will be removed eventually!
