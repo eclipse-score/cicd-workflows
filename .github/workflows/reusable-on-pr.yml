@@ -37,7 +37,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dariocurr/checkout-called@v6
         with:
@@ -54,7 +54,7 @@ jobs:
     if: needs.detect-repo-capabilities.outputs.has_bazel == 'true'
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate Bazel module name
         run: |
@@ -87,7 +87,7 @@ jobs:
     if: needs.detect-repo-capabilities.outputs.has_bazel == 'true'
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Bazel with shared caching
         uses: bazel-contrib/setup-bazel@0.18.0
@@ -116,7 +116,7 @@ jobs:
     if: needs.detect-repo-capabilities.outputs.has_bazel == 'true'
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Bazel with shared caching
         uses: bazel-contrib/setup-bazel@0.18.0
@@ -134,21 +134,19 @@ jobs:
     if: needs.detect-repo-capabilities.outputs.has_precommit == 'true'
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
-      - uses: actions/checkout@v4
-
-      # Most python repos require uv to run pre-commit, so we set it up here.
-      - name: Install uv
+      - name: 📥 Check out
+        uses: actions/checkout@v6
+      - name: ⚙️ Setup uv
         uses: astral-sh/setup-uv@v5
-
-      - name: Run pre-commit checks
-        uses: pre-commit/action@v3.0.1
+      - name: 🛠️ Run pre-commit
+        run: uvx pre-commit run --all-files
 
   python-uv-pytest:
     needs: detect-repo-capabilities
     if: needs.detect-repo-capabilities.outputs.has_python_uv == 'true'
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
