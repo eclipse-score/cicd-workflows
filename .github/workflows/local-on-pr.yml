@@ -16,7 +16,11 @@ name: on-pr
 on:
   pull_request:
     branches: [main]
+  merge_group:
 
 jobs:
   score-pr-checks:
-    uses: ./.github/workflows/score-pr-checks.yml
+    uses: ./.github/workflows/reusable-on-pr.yml
+    permissions:
+      pull-requests: write
+      id-token: write

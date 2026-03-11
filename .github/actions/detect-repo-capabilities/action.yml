@@ -1,0 +1,46 @@
+name: detect-repo-capabilities
+description: Detect repository capabilities
+
+inputs:
+  repo_path:
+    required: true
+    description: Local path to the repository to analyze
+
+outputs:
+  has_bazel:
+    value: ${{ steps.detect.outputs.has_bazel }}
+    description: Whether the repository uses Bazel (detected by presence of MODULE.bazel, WORKSPACE, or WORKSPACE.bazel)
+  has_devcontainer:
+    value: ${{ steps.detect.outputs.has_devcontainer }}
+    description: Whether the repository has a devcontainer configuration (detected by presence of .devcontainer/devcontainer.json or devcontainer.json)
+  has_python_uv:
+    value: ${{ steps.detect.outputs.has_python_uv }}
+    description: Whether the repository uses Python with UV (detected by presence of pyproject.toml and uv.lock)
+  has_precommit:
+    value: ${{ steps.detect.outputs.has_precommit }}
+    description: Whether the repository uses pre-commit (detected by presence of .pre-commit-config.yaml)
+
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      run: |
+        repo="${{ inputs.repo_path }}"
+
+        has_bazel=false
+        has_devcontainer=false
+        has_python_uv=false
+        has_precommit=false
+
+        [[ -f "$repo/MODULE.bazel" || -f "$repo/WORKSPACE" || -f "$repo/WORKSPACE.bazel" ]] && has_bazel=true
+        [[ -f "$repo/.devcontainer/devcontainer.json" || -f "$repo/devcontainer.json" ]] && has_devcontainer=true
+        [[ -f "$repo/pyproject.toml" && -f "$repo/uv.lock" ]] && has_python_uv=true
+        [[ -f "$repo/.pre-commit-config.yaml" ]] && has_precommit=true
+
+        {
+          echo "has_bazel=$has_bazel"
+          echo "has_devcontainer=$has_devcontainer"
+          echo "has_python_uv=$has_python_uv"
+          echo "has_precommit=$has_precommit"
+        } >> "$GITHUB_OUTPUT"

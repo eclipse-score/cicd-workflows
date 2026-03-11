@@ -1,0 +1,149 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+# This is designed as the main entry point for PR checks, for all S-CORE repositories.
+
+# Attention: this workflow must be called with following permissions:
+#    permissions:
+#      pull-requests: write
+#      id-token: write
+
+name: Reusable On-PR Workflow
+
+on:
+  workflow_call:
+
+jobs:
+  detect-repo-capabilities:
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    outputs:
+      has_bazel: ${{ steps.detect.outputs.has_bazel }}
+      has_devcontainer: ${{ steps.detect.outputs.has_devcontainer }}
+      has_python_uv: ${{ steps.detect.outputs.has_python_uv }}
+      has_precommit: ${{ steps.detect.outputs.has_precommit }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dariocurr/checkout-called@v6
+        with:
+          path: ${{ runner.temp }}/.cicd-workflows
+
+      - name: Detect repository capabilities
+        id: detect
+        uses: ./.cicd-workflows/.github/actions/detect-repo-capabilities
+        with:
+          repo_path: ${{ github.workspace }}
+
+  bazel-module-name-check:
+    needs: detect-repo-capabilities
+    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Bazel module name
+        run: |
+          if ! MODULE_LINE=$(grep '^module(' MODULE.bazel | head -1); then
+            echo "❌ No module declaration found in MODULE.bazel"
+            exit 1
+          fi
+
+          MODULE_NAME=$(echo "$MODULE_LINE" | sed 's/^module([[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/' | sed 's/^module([[:space:]]*"\([^"]*\)".*/\1/')
+
+          if [[ -z "$MODULE_NAME" || "$MODULE_NAME" == "$MODULE_LINE" ]]; then
+            MODULE_NAME=$(echo "$MODULE_LINE" | grep -o '"[^"]*"' | head -1 | tr -d '"')
+          fi
+
+          echo "Found module name: $MODULE_NAME"
+
+          if [[ ! "$MODULE_NAME" =~ ^score_[[:lower:]_]+$ ]]; then
+            echo "❌ Invalid module name: $MODULE_NAME"
+            echo "Module name must match the pattern: ^score_[[:lower:]_]+$"
+            echo "  - Must start with 'score_'"
+            echo "  - Must contain only lowercase letters and underscores after 'score_'"
+            echo "Examples of valid names: score_cli, score_compose, score_web_api"
+            exit 1
+          fi
+
+          echo "✅ Module name is valid: $MODULE_NAME"
+
+  bazel-format-check:
+    needs: detect-repo-capabilities
+    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: false
+          repository-cache: false
+          bazelisk-cache: true
+          cache-save: false
+
+      - name: Check formatting target exists
+        id: format-target
+        run: |
+          if bazel query //:format.check >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping formatting check: target //:format.check not found"
+          fi
+
+      - name: Run formatting check
+        if: steps.format-target.outputs.exists == 'true'
+        run: bazel test //:format.check
+
+  bazel-tests:
+    needs: detect-repo-capabilities
+    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: true
+          repository-cache: true
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' }}
+
+      - name: Run tests
+        run: bazel test //...
+
+  precommit:
+    needs: detect-repo-capabilities
+    if: needs.detect-repo-capabilities.outputs.has_precommit == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run pre-commit checks
+        uses: pre-commit/action@v3.0.1
+
+  python-uv-pytest:
+    needs: detect-repo-capabilities
+    if: needs.detect-repo-capabilities.outputs.has_python_uv == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run checks via uv
+        run: uv run --frozen python -m pytest
