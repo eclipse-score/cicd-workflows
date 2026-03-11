@@ -32,12 +32,15 @@ jobs:
       has_python_uv: ${{ steps.detect.outputs.has_python_uv }}
       has_precommit: ${{ steps.detect.outputs.has_precommit }}
 
+    permissions:
+      id-token: write
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: dariocurr/checkout-called@v6
         with:
-          path: ${{ runner.temp }}/.cicd-workflows
+          path: /.cicd-workflows
 
       - name: Detect repository capabilities
         id: detect
