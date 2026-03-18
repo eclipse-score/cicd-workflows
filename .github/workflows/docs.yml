@@ -171,6 +171,9 @@ jobs:
     name: Deploy Documentation to GitHub Pages
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     needs: docs-build
+    concurrency:
+      group: pages-deploy-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       actions: read
       pages: write
