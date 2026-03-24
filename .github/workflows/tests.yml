@@ -68,6 +68,7 @@ jobs:
 
       - name: Run Tests via Bazel
         run: |
+          set -euo pipefail
           echo "Running: bazel ${{ inputs.bazel-target }}"
           bazel ${{ inputs.bazel-target }}
 
