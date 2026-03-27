@@ -29,4 +29,5 @@ runs:
         remove_haskell: true
         remove_tool_cache: true
         remove_swap: true
+        remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
         rm_cmd: "rmz"
