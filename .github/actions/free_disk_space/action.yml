@@ -21,6 +21,9 @@ branding:
 runs:
   using: composite
   steps:
+    - name: Which bazel
+      shell: bash
+      run: which bazel
     - name: Free Disk Space (Ubuntu)
       uses: endersonmenezes/free-disk-space@v3
       with:
