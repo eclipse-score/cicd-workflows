@@ -1,0 +1,41 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+# copy.bara.sky
+sourceUrl =  "https://internal.git"
+sourceBranch = "main"
+
+destinationUrl = "https://open_source.git"
+destinationBranch = "main"
+
+core.workflow(
+    name = "sync_to_open_source",
+    origin = git.origin(
+        url = sourceUrl,
+        ref = sourceBranch,
+    ),
+
+    destination = git.github_pr_destination(
+        url = destinationUrl,
+        destination_ref = destinationBranch,
+        pr_branch = "{{PR_BRANCH}}",
+        title = "{{PR_TITLE}}",
+        body = "{{PR_BODY}}",
+    ),
+    origin_files = glob(["**"], exclude = [ ".github/**"]),
+    destination_files = glob(["**"], exclude = [".github/**"]),
+    authoring = authoring.pass_thru("Name <mail>"),
+    transformations = [
+        # Add any transformations here if needed
+    ],
+)
