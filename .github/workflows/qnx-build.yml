@@ -69,7 +69,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Blocking on approval
-        run: ''
+        run: 'true'
 
   qnx-build:
     name: Build QNX target
