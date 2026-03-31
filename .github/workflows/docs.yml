@@ -53,6 +53,7 @@ jobs:
       pull-requests: write
       contents: read
     steps:
+      - uses: eclipse-score/more-disk-space@v1
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@v4.2.2
         with:
@@ -170,6 +171,9 @@ jobs:
     name: Deploy Documentation to GitHub Pages
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     needs: docs-build
+    concurrency:
+      group: pages-deploy-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write

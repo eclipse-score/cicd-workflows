@@ -3,7 +3,6 @@
 #
 # See the NOTICE file(s) distributed with this work for additional
 # information regarding copyright ownership.
-#
 # This program and the accompanying materials are made available under the
 # terms of the Apache License Version 2.0 which is available at
 # https://www.apache.org/licenses/LICENSE-2.0
@@ -16,16 +15,26 @@ name: Static Code Analysis
 on:
   workflow_call:
     inputs:
-      bazel-target:
-        description: "Custom Bazel target to run (e.g.: 'run //:static-analysis')"
+      bazel-targets:
+        description: "Bazel targets to build (default: //...)"
         required: false
-        default: "run //:static-analysis"
+        default: "//..."
+        type: string
+      bazel-config:
+        description: "Bazel config to apply (default: lint). Set empty to disable."
+        required: false
+        default: "lint"
+        type: string
+      bazel-args:
+        description: "Extra Bazel args to pass to the build command"
+        required: false
+        default: ""
         type: string
 
 jobs:
   static-analysis:
     name: Static Code Analysis
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4.2.2
@@ -38,7 +47,83 @@ jobs:
           bazelisk-cache: true
           cache-save: ${{ github.event_name == 'push' }}
 
-      - name: Run Static Analysis via Bazel
+      - name: Run Clippy via Bazel build
+        id: bazel-build
+        continue-on-error: true
         run: |
-          echo "Running: bazel ${{ inputs.bazel-target }}"
-          bazel ${{ inputs.bazel-target }}
+          set -uo pipefail
+          config_flag=""
+          if [ -n "${{ inputs.bazel-config }}" ]; then
+            config_flag="--config=${{ inputs.bazel-config }}"
+          fi
+          echo "Running: bazel build ${config_flag} ${{ inputs.bazel-args }} ${{ inputs.bazel-targets }}"
+          bazel build ${config_flag} ${{ inputs.bazel-args }} ${{ inputs.bazel-targets }}
+          exit_code=$?
+          echo "exit_code=${exit_code}" >> "$GITHUB_OUTPUT"
+          if [ "${exit_code}" != "0" ]; then
+            echo "Bazel build failed with exit code ${exit_code}"
+          fi
+
+      - name: Collect Clippy reports
+        id: collect
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p clippy-reports
+          mapfile -d '' files < <(find -L bazel-bin -type f -name '*.AspectRulesLintClippy.out' -print0 || true)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No Clippy reports found."
+            echo "clippy_report_count=0" >> "$GITHUB_OUTPUT"
+            echo "clippy_issue_count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          for f in "${files[@]}"; do
+            dest="clippy-reports/${f#./}"
+            mkdir -p "$(dirname "$dest")"
+            cp "$f" "$dest"
+          done
+
+          issues=$(find -L bazel-bin -type f -name '*.AspectRulesLintClippy.out' -size +0c | wc -l | tr -d ' ')
+          echo "clippy_report_count=${#files[@]}" >> "$GITHUB_OUTPUT"
+          echo "clippy_issue_count=${issues}" >> "$GITHUB_OUTPUT"
+          tar -czf clippy-reports.tar.gz -C clippy-reports .
+
+      - name: Upload Clippy reports
+        if: always()
+        uses: actions/upload-artifact@v4.4.0
+        with:
+          name: clippy-reports
+          path: |
+            clippy-reports.tar.gz
+            clippy-reports
+          if-no-files-found: warn
+
+      - name: Clippy summary
+        if: always()
+        run: |
+          {
+            echo "### Clippy report summary"
+            echo "- Targets: ${{ inputs.bazel-targets }}"
+            echo "- Config: ${{ inputs.bazel-config }}"
+            echo "- Total report files: ${{ steps.collect.outputs.clippy_report_count }}"
+            echo "- Non-empty reports: ${{ steps.collect.outputs.clippy_issue_count }}"
+            echo "- Bazel exit code: ${{ steps.bazel-build.outputs.exit_code }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if build or Clippy issues found
+        if: always()
+        run: |
+          exit_code="${{ steps.bazel-build.outputs.exit_code }}"
+          issues="${{ steps.collect.outputs.clippy_issue_count }}"
+
+          if [ "${exit_code}" != "0" ]; then
+            echo "Bazel build failed with exit code ${exit_code}"
+          fi
+          if [ "${issues}" != "0" ]; then
+            echo "Clippy issues found: ${issues}"
+          fi
+
+          if [ "${exit_code}" != "0" ] || [ "${issues}" != "0" ]; then
+            exit 1
+          fi

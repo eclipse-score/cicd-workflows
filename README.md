@@ -13,10 +13,18 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **License Check**       | Verifies OSS licenses and compliance                               |
 | **Static Code Analysis**| Runs Clang-Tidy, Clippy, Pylint, and other linters                 |
 | **Tests**               | Executes tests using GoogleTest, Rust test, or pytest              |
+| **Rust Coverage**       | Computes Rust code coverage and uploads HTML reports              |
+| **C++ Coverage**        | Computes C++ code coverage using LCOV and uploads HTML reports     |
 | **Formatting Check**    | Verifies code formatting using Bazel-based tools                   |
 | **Copyright Check**     | Ensures all source files have the required copyright headers        |
 | **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
 | **QNX Build (Gated)**   | Builds QNX Bazel targets with environment-gated secrets for forks   |
+| **Documentation Verification** | Verifies documentation builds correctly and uploads results    |
+| **CodeQL Scan**         | Performs security and quality analysis using GitHub CodeQL          |
+| **SCORE PR Checks**     | Validates Bazel module naming conventions in pull requests          |
+| **Bzlmod Lockfile Check** | Enforces `MODULE.bazel.lock` consistency via `bazel mod tidy`      |
+| **Template Sync**       | Synchronizes repository with eclipse-score/module_template          |
+| **Daily Maintenance**   | Runs daily maintenance tasks such as stale PR handling and docs cleanup |
 
 ---
 
@@ -24,7 +32,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 
 To use a reusable workflow, create a workflow file inside **your repository** (e.g., `.github/workflows/ci.yml`) and reference the appropriate workflow from this repository.
 
-### **1️ Documentation Build Workflow**
+### **1. Documentation Build Workflow**
 **Usage Example**
 ```yaml 
 name: Documentation CI
@@ -52,7 +60,9 @@ This workflow:
 
 ---
 
-### **2️ Documentation Cleanup Workflow**
+### **2. Documentation Cleanup Workflow - DEPRECATED**
+*Deprecated: This workflow is now integrated into the `Daily Maintenance` workflow. Use that workflow instead.*
+
 **Usage Example**
 ```yaml
 name: Documentation Cleanup
@@ -60,6 +70,11 @@ name: Documentation Cleanup
 on:
   schedule:
     - cron: '0 2 * * *' # every day at 2am UTC
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
   docs-cleanup:
@@ -74,10 +89,11 @@ This workflow:
 
 ✅ Cleans up old documentation versions from the `gh-pages` branch  
 ✅ Runs daily at 2am UTC  
+✅ Is intended for repositories with GitHub Pages enabled  
 
 ---
 
-### **3️ License Check Workflow**
+### **3. License Check Workflow**
 **Usage Example**
 ```yaml
 name: License Check CI
@@ -109,7 +125,7 @@ This workflow:
 
 ---
 
-### **4️ Static Code Analysis Workflow**
+### **4. Static Code Analysis Workflow**
 **Usage Example**
 ```yaml
 name: Static Analysis CI
@@ -124,20 +140,25 @@ jobs:
   static-analysis:
     uses: eclipse-score/cicd-workflows/.github/workflows/static-analysis.yml@main
     with:
-      bazel-target: "run //:static-analysis" # optional, this is the default
+      bazel-targets: "//..."            # optional, default
+      bazel-config: "lint"             # optional, default
+      bazel-args: "--@aspect_rules_lint//lint:fail_on_violation=true"  # optional
 ```
 
 This workflow:  
-✅ Runs **Clang-Tidy** for C++  
-✅ Runs **Rust Clippy, Cargo Audit, and Cargo Geiger** for Rust  
-✅ Runs **Pylint** for Python  
+✅ Runs **Clippy** via Bazel on the selected targets  
+✅ Publishes **Clippy reports** as an artifact  
+✅ Fails the job if Bazel fails or if any Clippy report is non-empty  
+✅ Writes a summary to the GitHub job summary  
 
-> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  
-> **Default:** `run //:static-analysis`
+Inputs:
+- `bazel-targets`: Bazel targets to build (default: `//...`)
+- `bazel-config`: Bazel config to apply (default: `lint`, set empty to disable)
+- `bazel-args`: Extra Bazel args (e.g., `--@aspect_rules_lint//lint:fail_on_violation=true`)
 
 ---
 
-### **5️ Tests Workflow**
+### **5. Tests Workflow**
 **Usage Example**
 ```yaml
 name: Test CI
@@ -160,7 +181,59 @@ This workflow:
 
 ---
 
-### **6️ Copyright Check Workflow**
+### **6. Rust Coverage Workflow**
+**Usage Example**
+```yaml
+name: Rust Coverage CI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+jobs:
+  rust-coverage:
+    uses: eclipse-score/cicd-workflows/.github/workflows/rust-coverage.yml@main
+    with:
+      bazel-test-targets: "//src/rust/..."
+      bazel-test-config-flags: "--config=per-x86_64-linux --config=ferrocene-coverage"
+      bazel-test-args: "--nocache_test_results"
+      coverage-target: "//:rust_coverage"
+      min-coverage: 90
+      coverage-artifact-name: "rust-coverage-html"
+```
+
+This workflow:  
+✅ Runs **Rust tests** with coverage instrumentation  
+✅ Generates **coverage reports** via Bazel  
+✅ Uploads the **HTML coverage report** as an artifact  
+
+---
+
+### **7. C++ Coverage Workflow**
+**Usage Example**
+```yaml
+name: C++ Coverage CI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  coverage-report:
+    uses: eclipse-score/cicd-workflows/.github/workflows/cpp-coverage.yml@main
+    with:
+      bazel-target: "//..."
+```
+
+---
+
+### **8. Copyright Check Workflow**
 **Usage Example**
 ```yaml
 name: Copyright Check CI
@@ -187,7 +260,7 @@ This workflow:
 
 ---
 
-### **7️ Formatting Check Workflow**
+### **9. Formatting Check Workflow**
 **Usage Example**
 ```yaml
 name: Formatting Check CI
@@ -213,7 +286,7 @@ This workflow:
 > **Default:** `test //:format.check`
 
 ---
-### **8️ Required Approvals Workflow**
+### **10. Required Approvals Workflow**
 
 This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.  
 Normally, GitHub requires approval from *any one* codeowner when multiple are listed.  
@@ -256,8 +329,7 @@ jobs:
 ---
 
 
-
-### **9️ QNX Build (Gated) Workflow**
+### **11. QNX Build (Gated) Workflow**
 
 Use this workflow when you need QNX secrets for forked PRs and want a manual approval gate via an environment.
 
@@ -281,6 +353,7 @@ jobs:
       bazel-config: "x86_64-qnx"     # optional, default shown
       credential-helper: ".github/tools/qnx_credential_helper.py" # optional, default shown
       environment-name: "workflow-approval" # optional, default shown
+      extra-bazel-flags: "--lockfile_mode=error" # optional, pass explicitly when needed
     secrets:
       score-qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
       score-qnx-user: ${{ secrets.SCORE_QNX_USER }}
@@ -290,6 +363,234 @@ jobs:
 **Notes**
 - Runs on `pull_request_target` so maintainers can approve the `workflow-approval` environment before secrets are used.
 - Installs the QNX license, builds with the configured Bazel target/config, and cleans up the license directory.
+- Additional Bazel flags are caller-controlled via `extra-bazel-flags`; the workflow does not enable `--lockfile_mode=error` by default.
+
+---
+
+### **12. Documentation Verification Workflow**
+
+This workflow verifies that documentation builds correctly and can be used to validate documentation changes in pull requests.
+
+**Usage Example**
+
+```yaml
+name: Documentation Verification
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  docs-verify:
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-verify.yml@main
+    with:
+      bazel-docs-verify-target: "//:docs_check" # optional, default shown
+```
+
+**Defaults**  
+- `bazel-docs-verify-target`: `//:docs_check`  
+
+**Key Features**  
+✅ Verifies documentation builds successfully  
+✅ Uses Bazel-based documentation checks  
+✅ Provides verification result as output  
+✅ Integrates with Bazel shared caching for performance  
+
+---
+
+### **13. CodeQL Security Scan Workflow**
+
+This workflow performs security and quality analysis using GitHub's CodeQL with MISRA C++ coding standards.
+
+**Usage Example**
+
+```yaml
+name: CodeQL Security Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 1' # Weekly on Monday
+
+jobs:
+  codeql-scan:
+    uses: eclipse-score/cicd-workflows/.github/workflows/codeql.yml@main
+    with:
+      build-script: "bazel build //..." # optional, default shown
+```
+
+**Defaults**  
+- `build-script`: `bazel build //...`  
+
+**Key Features**  
+✅ Scans C/C++ code for security vulnerabilities and bugs  
+✅ Applies MISRA C++ coding standards  
+✅ Uploads SARIF results as artifacts  
+✅ Integrates with GitHub Security tab  
+✅ Supports custom Bazel build commands  
+
+---
+
+### **14. SCORE PR Checks Workflow**
+
+This workflow enforces SCORE-specific standards, particularly Bazel module naming conventions.
+
+**Usage Example**
+
+```yaml
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  score-checks:
+    uses: eclipse-score/cicd-workflows/.github/workflows/score-pr-checks.yml@main
+```
+
+**No inputs required**
+
+**Key Features**  
+✅ Validates Bazel module names follow the pattern `^score_[[:lower:]_]+$`  
+✅ Ensures module names start with `score_`  
+✅ Allows only lowercase letters and underscores  
+✅ Skips validation if no `MODULE.bazel` file exists  
+
+**Examples of valid module names:**  
+- `score_cli`  
+- `score_compose`  
+- `score_web_api`  
+
+---
+
+### **15. Template Sync Workflow**
+
+This workflow automatically synchronizes your repository with the latest changes from `eclipse-score/module_template`.
+
+**Usage Example**
+
+```yaml
+name: Template Sync
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly on Sunday
+  workflow_dispatch:
+
+jobs:
+  template-sync:
+    uses: eclipse-score/cicd-workflows/.github/workflows/template-sync.yml@main
+    with:
+      pr_title: "[Template Sync] Upstream template update" # optional, default shown
+      pr_commit_msg: "chore(template): upstream template update" # optional, default shown
+      template_sync_ignore_file_path: ".github/.templatesyncignore" # optional, default shown
+    secrets:
+      SCORE_APPROVALS_PAT: ${{ secrets.SCORE_APPROVALS_PAT }}
+```
+
+**Defaults**  
+- `pr_title`: `[Template Sync] Upstream template update`  
+- `pr_commit_msg`: `chore(template): upstream template update`  
+- `template_sync_ignore_file_path`: `.github/.templatesyncignore`  
+
+**Key Features**  
+✅ Automatically creates PRs with template updates  
+✅ Respects `.templatesyncignore` file to exclude specific files  
+✅ Uses `SCORE_APPROVALS_PAT` secret for authentication  
+✅ Configurable PR titles and commit messages  
+✅ Can be triggered on schedule or manually  
+
+> ℹ️ **Note:** This workflow requires the `SCORE_APPROVALS_PAT` secret with appropriate permissions to create pull requests.
+
+---
+
+### **16. Bzlmod Lockfile Check Workflow**
+
+This workflow keeps Bazel's lockfile in sync with your module declarations. It records the exact set of resolved module versions and extension outputs so builds are reproducible across machines. The job fails if the lockfile is missing or out of date after running `bazel mod tidy`, which means someone changed `MODULE.bazel` without updating the lockfile.
+
+**Usage Example**
+
+```yaml
+name: Bzlmod Lockfile Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  bzlmod-lock:
+    uses: eclipse-score/cicd-workflows/.github/workflows/bzlmod-lock-check.yml@main
+    with:
+      working-directory: .
+```
+
+**Defaults**  
+- `working-directory`: `.`  
+
+This workflow:  
+✅ Fails if `MODULE.bazel.lock` is missing  
+✅ Runs `bazel mod tidy`  
+✅ Fails if `MODULE.bazel` or `MODULE.bazel.lock` changes after tidy  
+
+---
+
+### **17. Daily Maintenance Workflow**
+
+This workflow groups the repository's daily maintenance tasks. It always handles stale pull requests and also runs documentation cleanup when GitHub Pages is enabled for the repository.
+
+**Usage Example**
+
+```yaml
+name: Daily Maintenance
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # Daily at 3am UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  pages: write
+  id-token: write
+
+jobs:
+  daily:
+    uses: eclipse-score/cicd-workflows/.github/workflows/daily.yml@main
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      pages: write
+      id-token: write
+```
+
+This reusable workflow does not expose any parameters. It applies a fixed maintenance policy:
+
+- Marks pull requests as stale after `30` days of inactivity using the `stale` label  
+- Closes stale pull requests after `10` more days, adding the `autoclosed` label when closing  
+- Exempts pull requests labeled `keep-open`, `do-not-close`, `pinned`, or `feature_request` from being marked stale or auto-closed  
+- Runs documentation cleanup on the `gh-pages` branch when GitHub Pages is enabled  
+
+**Key Features**  
+✅ Marks pull requests stale after the configured idle period  
+✅ Posts a friendly comment asking whether the PR is still relevant, up to date, and ready to merge  
+✅ Closes stale pull requests after the configured follow-up window with a separate explanation  
+✅ Removes the stale label automatically when new activity appears  
+✅ Supports exempt labels for long-running or intentionally parked pull requests  
+✅ Skips issues entirely and targets pull requests only  
+✅ Runs documentation cleanup only when the repository has GitHub Pages enabled  
+
+> ℹ️ **Note:** If you only need stale pull request handling or need different timing or label behavior, use `actions/stale` directly in your repository instead of this reusable workflow.
+ 
+> ℹ️ **Note:** This repository also runs its own combined daily maintenance workflow via [`.github/workflows/_local_daily.yml`](./.github/workflows/_local_daily.yml), which includes stale pull request handling and documentation cleanup when GitHub Pages is enabled.
 
 ---
 

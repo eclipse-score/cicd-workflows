@@ -11,12 +11,22 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
-name: on-pr
-
+name: Pull Request Workflow
 on:
   pull_request:
-    branches: [main]
+    types: [opened, reopened, synchronize]
 
 jobs:
-  score-pr-checks:
-    uses: ./.github/workflows/score-pr-checks.yml
+
+  self_test:
+    name: 🔬 Self Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Check out
+        uses: actions/checkout@v6
+
+      - name: ⚙️ Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: 🛠️ Run pre-commit
+        run: uvx pre-commit run --all-files

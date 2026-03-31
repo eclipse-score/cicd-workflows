@@ -1,0 +1,62 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Bazel Bzlmod Lockfile Check
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory containing MODULE.bazel and MODULE.bazel.lock"
+        required: false
+        default: "."
+        type: string
+
+jobs:
+  bzlmod-lock-check:
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout repository (Handle all events)
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: false
+          repository-cache: false
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' }}
+
+      - name: Verify MODULE.bazel.lock exists
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          if [ ! -f "MODULE.bazel" ]; then
+            echo "MODULE.bazel not found in $PWD"
+            exit 1
+          fi
+
+          if [ ! -f "MODULE.bazel.lock" ]; then
+            echo "MODULE.bazel.lock is missing. Run: bazel mod tidy"
+            exit 1
+          fi
+
+      - name: Run bazel mod tidy
+        working-directory: ${{ inputs.working-directory }}
+        run: bazel mod tidy
+
+      - name: Check lock consistency
+        working-directory: ${{ inputs.working-directory }}
+        run: git diff --exit-code -- MODULE.bazel MODULE.bazel.lock
