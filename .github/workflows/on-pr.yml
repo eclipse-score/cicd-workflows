@@ -180,10 +180,8 @@ jobs:
 
   bazel-copyright-check:
     name: © Run bazel //:copyright.check
-    needs:
-      - detect-repo-capabilities
-      - detect-repo-bazel-targets
-    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true' && needs.detect-repo-bazel-targets.outputs.has_copyright_check == 'true'
+    needs: detect-repo-bazel-targets
+    if: needs.detect-repo-bazel-targets.outputs.has_copyright_check == 'true'
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
       - name: 📥 Check out
