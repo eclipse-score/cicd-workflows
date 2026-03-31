@@ -175,7 +175,6 @@ jobs:
       group: pages-deploy-${{ github.repository }}-${{ github.ref }}
       cancel-in-progress: false
     permissions:
-      actions: read
       pages: write
       id-token: write
       contents: write
