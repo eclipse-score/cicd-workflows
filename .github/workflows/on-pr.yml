@@ -19,6 +19,8 @@
 
 # The name will show up as "PR Checl / 🔁 / <workflow-name>",
 # so there is no reason to add any text where the icon is.
+# ---
+# Update: this name is actually not used anywhere! wtf?
 name: 🔁
 
 on:
@@ -89,7 +91,8 @@ jobs:
   bazel-module-name-check:
     name: 📝 Check Bazel module name
     needs: detect-repo-capabilities
-    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true'
+    # The script to detect the module name is broken
+    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true' && false
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
       - name: 📥 Check out
@@ -195,4 +198,4 @@ jobs:
           cache-save: false
 
       - name: © Run copyright check
-        run: bazel test //:copyright.check
+        run: bazel run //:copyright.check
