@@ -574,10 +574,9 @@ jobs:
 
 This reusable workflow does not expose any parameters. It applies a fixed maintenance policy:
 
-- Marks pull requests stale after `30` days of inactivity  
-- Closes stale pull requests after `10` more days  
-- Uses the `stale` label  
-- Exempts pull requests labeled `keep-open`, `do-not-close`, or `pinned`  
+- Marks pull requests as stale after `30` days of inactivity using the `stale` label  
+- Closes stale pull requests after `10` more days, adding the `autoclosed` label when closing  
+- Exempts pull requests labeled `keep-open`, `do-not-close`, `pinned`, or `feature_request` from being marked stale or auto-closed  
 - Runs documentation cleanup on the `gh-pages` branch when GitHub Pages is enabled  
 
 **Key Features**  
