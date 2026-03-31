@@ -73,6 +73,8 @@ jobs:
 
   qnx-build:
     name: Build QNX target
+    # always run this job, because the approval is sometimes skipped by intention
+    if: always()
     needs: approval
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
