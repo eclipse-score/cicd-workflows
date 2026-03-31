@@ -54,6 +54,7 @@ jobs:
     runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
       contents: read
+      pages: read
     outputs:
       should_run_docs_cleanup: ${{ steps.pages.outputs.should_run_docs_cleanup }}
     steps:
