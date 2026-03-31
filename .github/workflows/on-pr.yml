@@ -16,6 +16,7 @@
 # Attention: this workflow must be called with following permissions:
 #    permissions:
 #      id-token: write
+#      contents: read
 
 # The name will show up as "PR Checl / 🔁 / <workflow-name>",
 # so there is no reason to add any text where the icon is.

@@ -23,3 +23,4 @@ jobs:
     uses: ./.github/workflows/on-pr.yml
     permissions:
       id-token: write
+      contents: read
