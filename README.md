@@ -597,7 +597,10 @@ Since it is very likely the case that different workflows will need different ru
 As of today following runner label variables are supported:
 
 - runner_labels_ghub_standard_x64
-  - os: ghub - GitHub Ubuntu latest OS image
+  - os:
+    - ghub - GitHub Ubuntu latest OS image
+    - ghub22 - GitHub Ubuntu 22.04 OS image
+    - ghub24 - GitHub Ubuntu 24.04 OS image
   - size: standard - Maps to the specs of the "Ubuntu latest" GitHub hosted runner
   - architecture: x64 - Maps to the architecture of the standard "Ubuntu latest" GitHub hosted runner. The value is taken from the [GitHub hosted runners reference page](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 
