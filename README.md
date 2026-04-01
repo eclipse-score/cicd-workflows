@@ -78,7 +78,9 @@ permissions:
 
 jobs:
   docs-cleanup:
-    uses: eclipse-score/cicd-workflows/.github/workflows/docs-cleanup.yml@main
+    # Pin a version via vX.Y.Z tag or even better via a commit SHA for immutability.
+    # Treat @main as experimental!
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-cleanup.yml@vX.Y.Z
     with:
       workflow-version: main
     secrets:

@@ -84,5 +84,3 @@ jobs:
       contents: write
       pages: write
       id-token: write
-    secrets:
-      token: ${{ github.token }}
