@@ -100,7 +100,6 @@ jobs:
 
           echo "::endgroup::"
 
-
   precommit:
     name: 🧹 Run pre-commit checks
     needs: detect-repo-capabilities
@@ -229,7 +228,6 @@ jobs:
           emit_output has_format_check has_bazel_target "//:format.check"
 
           echo "::endgroup::"
-
 
   bazel-format-check:
     name: 🖌️ Run bazel //:format.check
