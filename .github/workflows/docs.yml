@@ -113,6 +113,71 @@ jobs:
           restore-keys: |
             ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-
 
+      - name: List cache contents after restore - bazelisk_home
+        shell: bash
+        if: runner.debug
+        run: tree -nf "${{ steps.paths.outputs.bazelisk_home }}" || true
+
+      - name: List cache contents after restore - output_base
+        shell: bash
+        if: runner.debug
+        run: tree -nf "${{ steps.paths.outputs.output_base }}" || true
+
+      - name: List cache contents after restore - repo_contents
+        shell: bash
+        if: runner.debug
+        run: tree -nf "${{ steps.paths.outputs.repo_contents }}" || true
+
+      - name: List cache contents after restore - repo_cache
+        shell: bash
+        if: runner.debug
+        run: tree -nf "${{ steps.paths.outputs.repo_cache }}" || true
+
+      - name: List cache contents after restore - disk_cache
+        shell: bash
+        if: runner.debug
+        run: tree -nf "${{ steps.paths.outputs.disk_cache }}" || true
+
+      - name: List cache contents after restore - pip_cache
+        shell: bash
+        if: runner.debug
+        run: tree -nf "${{ steps.paths.outputs.pip_cache }}" || true
+
+      - name: Create cache snapshot (tgz)
+        if: runner.debug
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          SNAPSHOT_ROOT="$RUNNER_TEMP/cache-snapshot"
+          mkdir -p "$SNAPSHOT_ROOT"
+
+          # Copy (preserving attributes) whatever exists so we can archive it safely
+          for p in \
+            "${{ steps.paths.outputs.bazelisk_home }}" \
+            "${{ steps.paths.outputs.output_base }}" \
+            "${{ steps.paths.outputs.repo_contents }}" \
+            "${{ steps.paths.outputs.repo_cache }}" \
+            "${{ steps.paths.outputs.disk_cache }}" \
+            "${{ steps.paths.outputs.pip_cache }}"; do
+            if [ -e "$p" ]; then
+              mkdir -p "$SNAPSHOT_ROOT$(dirname "$p")"
+              cp -a "$p" "$SNAPSHOT_ROOT$p"
+            else
+              echo "Path does not exist (skipping): $p"
+            fi
+          done
+
+          tar -C "$SNAPSHOT_ROOT" -czf "$RUNNER_TEMP/cache-snapshot.tgz" .
+
+      - name: Upload cache snapshot artifact
+        if: runner.debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cache-snapshot.tgz
+          retention-days: 5
+
       - name: Install Graphviz
         uses: eclipse-score/apt-install@main
         with:
