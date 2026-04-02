@@ -113,6 +113,80 @@ jobs:
           restore-keys: |
             ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-
 
+      - name: List cache contents after restore - bazelisk_home
+        shell: bash
+        if: runner.debug
+        run: tree -nf -L 3 "${{ steps.paths.outputs.bazelisk_home }}" || true
+
+      - name: List cache contents after restore - output_base
+        shell: bash
+        if: runner.debug
+        run: tree -nf -L 3 "${{ steps.paths.outputs.output_base }}" || true
+
+      - name: List cache contents after restore - repo_contents
+        shell: bash
+        if: runner.debug
+        run: tree -nf -L 3 "${{ steps.paths.outputs.repo_contents }}" || true
+
+      - name: List cache contents after restore - repo_cache
+        shell: bash
+        if: runner.debug
+        run: tree -nf -L 3 "${{ steps.paths.outputs.repo_cache }}" || true
+
+      - name: List cache contents after restore - disk_cache
+        shell: bash
+        if: runner.debug
+        run: tree -nf -L 3 "${{ steps.paths.outputs.disk_cache }}" || true
+
+      - name: List cache contents after restore - pip_cache
+        shell: bash
+        if: runner.debug
+        run: tree -nf -L 3 "${{ steps.paths.outputs.pip_cache }}" || true
+
+      - name: Create cache snapshot (tgz)
+        if: runner.debug
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uxo pipefail
+
+          ARCHIVE_PATH="$RUNNER_TEMP/cache-snapshot.tgz"
+          entries=()
+          for p in \
+            "${{ steps.paths.outputs.bazelisk_home }}" \
+            "${{ steps.paths.outputs.output_base }}" \
+            "${{ steps.paths.outputs.repo_contents }}" \
+            "${{ steps.paths.outputs.repo_cache }}" \
+            "${{ steps.paths.outputs.disk_cache }}" \
+            "${{ steps.paths.outputs.pip_cache }}"; do
+            if [ -e "$p" ]; then
+              entries+=("${p#/}")
+            else
+              echo "Path does not exist (skipping): $p"
+            fi
+          done
+
+          if [ "${#entries[@]}" -eq 0 ]; then
+            echo "No cache paths found to archive; skipping snapshot creation."
+            exit 0
+          fi
+
+          if ! tar -C / -czf "$ARCHIVE_PATH" "${entries[@]}"; then
+            echo "Cache snapshot creation failed; removing incomplete archive."
+            rm -f "$ARCHIVE_PATH"
+            exit 1
+          fi
+
+      - name: Upload cache snapshot artifact
+        if: runner.debug
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cache-snapshot.tgz
+          retention-days: 5
+          if-no-files-found: ignore
+
       - name: Install Graphviz
         uses: eclipse-score/apt-install@main
         with:
