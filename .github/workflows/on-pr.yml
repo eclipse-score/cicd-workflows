@@ -46,14 +46,59 @@ jobs:
       - name: 📥 Check out
         uses: actions/checkout@v6
 
-      - name: 📥 Check out cicd-workflows
-        uses: dariocurr/checkout-called@v6
-        with:
-          path: .cicd-workflows
-
       - name: 🕵️ Detect repository capabilities
         id: detect
-        run: ./.cicd-workflows/scripts/detect-repo-capabilities.sh "${{ github.workspace }}"
+        run: |
+          set -euo pipefail
+
+          echo "::group:: Detecting repository capabilities"
+
+          # Runs a boolean-style check function and writes to GITHUB_OUTPUT.
+          emit_output() {
+            local name="$1"
+            shift
+
+            if "$@"; then
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$name=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          # Returns success if any provided file path exists.
+          any_file_exists() {
+            local path
+            for path in "$@"; do
+              [[ -f "$path" ]] && return 0
+            done
+            return 1
+          }
+
+          # Returns success only if every provided file path exists.
+          all_files_exist() {
+            local path
+            for path in "$@"; do
+              [[ -f "$path" ]] || return 1
+            done
+            return 0
+          }
+
+          emit_output has_bazel any_file_exists \
+            "MODULE.bazel" \
+            "WORKSPACE" \
+            "WORKSPACE.bazel"
+          emit_output has_bazel_lock any_file_exists \
+            "MODULE.bazel.lock"
+          emit_output has_devcontainer any_file_exists \
+            ".devcontainer/devcontainer.json" \
+            "devcontainer.json"
+          emit_output has_python_uv all_files_exist \
+            "pyproject.toml" \
+            "uv.lock"
+          emit_output has_precommit any_file_exists \
+            ".pre-commit-config.yaml"
+
+          echo "::endgroup::"
 
   precommit:
     name: 🧹 Run pre-commit checks
@@ -142,11 +187,6 @@ jobs:
       - name: 📥 Check out
         uses: actions/checkout@v6
 
-      - name: 📥 Check out cicd-workflows
-        uses: dariocurr/checkout-called@v6
-        with:
-          path: .cicd-workflows
-
       - name: ⚙️ Setup Bazel with shared caching
         uses: bazel-contrib/setup-bazel@0.18.0
         with:
@@ -157,7 +197,32 @@ jobs:
 
       - name: 🕵️ Detect Bazel targets
         id: detect
-        run: ./.cicd-workflows/scripts/detect-bazel-targets.sh "${{ github.workspace }}"
+        run: |
+          set -euo pipefail
+
+          echo "::group:: Detecting Bazel targets"
+
+          # Runs a boolean-style check function and writes to GITHUB_OUTPUT.
+          emit_output() {
+            local name="$1"
+            shift
+
+            if "$@"; then
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$name=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          # Returns success if the given Bazel label can be queried from the repo root.
+          has_bazel_target() {
+            bazel query "$1" >/dev/null 2>&1
+          }
+
+          emit_output has_copyright_check has_bazel_target "//:copyright.check"
+          emit_output has_format_check has_bazel_target "//:format.check"
+
+          echo "::endgroup::"
 
   bazel-format-check:
     name: 🖌️ Run bazel //:format.check
