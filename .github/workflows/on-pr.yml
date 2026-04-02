@@ -216,12 +216,7 @@ jobs:
 
           # Returns success if the given Bazel label can be queried from the repo root.
           has_bazel_target() {
-            local target="$1"
-
-            (
-              cd "$repo"
-              bazel query "$target" >/dev/null 2>&1
-            )
+            bazel query "$1" >/dev/null 2>&1
           }
 
           emit_output has_copyright_check has_bazel_target "//:copyright.check"
