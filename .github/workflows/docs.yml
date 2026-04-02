@@ -178,13 +178,14 @@ jobs:
           fi
 
       - name: Upload cache snapshot artifact
-        if: ${{ runner.debug && hashFiles(format('{0}/cache-snapshot.tgz', runner.temp)) != '' }}
+        if: runner.debug
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: cache-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cache-snapshot.tgz
           retention-days: 5
+          if-no-files-found: ignore
 
       - name: Install Graphviz
         uses: eclipse-score/apt-install@main
