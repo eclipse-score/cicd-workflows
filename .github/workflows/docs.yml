@@ -116,43 +116,42 @@ jobs:
       - name: List cache contents after restore - bazelisk_home
         shell: bash
         if: runner.debug
-        run: tree -nf "${{ steps.paths.outputs.bazelisk_home }}" || true
+        run: tree -nf -L 3 "${{ steps.paths.outputs.bazelisk_home }}" || true
 
       - name: List cache contents after restore - output_base
         shell: bash
         if: runner.debug
-        run: tree -nf "${{ steps.paths.outputs.output_base }}" || true
+        run: tree -nf -L 3 "${{ steps.paths.outputs.output_base }}" || true
 
       - name: List cache contents after restore - repo_contents
         shell: bash
         if: runner.debug
-        run: tree -nf "${{ steps.paths.outputs.repo_contents }}" || true
+        run: tree -nf -L 3 "${{ steps.paths.outputs.repo_contents }}" || true
 
       - name: List cache contents after restore - repo_cache
         shell: bash
         if: runner.debug
-        run: tree -nf "${{ steps.paths.outputs.repo_cache }}" || true
+        run: tree -nf -L 3 "${{ steps.paths.outputs.repo_cache }}" || true
 
       - name: List cache contents after restore - disk_cache
         shell: bash
         if: runner.debug
-        run: tree -nf "${{ steps.paths.outputs.disk_cache }}" || true
+        run: tree -nf -L 3 "${{ steps.paths.outputs.disk_cache }}" || true
 
       - name: List cache contents after restore - pip_cache
         shell: bash
         if: runner.debug
-        run: tree -nf "${{ steps.paths.outputs.pip_cache }}" || true
+        run: tree -nf -L 3 "${{ steps.paths.outputs.pip_cache }}" || true
 
       - name: Create cache snapshot (tgz)
         if: runner.debug
+        continue-on-error: true
         shell: bash
         run: |
-          set -euxo pipefail
+          set -uxo pipefail
 
-          SNAPSHOT_ROOT="$RUNNER_TEMP/cache-snapshot"
-          mkdir -p "$SNAPSHOT_ROOT"
-
-          # Copy (preserving attributes) whatever exists so we can archive it safely
+          ARCHIVE_PATH="$RUNNER_TEMP/cache-snapshot.tgz"
+          entries=()
           for p in \
             "${{ steps.paths.outputs.bazelisk_home }}" \
             "${{ steps.paths.outputs.output_base }}" \
@@ -161,17 +160,26 @@ jobs:
             "${{ steps.paths.outputs.disk_cache }}" \
             "${{ steps.paths.outputs.pip_cache }}"; do
             if [ -e "$p" ]; then
-              mkdir -p "$SNAPSHOT_ROOT$(dirname "$p")"
-              cp -a "$p" "$SNAPSHOT_ROOT$p"
+              entries+=("${p#/}")
             else
               echo "Path does not exist (skipping): $p"
             fi
           done
 
-          tar -C "$SNAPSHOT_ROOT" -czf "$RUNNER_TEMP/cache-snapshot.tgz" .
+          if [ "${#entries[@]}" -eq 0 ]; then
+            echo "No cache paths found to archive; skipping snapshot creation."
+            exit 0
+          fi
+
+          if ! tar -C / -czf "$ARCHIVE_PATH" "${entries[@]}"; then
+            echo "Cache snapshot creation failed; removing incomplete archive."
+            rm -f "$ARCHIVE_PATH"
+            exit 1
+          fi
 
       - name: Upload cache snapshot artifact
-        if: runner.debug
+        if: ${{ runner.debug && hashFiles(format('{0}/cache-snapshot.tgz', runner.temp)) != '' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: cache-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
