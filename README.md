@@ -675,7 +675,7 @@ Where:
 
 Due to this new naming convention the variable **REPO_RUNNER_LABELS is deprecated** and will be removed eventually!
 
-### Runner labels variable syntax
+### Runner labels variable value syntax
 
 The value of the runner labels variable must be a JSON array of strings, where each string is a valid GitHub Actions runner label. For example:
 
