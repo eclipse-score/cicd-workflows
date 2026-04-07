@@ -46,6 +46,16 @@ on:
         required: false
         default: ""
         type: string
+      bazel-test-target:
+        description: "Bazel test targets to run with the QNX toolchain (leave empty to skip tests)"
+        required: false
+        default: ""
+        type: string
+      extra-bazel-test-flags:
+        description: "Additional Bazel flags to pass to the test command (whitespace separated)"
+        required: false
+        default: ""
+        type: string
     secrets:
       score-qnx-license:
         description: "Base64-encoded QNX license content"
@@ -111,10 +121,7 @@ jobs:
           sudo mkdir -p "${LICENSE_DIR}"
           echo "${SCORE_QNX_LICENSE}" | base64 --decode | sudo tee "${LICENSE_DIR}/licenses" >/dev/null
 
-      - name: Build with QNX toolchain
-        env:
-          SCORE_QNX_USER: ${{ secrets.score-qnx-user }}
-          SCORE_QNX_PASSWORD: ${{ secrets.score-qnx-password }}
+      - name: Prepare credential helper
         run: |
           set -euo pipefail
 
@@ -124,7 +131,7 @@ jobs:
           fi
 
           if [[ ! -f "${CRED_HELPER}" ]]; then
-            echo "Credential helper not found at ${CRED_HELPER}" >&2
+            echo "::error::Credential helper not found at ${CRED_HELPER}" >&2
             exit 1
           fi
 
@@ -132,10 +139,45 @@ jobs:
             chmod +x "${CRED_HELPER}"
           fi
 
+          echo "CRED_HELPER=${CRED_HELPER}" >> "${GITHUB_ENV}"
+
+      - name: Build with QNX toolchain
+        env:
+          SCORE_QNX_USER: ${{ secrets.score-qnx-user }}
+          SCORE_QNX_PASSWORD: ${{ secrets.score-qnx-password }}
+        run: |
+          set -euo pipefail
+
           echo "Using credential helper at ${CRED_HELPER}"
           bazel build --config ${{ inputs.bazel-config }} \
             --credential_helper=*.qnx.com="${CRED_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
             ${{ inputs.bazel-target }}
+
+      - name: Install qemu
+        if: inputs.bazel-test-target != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system
+
+      - name: Enable KVM group permissons
+        if: inputs.bazel-test-target != ''
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Test with QNX toolchain
+        if: inputs.bazel-test-target != ''
+        env:
+          SCORE_QNX_USER: ${{ secrets.score-qnx-user }}
+          SCORE_QNX_PASSWORD: ${{ secrets.score-qnx-password }}
+        run: |
+          set -euo pipefail
+
+          echo "Using credential helper at ${CRED_HELPER}"
+          bazel test --config ${{ inputs.bazel-config }} \
+            --credential_helper=*.qnx.com="${CRED_HELPER}" ${{ inputs.extra-bazel-test-flags }} -- \
+            ${{ inputs.bazel-test-target }}
 
       - name: Cleanup QNX license
         if: always()
