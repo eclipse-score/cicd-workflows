@@ -677,7 +677,12 @@ Due to this new naming convention the variable **REPO_RUNNER_LABELS is deprecate
 
 ### Runner labels variable value syntax
 
-The value of the runner labels variable must be a JSON array of strings, where each string is a valid GitHub Actions runner label. For example:
+The value of the runner labels variable must be either a JSON array of strings, where each string is a valid GitHub Actions runner label, or a single string.
+
+An example of a valid value for the variable when using a single label is `"self-hosted"`, which would select any self-hosted runner regardless of its other labels if there are multiple available.
+
+An example of a valid value for the variable when using multiple labels is the
+following JSON array:
 
 ```json
 ["self-hosted", "linux", "x64", "custom-label"]
