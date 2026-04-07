@@ -654,18 +654,22 @@ This approach allows forked repositories or projects with special requirements t
 
 ### Runner labels variable naming convention
 
-Since it is very likely the case that different workflows will need different runners of different sizes, oses and architectures to be cost efficiently using the runner infrastructure the variable that specifies the runner labels shall follow this naming convention:
+Since it is very likely the case that different workflows will need different runners of different sizes, OSes and architectures to be cost efficiently using the runner infrastructure the variable that specifies the runner labels shall follow this naming convention:
 
 `runner_labels_<os>_<size>_<architecture>`
 
-As of today following runner label variables are supported:
+As of today the following runner label variables are currently used/supported:
 
-- runner_labels_ghub_standard_x64
-  - os:
-    - ghub - GitHub Ubuntu latest OS image
-    - ghub22 - GitHub Ubuntu 22.04 OS image
-    - ghub24 - GitHub Ubuntu 24.04 OS image
-  - size: standard - Maps to the specs of the "Ubuntu latest" GitHub hosted runner
-  - architecture: x64 - Maps to the architecture of the standard "Ubuntu latest" GitHub hosted runner. The value is taken from the [GitHub hosted runners reference page](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+- `runner_labels_ghub_standard_x64`
+- `runner_labels_ghub22_standard_x64`
+- `runner_labels_ghub24_standard_x64`
 
+Where:
+
+- os:
+  - ghub - GitHub Ubuntu latest OS image
+  - ghub22 - GitHub Ubuntu 22.04 OS image
+  - ghub24 - GitHub Ubuntu 24.04 OS image
+- size: standard - Maps to the specs of the "Ubuntu latest" GitHub-hosted runner
+- architecture: x64 - Maps to the architecture of the standard "Ubuntu latest" GitHub-hosted runner. The value is taken from the [GitHub hosted runners reference page](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 Due to this new naming convention the variable **REPO_RUNNER_LABELS is deprecated** and will be removed eventually!
