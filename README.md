@@ -643,7 +643,7 @@ runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels
 
 This means:
 
-- If your repository defines a variable named `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).  
+- If your repository defines a variable named `runner_labels_ghub_standard_x64` (or any of the other supported ones) or `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).  
   This allows you to use **self-hosted runners** or any custom runner configuration.
 - If `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` is **not set**, the workflow will default to GitHub-hosted `ubuntu-latest`.
 
@@ -672,4 +672,15 @@ Where:
   - ghub24 - GitHub Ubuntu 24.04 OS image
 - size: standard - Maps to the specs of the "Ubuntu latest" GitHub-hosted runner
 - architecture: x64 - Maps to the architecture of the standard "Ubuntu latest" GitHub-hosted runner. The value is taken from the [GitHub hosted runners reference page](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+
 Due to this new naming convention the variable **REPO_RUNNER_LABELS is deprecated** and will be removed eventually!
+
+### Runner labels variable syntax
+
+The value of the runner labels variable must be a JSON array of strings, where each string is a valid GitHub Actions runner label. For example:
+
+```json
+["self-hosted", "linux", "x64", "custom-label"]
+```
+
+This allows you to specify multiple labels for your runner, which can be used to match it in the workflow. For example, if you have a self-hosted runner with the labels `self-hosted`, `linux`, `x64`, and `custom-label`, you can set the variable to the above JSON array, and the workflow will use that runner when it runs.
