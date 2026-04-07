@@ -1,5 +1,5 @@
 # *******************************************************************************
-# Copyright (c) 2025 Contributors to the Eclipse Foundation
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
 #
 # See the NOTICE file(s) distributed with this work for additional
 # information regarding copyright ownership.
@@ -11,12 +11,255 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
-name: on-pr
+# This is designed as the main entry point for PR checks, for all S-CORE repositories.
+
+# Attention: this workflow must be called with following permissions:
+#    permissions:
+#      id-token: write
+#      contents: read
+
+# The name will show up as "PR Checl / 🔁 / <workflow-name>",
+# so there is no reason to add any text where the icon is.
+# ---
+# Update: this name is actually not used anywhere! wtf?
+name: 🔁
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_call:
 
 jobs:
-  score-pr-checks:
-    uses: ./.github/workflows/score-pr-checks.yml
+  detect-repo-capabilities:
+    name: Detect repository capabilities
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    outputs:
+      has_bazel: ${{ steps.detect.outputs.has_bazel }}
+      has_bazel_lock: ${{ steps.detect.outputs.has_bazel_lock }}
+      has_devcontainer: ${{ steps.detect.outputs.has_devcontainer }}
+      has_python_uv: ${{ steps.detect.outputs.has_python_uv }}
+      has_precommit: ${{ steps.detect.outputs.has_precommit }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: 📥 Check out
+        uses: actions/checkout@v6
+
+      - name: 🕵️ Detect repository capabilities
+        id: detect
+        run: |
+          set -euo pipefail
+
+          echo "::group:: Detecting repository capabilities"
+
+          # Runs a boolean-style check function and writes to GITHUB_OUTPUT.
+          emit_output() {
+            local name="$1"
+            shift
+
+            if "$@"; then
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$name=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          # Returns success if any provided file path exists.
+          any_file_exists() {
+            local path
+            for path in "$@"; do
+              [[ -f "$path" ]] && return 0
+            done
+            return 1
+          }
+
+          # Returns success only if every provided file path exists.
+          all_files_exist() {
+            local path
+            for path in "$@"; do
+              [[ -f "$path" ]] || return 1
+            done
+            return 0
+          }
+
+          emit_output has_bazel any_file_exists \
+            "MODULE.bazel" \
+            "WORKSPACE" \
+            "WORKSPACE.bazel"
+          emit_output has_bazel_lock any_file_exists \
+            "MODULE.bazel.lock"
+          emit_output has_devcontainer any_file_exists \
+            ".devcontainer/devcontainer.json" \
+            "devcontainer.json"
+          emit_output has_python_uv all_files_exist \
+            "pyproject.toml" \
+            "uv.lock"
+          emit_output has_precommit any_file_exists \
+            ".pre-commit-config.yaml"
+
+          echo "::endgroup::"
+
+  precommit:
+    name: 🧹 Run pre-commit checks
+    needs: detect-repo-capabilities
+    if: needs.detect-repo-capabilities.outputs.has_precommit == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - name: 📥 Check out
+        uses: actions/checkout@v6
+      - name: ⚙️ Setup uv
+        uses: astral-sh/setup-uv@v5
+      - name: 🛠️ Run pre-commit
+        run: uvx pre-commit run --all-files
+
+  python-uv-pytest:
+    name: 🐍 Run Python tests with uv
+    needs: detect-repo-capabilities
+    if: needs.detect-repo-capabilities.outputs.has_python_uv == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - name: 📥 Check out
+        uses: actions/checkout@v6
+
+      - name: ⚙️ Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run checks via uv
+        run: uv run --frozen python -m pytest
+
+  bazel-bzlmod-lock-check:
+    name: 🔒 Check Bazel Bzlmod lockfile
+    needs: detect-repo-capabilities
+    if: needs.detect-repo-capabilities.outputs.has_bazel_lock == 'true'
+    uses: ./.github/workflows/bzlmod-lock-check.yml
+
+  bazel-module-name-check:
+    name: 📝 Check Bazel module name
+    needs: detect-repo-capabilities
+    # The script to detect the module name is broken
+    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true' && false
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - name: 📥 Check out
+        uses: actions/checkout@v6
+
+      - name: 📝 Validate Bazel module name
+        run: |
+          if ! MODULE_LINE=$(grep '^module(' MODULE.bazel | head -1); then
+            echo "❌ No module declaration found in MODULE.bazel"
+            exit 1
+          fi
+
+          MODULE_NAME=$(echo "$MODULE_LINE" | sed 's/^module([[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/' | sed 's/^module([[:space:]]*"\([^"]*\)".*/\1/')
+
+          if [[ -z "$MODULE_NAME" || "$MODULE_NAME" == "$MODULE_LINE" ]]; then
+            MODULE_NAME=$(echo "$MODULE_LINE" | grep -o '"[^"]*"' | head -1 | tr -d '"')
+          fi
+
+          echo "Found module name: $MODULE_NAME"
+
+          if [[ ! "$MODULE_NAME" =~ ^score_[[:lower:]_]+$ ]]; then
+            echo "❌ Invalid module name: $MODULE_NAME"
+            echo "Module name must match the pattern: ^score_[[:lower:]_]+$"
+            echo "  - Must start with 'score_'"
+            echo "  - Must contain only lowercase letters and underscores after 'score_'"
+            echo "Examples of valid names: score_cli, score_compose, score_web_api"
+            exit 1
+          fi
+
+          echo "✅ Module name is valid: $MODULE_NAME"
+
+  detect-repo-bazel-targets:
+    name: Detect repo bazel targets
+    needs: detect-repo-capabilities
+    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    outputs:
+      has_copyright_check: ${{ steps.detect.outputs.has_copyright_check }}
+      has_format_check: ${{ steps.detect.outputs.has_format_check }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: 📥 Check out
+        uses: actions/checkout@v6
+
+      - name: ⚙️ Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: false
+          repository-cache: false
+          bazelisk-cache: true
+          cache-save: false
+
+      - name: 🕵️ Detect Bazel targets
+        id: detect
+        run: |
+          set -euo pipefail
+
+          echo "::group:: Detecting Bazel targets"
+
+          # Runs a boolean-style check function and writes to GITHUB_OUTPUT.
+          emit_output() {
+            local name="$1"
+            shift
+
+            if "$@"; then
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$name=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          # Returns success if the given Bazel label can be queried from the repo root.
+          has_bazel_target() {
+            bazel query "$1" >/dev/null 2>&1
+          }
+
+          emit_output has_copyright_check has_bazel_target "//:copyright.check"
+          emit_output has_format_check has_bazel_target "//:format.check"
+
+          echo "::endgroup::"
+
+  bazel-format-check:
+    name: 🖌️ Run bazel //:format.check
+    needs: detect-repo-bazel-targets
+    if: needs.detect-repo-bazel-targets.outputs.has_format_check == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - name: 📥 Check out
+        uses: actions/checkout@v6
+
+      - name: ⚙️ Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: false
+          repository-cache: false
+          bazelisk-cache: true
+          cache-save: false
+
+      - name: 🖌️ Run formatting check
+        run: bazel test //:format.check
+
+  bazel-copyright-check:
+    name: © Run bazel //:copyright.check
+    needs: detect-repo-bazel-targets
+    if: needs.detect-repo-bazel-targets.outputs.has_copyright_check == 'true'
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    steps:
+      - name: 📥 Check out
+        uses: actions/checkout@v6
+
+      - name: ⚙️ Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: false
+          repository-cache: false
+          bazelisk-cache: true
+          cache-save: false
+
+      - name: © Run copyright check
+        run: bazel run //:copyright.check

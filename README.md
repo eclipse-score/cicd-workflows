@@ -59,7 +59,9 @@ This workflow:
 
 ---
 
-### **2. Documentation Cleanup Workflow**
+### **2. Documentation Cleanup Workflow - DEPRECATED**
+*Deprecated: This workflow is now integrated into the `Daily Maintenance` workflow. Use that workflow instead.*
+
 **Usage Example**
 ```yaml
 name: Documentation Cleanup
@@ -68,9 +70,16 @@ on:
   schedule:
     - cron: '0 2 * * *' # every day at 2am UTC
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   docs-cleanup:
-    uses: eclipse-score/cicd-workflows/.github/workflows/docs-cleanup.yml@main
+    # Pin a version via vX.Y.Z tag or even better via a commit SHA for immutability.
+    # Treat @main as experimental!
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-cleanup.yml@vX.Y.Z
     with:
       workflow-version: main
     secrets:
@@ -81,6 +90,7 @@ This workflow:
 
 ✅ Cleans up old documentation versions from the `gh-pages` branch  
 ✅ Runs daily at 2am UTC  
+✅ Is intended for repositories with GitHub Pages enabled  
 
 ---
 
@@ -528,6 +538,60 @@ This workflow:
 ✅ Fails if `MODULE.bazel.lock` is missing  
 ✅ Runs `bazel mod tidy`  
 ✅ Fails if `MODULE.bazel` or `MODULE.bazel.lock` changes after tidy  
+
+---
+
+### **17. Daily Maintenance Workflow**
+
+This workflow groups the repository's daily maintenance tasks. It always handles stale pull requests and also runs documentation cleanup when GitHub Pages is enabled for the repository.
+
+**Usage Example**
+
+```yaml
+name: Daily Maintenance
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # Daily at 3am UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  pages: write
+  id-token: write
+
+jobs:
+  daily:
+    uses: eclipse-score/cicd-workflows/.github/workflows/daily.yml@main
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      pages: write
+      id-token: write
+```
+
+This reusable workflow does not expose any parameters. It applies a fixed maintenance policy:
+
+- Marks pull requests as stale after `30` days of inactivity using the `stale` label  
+- Closes stale pull requests after `10` more days, adding the `autoclosed` label when closing  
+- Exempts pull requests labeled `keep-open`, `do-not-close`, `pinned`, or `feature_request` from being marked stale or auto-closed  
+- Runs documentation cleanup on the `gh-pages` branch when GitHub Pages is enabled  
+
+**Key Features**  
+✅ Marks pull requests stale after the configured idle period  
+✅ Posts a friendly comment asking whether the PR is still relevant, up to date, and ready to merge  
+✅ Closes stale pull requests after the configured follow-up window with a separate explanation  
+✅ Removes the stale label automatically when new activity appears  
+✅ Supports exempt labels for long-running or intentionally parked pull requests  
+✅ Skips issues entirely and targets pull requests only  
+✅ Runs documentation cleanup only when the repository has GitHub Pages enabled  
+
+> ℹ️ **Note:** If you only need stale pull request handling or need different timing or label behavior, use `actions/stale` directly in your repository instead of this reusable workflow.
+ 
+> ℹ️ **Note:** This repository also runs its own combined daily maintenance workflow via [`.github/workflows/_local_daily.yml`](./.github/workflows/_local_daily.yml), which includes stale pull request handling and documentation cleanup when GitHub Pages is enabled.
 
 ---
 

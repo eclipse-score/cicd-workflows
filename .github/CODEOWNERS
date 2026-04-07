@@ -1,0 +1,20 @@
+# 👋 Code owners help maintain this repository and keep it aligned with our technical vision.
+# You're responsible for reviewing changes, ensuring quality, and guiding contributors.
+# You're also encouraged to help triage issues and keep discussions constructive and focused.
+# Ownership can be shared, delegated, or updated as the project evolves.
+
+# For more information about CODEOWNERS, see:
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+
+# This repository is maintained by the following individuals, who are responsible for reviewing and approving changes to the codebase:
+# * @AlexanderLanin @MaximilianSoerenPollak @dcalavrezo-qorix @nradakovic
+
+# However as this would create a potential bottleneck, we also want to cast a wider net and encourage the following individuals to also review and approve changes to the codebase.
+# PLEASE LEAVE CRITICAL DECISIONS TO THE FIRST GROUP, BUT FEEL FREE TO APPROVE ANYTHING ELSE.
+
+# Note: this does in no way mean that the first group is in any way more important, it's just the usual maintainer
+# assignment that we perform per repository. It will be updated as the repository evolves, based on real life
+# experience on who is actively maintaining (not contributing!!) the repository.
+
+* @AlexanderLanin @MaximilianSoerenPollak @dcalavrezo-qorix @nradakovic @pawelrutkaq @PiotrKorkus @kgraeper @opajonk @lurtz

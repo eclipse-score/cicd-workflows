@@ -28,8 +28,8 @@ on:
         default: "workflow"
     secrets:
       token:
-        description: "GitHub Token"
-        required: true
+        description: "deprecated, not used."
+        required: false
 
 jobs:
   docs-cleanup:
@@ -61,7 +61,7 @@ jobs:
       - name: Cleanup old documentation
         working-directory: gh-pages-cleanup
         env:
-          GH_TOKEN: ${{ secrets.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh auth status
 
