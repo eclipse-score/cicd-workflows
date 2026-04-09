@@ -30,7 +30,7 @@ on:
 
 jobs:
   repo-sync:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
       contents: write
       pull-requests: write
