@@ -1,0 +1,87 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: S-CORE Toolchain Test
+
+on:
+  workflow_call:
+    inputs:
+      bazel-action:
+        description: "Bazel action to run (build, test, etc)"
+        required: false
+        default: "test"
+        type: string
+      bazel-target:
+        description: "Bazel target to build or test"
+        required: false
+        default: "//..."
+        type: string
+      bazel-config:
+        description: "Bazel configuration to use for a given toolchain or platform"
+        required: true
+        type: string
+      bazel-disk-cache:
+        description: "Enable Bazel disk cache on GitHub. The value can be a string to use as cache key for separating workflows"
+        required: false
+        default: "true"
+        type: string
+      extra-bazel-flags:
+        description: "Additional Bazel flags to pass to the build command (whitespace separated)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  build:
+    name: Build Target
+    runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout Repository (Handle all events)
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Setup Bazel (Shared Caching)
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: ${{ inputs.bazel-disk-cache }}
+          repository-cache: true
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' }}
+
+      - name: Install QEMU
+        if: inputs.bazel-target != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system
+
+      - name: Enable KVM Group Permissons
+        if: inputs.bazel-target != ''
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Bazel Action
+        if: inputs.bazel-target != ''
+        run: |
+          set -euo pipefail
+
+          bazel ${{ inputs.bazel-action }} \
+          --config ${{ inputs.bazel-config }} \
+          ${{ inputs.extra-bazel-flags }} -- ${{ inputs.bazel-target }}
