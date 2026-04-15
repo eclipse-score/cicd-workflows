@@ -75,7 +75,7 @@ jobs:
           disk-cache: ${{ github.workflow }}
           repository-cache: true
           bazelisk-cache: true
-          cache-save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          cache-save: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'merge_group' }}
 
       - name: Install lcov (+ bc for threshold check)
         run: |
