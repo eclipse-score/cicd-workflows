@@ -74,7 +74,7 @@ jobs:
           disk-cache: true
           repository-cache: true
           bazelisk-cache: true
-          cache-save: ${{ github.event_name == 'push' || github.event_name == 'merge_group' }}
+          cache-save: ${{ github.event_name == 'push' }}
 
       - name: Run Rust tests with coverage instrumentation
         run: |

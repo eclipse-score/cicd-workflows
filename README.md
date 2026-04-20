@@ -616,7 +616,7 @@ To improve performance and reduce redundant downloads across workflow runs, the 
     disk-cache: true
     repository-cache: true
     bazelisk-cache: true
-    cache-save: ${{ github.event_name == 'push' || github.event_name == 'merge_group' }}
+    cache-save: ${{ github.event_name == 'push' }}
 ```
 
 ### Benefits

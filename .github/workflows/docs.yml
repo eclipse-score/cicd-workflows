@@ -86,7 +86,7 @@ jobs:
           disk-cache: false
           repository-cache: false
           bazelisk-cache: true
-          cache-save: ${{ github.event_name == 'push' || github.event_name == 'merge_group' }}
+          cache-save: ${{ github.event_name == 'push' }}
 
       - name: Prepare cache dirs
         shell: bash
