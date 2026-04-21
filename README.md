@@ -6,25 +6,24 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 
 ## Available Workflows
 
-| Workflow                | Description                                                        |
-|-------------------------|--------------------------------------------------------------------|
-| **Documentation Build** | Builds project documentation and deploys it to GitHub Pages         |
-| **Documentation Cleanup** | Cleans up old documentation versions from the `gh-pages` branch   |
-| **License Check**       | Verifies OSS licenses and compliance                               |
-| **Static Code Analysis**| Runs Clang-Tidy, Clippy, Pylint, and other linters                 |
-| **Tests**               | Executes tests using GoogleTest, Rust test, or pytest              |
-| **Rust Coverage**       | Computes Rust code coverage and uploads HTML reports              |
-| **C++ Coverage**        | Computes C++ code coverage using LCOV and uploads HTML reports     |
-| **Formatting Check**    | Verifies code formatting using Bazel-based tools                   |
-| **Copyright Check**     | Ensures all source files have the required copyright headers        |
-| **Required Approvals**     | Enforces stricter CODEOWNERS rules for multi-team approvals         |
-| **QNX Build (Gated)**   | Builds QNX Bazel targets with environment-gated secrets for forks   |
-| **Documentation Verification** | Verifies documentation builds correctly and uploads results    |
-| **CodeQL Scan**         | Performs security and quality analysis using GitHub CodeQL          |
-| **SCORE PR Checks**     | Validates Bazel module naming conventions in pull requests          |
-| **Bzlmod Lockfile Check** | Enforces `MODULE.bazel.lock` consistency via `bazel mod tidy`      |
-| **Template Sync**       | Synchronizes repository with eclipse-score/module_template          |
-| **Daily Maintenance**   | Runs daily maintenance tasks such as stale PR handling and docs cleanup |
+| Workflow                       | Description                                                       |
+| ------------------------------ | ----------------------------------------------------------------- |
+| **Documentation Build**        | Builds project documentation and deploys it to GitHub Pages       |
+| **Documentation Cleanup**      | Cleans up old documentation versions from the `gh-pages` branch   |
+| **License Check**              | Verifies OSS licenses and compliance                              |
+| **Static Code Analysis**       | Runs Clang-Tidy, Clippy, Pylint, and other linters                |
+| **Tests**                      | Executes tests using GoogleTest, Rust test, or pytest             |
+| **Rust Coverage**              | Computes Rust code coverage and uploads HTML reports              |
+| **C++ Coverage**               | Computes C++ code coverage using LCOV and uploads HTML reports    |
+| **Formatting Check**           | Verifies code formatting using Bazel-based tools                  |
+| **Copyright Check**            | Ensures all source files have the required copyright headers      |
+| **Required Approvals**         | Enforces stricter CODEOWNERS rules for multi-team approvals       |
+| **QNX Build (Gated)**          | Builds QNX Bazel targets with environment-gated secrets for forks |
+| **Documentation Verification** | Verifies documentation builds correctly and uploads results       |
+| **CodeQL Scan**                | Performs security and quality analysis using GitHub CodeQL        |
+| **SCORE PR Checks**            | Validates Bazel module naming conventions in pull requests        |
+| **Bzlmod Lockfile Check**      | Enforces `MODULE.bazel.lock` consistency via `bazel mod tidy`     |
+| **Template Sync**              | Synchronizes repository with eclipse-score/module_template        |
 
 ---
 
@@ -639,16 +638,54 @@ This setup significantly reduces CI build time and improves reuse across differe
 All workflows in this repository use the following logic for selecting the runner:
 
 ```yaml
-runs-on: ${{ vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
 ```
 
 This means:
 
-- If your repository defines a variable named `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).  
+- If your repository defines a variable named `runner_labels_ghub_standard_x64` (or any of the other supported ones) or `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).  
   This allows you to use **self-hosted runners** or any custom runner configuration.
-- If `REPO_RUNNER_LABELS` is **not set**, the workflow will default to GitHub-hosted `ubuntu-latest`.
+- If `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` is **not set**, the workflow will default to GitHub-hosted `ubuntu-latest`.
 
 **Why?**  
 This approach allows forked repositories or projects with special requirements to use their own runners, while everyone else gets a reliable default.
 
-> ℹ️ **Tip:** To use a self-hosted runner, set the `REPO_RUNNER_LABELS` variable in your repository or organization settings to the label(s) of your runner.
+> ℹ️ **Tip:** To use a self-hosted runner, set the `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` variable in your repository or organization settings to the label(s) of your runner.
+
+### Runner labels variable naming convention
+
+Since it is very likely the case that different workflows will need different runners of different sizes, OSes and architectures to be cost efficiently using the runner infrastructure the variable that specifies the runner labels shall follow this naming convention:
+
+`runner_labels_<os>_<size>_<architecture>`
+
+As of today the following runner label variables are currently used/supported:
+
+- `runner_labels_ghub_standard_x64`
+- `runner_labels_ghub22_standard_x64`
+- `runner_labels_ghub24_standard_x64`
+
+Where:
+
+- os:
+  - ghub - GitHub Ubuntu latest OS image
+  - ghub22 - GitHub Ubuntu 22.04 OS image
+  - ghub24 - GitHub Ubuntu 24.04 OS image
+- size: standard - Maps to the specs of the "Ubuntu latest" GitHub-hosted runner
+- architecture: x64 - Maps to the architecture of the standard "Ubuntu latest" GitHub-hosted runner. The value is taken from the [GitHub hosted runners reference page](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+
+Due to this new naming convention the variable **REPO_RUNNER_LABELS is deprecated** and will be removed eventually!
+
+### Runner labels variable value syntax
+
+The value of the runner labels variable must be either a JSON array of strings, where each string is a valid GitHub Actions runner label, or a single string.
+
+An example of a valid value for the variable when using a single label is `"self-hosted"`, which would select any self-hosted runner regardless of its other labels if there are multiple available.
+
+An example of a valid value for the variable when using multiple labels is the
+following JSON array:
+
+```json
+["self-hosted", "linux", "x64", "custom-label"]
+```
+
+This allows you to specify multiple labels for your runner, which can be used to match it in the workflow. For example, if you have a self-hosted runner with the labels `self-hosted`, `linux`, `x64`, and `custom-label`, you can set the variable to the above JSON array, and the workflow will use that runner when it runs.
