@@ -41,6 +41,18 @@ on:
         type: string
         required: false
         default: "workflow"
+      gh_app_client_id:
+        description: "GitHub App Client ID for inter-repo access (not used in public S-CORE)"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      gh_app_private_key:
+        description: "GitHub App Private Key for inter-repo access (not used in public S-CORE)"
+        required: false
+      token:
+        description: "GitHub Token for inter-repo access (not used in public S-CORE)"
+        required: false
 
 env:
   CACHE_KEY_PREFIX: bazel-cache
@@ -53,12 +65,20 @@ jobs:
       pull-requests: write
       contents: read
     steps:
+      - uses: eclipse-score/cicd-actions/inter-repo-access@dev
+        with:
+          token: ${{ secrets.token }}
+          github-app-client-id: ${{ vars.gh_app_client_id }}
+          github-app-private-key: ${{ secrets.gh_app_private_key }}
+
       - uses: eclipse-score/more-disk-space@v1
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@v4.2.2
         with:
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          # Reuse the token from inter-repo-access action to ensure access to private repos
+          persist-credentials: false
 
       - name: Checkout action
         uses: actions/checkout@v4.2.2
@@ -67,6 +87,8 @@ jobs:
           repository: eclipse-score/cicd-workflows
           ref: ${{ inputs.workflow-version }}
           path: ./cicd-workflows
+          # Reuse the token from inter-repo-access action to ensure access to private repos
+          persist-credentials: false
 
       - name: Compute cache paths (Linux)
         id: paths
