@@ -66,12 +66,18 @@ jobs:
       contents: read
     steps:
       - uses: eclipse-score/cicd-actions/inter-repo-access@dev
+        # Hint: if condition cannot access secrts, so we pass them via env
+        env:
+          GH_APP_PRIVATE_KEY: ${{ secrets.gh_app_private_key != '' }}
+          TOKEN: ${{ secrets.token != '' }}
+        if: ${{ env.GH_APP_PRIVATE_KEY == 'true' || env.TOKEN == 'true' }}
         with:
           token: ${{ secrets.token }}
-          github-app-client-id: ${{ vars.gh_app_client_id }}
+          github-app-client-id: ${{ inputs.gh_app_client_id }}
           github-app-private-key: ${{ secrets.gh_app_private_key }}
 
       - uses: eclipse-score/more-disk-space@v1
+
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@v4.2.2
         with:
