@@ -68,9 +68,9 @@ jobs:
       - uses: eclipse-score/cicd-actions/inter-repo-access@51883d9cd772bee5b7d139a2e6ffd8aeabca4224 # main branch as of 2026-04-23
         # Hint: if condition cannot access secrets, so we pass them via env
         env:
-          GH_APP_PRIVATE_KEY: ${{ secrets.gh_app_private_key != '' }}
-          TOKEN: ${{ secrets.token != '' }}
-        if: ${{ env.GH_APP_PRIVATE_KEY == 'true' || env.TOKEN == 'true' }}
+          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.gh_app_private_key != '' }}
+          HAS_TOKEN: ${{ secrets.token != '' }}
+        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' }}
         with:
           token: ${{ secrets.token }}
           github-app-client-id: ${{ inputs.gh_app_client_id }}
