@@ -69,10 +69,10 @@ on:
 
 jobs:
   approval:
+    # Require approvals for PRs from forks, but not for same-repository PRs, merge queues or push events.
     # If the job is already in the merge queue, the changes have already been reviewed and approved.
     # Thus the approval is already implicit by the review approval.
-    # Also skip approval for same-repository PRs (non-fork contributions).
-    if: github.event_name != 'merge_group' && (!github.event.pull_request || (github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name))
+    if: github.event_name == 'pull_request_target' && (github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name)
     environment: ${{ inputs.environment-name }}
     runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
