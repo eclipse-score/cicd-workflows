@@ -41,6 +41,18 @@ on:
         type: string
         required: false
         default: "workflow"
+      gh_app_client_id:
+        description: "GitHub App Client ID for inter-repo access (not used in public S-CORE)"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      gh_app_private_key:
+        description: "GitHub App Private Key for inter-repo access (not used in public S-CORE)"
+        required: false
+      token:
+        description: "GitHub Token for inter-repo access (not used in public S-CORE)"
+        required: false
 
 env:
   CACHE_KEY_PREFIX: bazel-cache
@@ -53,20 +65,36 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - uses: eclipse-score/more-disk-space@v1
+      - uses: eclipse-score/cicd-actions/inter-repo-access@51883d9cd772bee5b7d139a2e6ffd8aeabca4224 # main branch as of 2026-04-23
+        # Hint: if condition cannot access secrets, so we pass them via env
+        env:
+          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.gh_app_private_key != '' }}
+          HAS_TOKEN: ${{ secrets.token != '' }}
+        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' }}
+        with:
+          token: ${{ secrets.token }}
+          github-app-client-id: ${{ inputs.gh_app_client_id }}
+          github-app-private-key: ${{ secrets.gh_app_private_key }}
+
+      - uses: eclipse-score/more-disk-space@6a3b48901846bf7f8cc985925157d71a8973e61f # v1
+
       - name: Checkout repository (Handle all events)
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          # Reuse the token from inter-repo-access action to ensure access to private repos
+          persist-credentials: false
 
       - name: Checkout action
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # current repo name
           repository: eclipse-score/cicd-workflows
           ref: ${{ inputs.workflow-version }}
           path: ./cicd-workflows
+          # Reuse the token from inter-repo-access action to ensure access to private repos
+          persist-credentials: false
 
       - name: Compute cache paths (Linux)
         id: paths
@@ -81,7 +109,7 @@ jobs:
           echo "pip_cache=${BASE}/pip" >> "$GITHUB_OUTPUT"
 
       - name: Setup Bazel
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
         with:
           disk-cache: false
           repository-cache: false
@@ -100,7 +128,7 @@ jobs:
             "${{ steps.paths.outputs.pip_cache }}"
 
       - name: Restore content cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ${{ steps.paths.outputs.bazelisk_home }}
@@ -180,7 +208,7 @@ jobs:
       - name: Upload cache snapshot artifact
         if: runner.debug
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cache-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cache-snapshot.tgz
@@ -188,14 +216,14 @@ jobs:
           if-no-files-found: ignore
 
       - name: Install Graphviz
-        uses: eclipse-score/apt-install@main
+        uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
         with:
           packages: graphviz
           cache: false
 
       - name: Download test report
         if: ${{ inputs.tests-report-artifact != '' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.tests-report-artifact }}
           path: tests-report
@@ -220,7 +248,7 @@ jobs:
           tar -cf github-pages.tar _build
 
       - name: Upload documentation artifact
-        uses: actions/upload-artifact@v4.4.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: github-pages-${{ github.event.pull_request.head.sha || github.sha }}
           path: github-pages.tar
@@ -230,7 +258,7 @@ jobs:
       - name: Save content cache (branch)
         if: success()
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ${{ steps.paths.outputs.bazelisk_home }}
@@ -307,10 +335,10 @@ jobs:
             echo "gh-pages branch exists. Skipping creation."
           fi
       - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download documentation artifact
-        uses: actions/download-artifact@v4.1.8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: github-pages-${{ github.event.pull_request.head.sha || github.sha }}
 
