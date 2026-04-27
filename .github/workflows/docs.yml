@@ -215,7 +215,18 @@ jobs:
           retention-days: 5
           if-no-files-found: ignore
 
+      - name: Check Graphviz installation
+        id: graphviz
+        shell: bash
+        run: |
+          if command -v dot >/dev/null 2>&1; then
+            echo "installed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Graphviz
+        if: ${{ steps.graphviz.outputs.installed != 'true' }}
         uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
         with:
           packages: graphviz
