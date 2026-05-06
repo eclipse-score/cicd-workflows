@@ -2,6 +2,9 @@
   // Use Renovate's recommended baseline (PR limits, grouping, etc.)
   extends: ["config:recommended"],
 
+  // Commit author
+  gitAuthor: "eclipse-score-bot <score-bot@eclipse.com>",
+
   // Target following repositories
   repositories: [
     "eclipse-score/bazel_cpp_toolchains",
