@@ -1,0 +1,73 @@
+{
+  // Use Renovate's recommended baseline (PR limits, grouping, etc.)
+  extends: ["config:recommended"],
+
+  // Target following repositories
+  repositories: [
+    "eclipse-score/bazel_cpp_toolchains",
+    "eclipse-score/devcontainer",
+    "eclipse-score/docs-as-code",
+    "eclipse-score/itf",
+    "eclipse-score/os_images",
+    "eclipse-score/qnx_unit_tests",
+    "eclipse-score/rules_imagefs",
+    "eclipse-score/testing_tools",
+    "eclipse-score/toolchains_rust",
+  ],
+
+  // 🚨 Run experiment
+  prBodyNotes: [
+    "🚨 **EXPERIMENTAL** 🚨",
+    "This Renovate setup is currently under testing.  ",
+    "It should produce good PRs, but there may be some issues.  ",
+    "Contact #infrastructure if you have any questions or feedback.",
+  ],
+
+  // Add labels to all PRs, so we can actually find them
+  labels: [
+    "automation",
+    "renovate",
+  ],
+
+  // Run on all repos, without requiring local renovate.json
+  onboarding: false,
+  requireConfig: "ignored",
+
+  // Limit PRs to 10 at a time, to avoid overwhelming maintainers
+  prConcurrentLimit: 10,
+
+  // Override default weekly schedule from config:recommended so Renovate
+  // runs every time the workflow triggers.
+  schedule: ["at any time"],
+
+  // ---- BAZEL -----
+  
+  // For now, only update Bazel module dependencies
+  enabledManagers: ["bazel-module"],
+
+  // Allow bazel lockfile updates via `bazel mod deps --lockfile_mode=update`
+  allowedUnsafeExecutions: ["bazelModDeps"],
+
+  // Update score packages only
+  packageRules: [
+    {
+      // By default bazel is enabled, but it shall update only score packages,
+      // so disable all bazel module updates first.
+      matchManagers: ["bazel-module"],
+      enabled: false
+    },
+    {
+      // And then re-enable only modules whose package name starts with "score_"
+      matchManagers: ["bazel-module"],
+      matchPackageNames: ["/^score_/"],
+      enabled: true,
+    },
+    {
+      // score_tooling >1.1.0 up to and including 1.2.0 is broken with no fix
+      // available. Block updates beyond 1.1.0 until a fixed version is released.
+      matchManagers: ["bazel-module"],
+      matchPackageNames: ["score_tooling"],
+      allowedVersions: "<=1.1.0",
+    }
+  ],
+}
