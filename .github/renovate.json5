@@ -3,7 +3,7 @@
   extends: ["config:recommended"],
 
   // Commit author
-  gitAuthor: "eclipse-score-bot <score-bot@eclipse.com>",
+  gitAuthor: "eclipse-score-bot <score-bot@eclipse.org>",
 
   // Target following repositories
   repositories: [
