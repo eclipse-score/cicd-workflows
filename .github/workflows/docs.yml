@@ -256,7 +256,7 @@ jobs:
           if-no-files-found: error
 
       - name: Save content cache (branch)
-        if: success()
+        if: success() && github.event_name == 'push'
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
