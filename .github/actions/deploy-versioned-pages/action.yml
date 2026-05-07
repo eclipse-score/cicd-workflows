@@ -138,6 +138,16 @@ runs:
         ref: gh-pages
         path: gh-pages-content
 
+    - name: Delete stale github-pages artifact
+      if: ${{ inputs.deployment_type == 'workflow' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+          --jq '.artifacts[] | select(.name == "github-pages") | .id' | \
+          xargs -r -I{} gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/{}
+
     - name: Workflow Upload site artifacts
       if: ${{ inputs.deployment_type == 'workflow' }}
       uses: actions/upload-pages-artifact@v3
