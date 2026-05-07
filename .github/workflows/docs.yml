@@ -255,6 +255,15 @@ jobs:
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
 
+      - name: Upload built documentation (debug)
+        if: runner.debug
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docs-debug-${{ github.run_id }}-${{ github.run_attempt }}
+          path: github-pages.tar
+          retention-days: 5
+          if-no-files-found: error
+
       - name: Save content cache (branch)
         if: success() && github.event_name == 'push'
         continue-on-error: true
