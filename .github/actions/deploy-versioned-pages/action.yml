@@ -17,6 +17,19 @@ description: Will push the documentation to the gh-pages branch, possibly with a
 # problems with overwriting existing files, not deleting deleted files, etc.
 # We'll address these when we transform this action into a truly reusable independent action.
 # But for now, let's get it working!
+#
+# Concurrency note:
+#   This action previously used softprops/turnstyle@v3 to serialize deployments. turnstyle relies
+#   on github.workflow to look up the workflow ID and list runs. When this composite action is
+#   invoked via workflow_call, github.workflow resolves to the top-level caller's workflow name
+#   rather than the reusable workflow's filename, causing turnstyle to fail to find matching runs.
+#   This is a known incompatibility between turnstyle and nested reusable workflows.
+#
+#   The fix is to use GitHub's native concurrency key on the calling job instead:
+#     concurrency:
+#       group: pages-deploy-${{ github.repository }}-${{ github.ref }}
+#       cancel-in-progress: false
+#   This works correctly regardless of workflow nesting depth.
 
 inputs:
   source_folder:
@@ -41,10 +54,6 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Sync concurrent deployments
-      uses: softprops/turnstyle@v3
-      with:
-        continue-after-seconds: 120
     - name: Determine target_folder
       id: calc
       shell: bash

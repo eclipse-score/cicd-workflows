@@ -1,5 +1,5 @@
 # *******************************************************************************
-# Copyright (c) 2025 Contributors to the Eclipse Foundation
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
 #
 # See the NOTICE file(s) distributed with this work for additional
 # information regarding copyright ownership.
@@ -11,22 +11,26 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
-name: Pull Request Workflow
+name: Daily
+
 on:
-  pull_request:
-    types: [opened, reopened, synchronize]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  pages: write
+  id-token: write
 
 jobs:
-
-  self_test:
-    name: 🔬 Self Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: 📥 Check out
-        uses: actions/checkout@v6
-
-      - name: ⚙️ Setup uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: 🛠️ Run pre-commit
-        run: uvx pre-commit run --all-files
+  maintenance:
+    uses: ./.github/workflows/daily.yml
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      pages: write
+      id-token: write
