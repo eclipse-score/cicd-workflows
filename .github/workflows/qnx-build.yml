@@ -68,55 +68,38 @@ jobs:
 
     steps:
       - name: Checkout repository (Handle all events)
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
         with:
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Setup Bazel with shared caching
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 #v0.19.0
         with:
           disk-cache: ${{ inputs.bazel-disk-cache }}
           repository-cache: true
           bazelisk-cache: true
           cache-save: ${{ github.event_name == 'push' }}
 
-      - name: Prepare QNX license
-        env:
-          SCORE_QNX_LICENSE: ${{ secrets.score-qnx-license }}
-        run: |
-          set -euo pipefail
 
-          LICENSE_DIR="/opt/score_qnx/license"
-          sudo mkdir -p "${LICENSE_DIR}"
-          echo "${SCORE_QNX_LICENSE}" | base64 --decode | sudo tee "${LICENSE_DIR}/licenses" >/dev/null
+      - name: Setup QNX SDP usage
+        uses: mtombosch/cicd-actions/.github/actions/setup-qnx-sdp@ceeecb09fef61202ea2bf5d93fa6160668525bec
+        #uses: eclipse-score/cicd-actions/.github/actions/setup-qnx-sdp@ceeecb09fef61202ea2bf5d93fa6160668525bec
+        with:
+          qnx-license: ${{ secrets.score-qnx-license }}
+          qnx-user: ${{ secrets.score-qnx-user }}
+          qnx-password: ${{ secrets.score-qnx-password }}
+          qnx-credential-helper: ${{ inputs.credential-helper }}
+          qnx-license-dir: "/opt/score_qnx/license"
 
       - name: Build with QNX toolchain
-        env:
-          SCORE_QNX_USER: ${{ secrets.score-qnx-user }}
-          SCORE_QNX_PASSWORD: ${{ secrets.score-qnx-password }}
         run: |
           set -euo pipefail
 
-          CRED_HELPER="${{ inputs.credential-helper }}"
-          if [[ "${CRED_HELPER}" != /* ]]; then
-            CRED_HELPER="${GITHUB_WORKSPACE}/${CRED_HELPER}"
-          fi
-
-          if [[ ! -f "${CRED_HELPER}" ]]; then
-            echo "Credential helper not found at ${CRED_HELPER}" >&2
-            exit 1
-          fi
-
-          if [[ ! -x "${CRED_HELPER}" ]]; then
-            chmod +x "${CRED_HELPER}"
-          fi
-
-          echo "Using credential helper at ${CRED_HELPER}"
           bazel build --config ${{ inputs.bazel-config }} \
-            --credential_helper=*.qnx.com="${CRED_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
+            --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
             ${{ inputs.bazel-target }}
 
       - name: Cleanup QNX license
         if: always()
-        run: sudo rm -rf /opt/score_qnx
+        run: sudo rm -rf /opt/score_qnx || true
