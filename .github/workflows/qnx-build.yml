@@ -122,21 +122,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          CRED_HELPER="${{ inputs.credential-helper }}"
-          if [[ "${CRED_HELPER}" != /* ]]; then
-            CRED_HELPER="${GITHUB_WORKSPACE}/${CRED_HELPER}"
-          fi
-
-          if [[ ! -f "${CRED_HELPER}" ]]; then
-            echo "Credential helper not found at ${CRED_HELPER}" >&2
-            exit 1
-          fi
-
-          if [[ ! -x "${CRED_HELPER}" ]]; then
-            chmod +x "${CRED_HELPER}"
-          fi
-
-          echo "Using credential helper at ${CRED_HELPER}"
           bazel build --config ${{ inputs.bazel-config }} \
             --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
             ${{ inputs.bazel-target }}
@@ -156,15 +141,11 @@ jobs:
 
       - name: Test with QNX toolchain
         if: inputs.bazel-test-target != ''
-        env:
-          SCORE_QNX_USER: ${{ secrets.score-qnx-user }}
-          SCORE_QNX_PASSWORD: ${{ secrets.score-qnx-password }}
         run: |
           set -euo pipefail
 
-          echo "Using credential helper at ${CRED_HELPER}"
           bazel test --config ${{ inputs.bazel-config }} \
-            --credential_helper=*.qnx.com="${CRED_HELPER}" ${{ inputs.extra-bazel-test-flags }} -- \
+            --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-test-flags }} -- \
             ${{ inputs.bazel-test-target }}
 
       - name: Cleanup QNX license
