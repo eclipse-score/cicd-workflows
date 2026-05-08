@@ -56,6 +56,10 @@ on:
         required: false
         default: ""
         type: string
+      score-qnx-license-server:
+        description: "Address of the QNX license server (e.g. '6287@license-server-hostname'). Configures user.bazelrc with related action env vars."
+        required: false
+        type: string
     secrets:
       score-qnx-license:
         description: "Base64-encoded QNX license content"
@@ -66,9 +70,6 @@ on:
       score-qnx-password:
         description: "QNX account password"
         required: true
-      score-qnx-license-server:
-        description: "Address of the QNX license server (e.g. '6287@license-server-hostname'). Configures user.bazelrc with related action env vars."
-        required: false
 
 jobs:
   approval:
@@ -116,7 +117,7 @@ jobs:
         #uses: eclipse-score/cicd-actions/.github/actions/setup-qnx-sdp@ceeecb09fef61202ea2bf5d93fa6160668525bec
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
-          qnx-license-server: ${{ secrets.score-qnx-license-server }}
+          qnx-license-server: ${{ inputs.score-qnx-license-server }}
           qnx-user: ${{ secrets.score-qnx-user }}
           qnx-password: ${{ secrets.score-qnx-password }}
           qnx-credential-helper: ${{ inputs.credential-helper }}
