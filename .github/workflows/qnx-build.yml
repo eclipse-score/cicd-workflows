@@ -17,58 +17,63 @@ on:
   workflow_call:
     inputs:
       bazel-target:
-        description: "Bazel target to build with the QNX toolchain"
+        description: Bazel target to build with the QNX toolchain
         required: false
-        default: "//..."
+        default: //...
         type: string
       bazel-config:
-        description: "Bazel configuration to use for QNX builds"
+        description: Bazel configuration to use for QNX builds
         required: false
-        default: "x86_64-qnx"
+        default: x86_64-qnx
         type: string
       credential-helper:
-        description: "Relative or absolute path to the QNX credential helper script"
+        description: Relative or absolute path to the QNX credential helper script
         required: false
-        default: ".github/tools/qnx_credential_helper.py"
+        default: .github/tools/qnx_credential_helper.py
         type: string
       environment-name:
-        description: "Environment gating access to QNX secrets"
+        description: Environment gating access to QNX secrets
         required: false
-        default: "workflow-approval"
+        default: workflow-approval
         type: string
       bazel-disk-cache:
-        description: "Enable Bazel disk cache on GitHub. The value can be a string to use as cache key for separating workflows"
+        description: Enable Bazel disk cache on GitHub. The value can be a string
+          to use as cache key for separating workflows
         required: false
-        default: "true"
+        default: 'true'
         type: string
       extra-bazel-flags:
-        description: "Additional Bazel flags to pass to the build command (whitespace separated)"
+        description: Additional Bazel flags to pass to the build command (whitespace
+          separated)
         required: false
-        default: ""
+        default: ''
         type: string
       bazel-test-target:
-        description: "Bazel test targets to run with the QNX toolchain (leave empty to skip tests)"
+        description: Bazel test targets to run with the QNX toolchain (leave empty
+          to skip tests)
         required: false
-        default: ""
+        default: ''
         type: string
       extra-bazel-test-flags:
-        description: "Additional Bazel flags to pass to the test command (whitespace separated)"
+        description: Additional Bazel flags to pass to the test command (whitespace
+          separated)
         required: false
-        default: ""
+        default: ''
         type: string
       score-qnx-license-server:
-        description: "Address of the QNX license server (e.g. '6287@license-server-hostname'). Configures user.bazelrc with related action env vars."
+        description: Address of the QNX license server (e.g. '6287@license-server-hostname').
+          Configures user.bazelrc with related action env vars.
         required: false
         type: string
     secrets:
       score-qnx-license:
-        description: "Base64-encoded QNX license content"
+        description: Base64-encoded QNX license content
         required: true
       score-qnx-user:
-        description: "QNX account username"
+        description: QNX account username
         required: true
       score-qnx-password:
-        description: "QNX account password"
+        description: QNX account password
         required: true
 
 jobs:
@@ -76,83 +81,90 @@ jobs:
     # Require approvals for PRs from forks, but not for same-repository PRs, merge queues or push events.
     # If the job is already in the merge queue, the changes have already been reviewed and approved.
     # Thus the approval is already implicit by the review approval.
-    if: github.event_name == 'pull_request_target' && (github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name)
+    if: github.event_name == 'pull_request_target' && (github.event.pull_request.head.repo.full_name
+      != github.event.pull_request.base.repo.full_name)
     environment: ${{ inputs.environment-name }}
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64)
+      || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest'
+      }}
     permissions:
       contents: read
       pull-requests: read
     steps:
-      - name: Blocking on approval
-        run: 'true'
+    - name: Blocking on approval
+      run: 'true'
 
   qnx-build:
     name: Build QNX target
     # always run this job, because the approval is sometimes skipped by intention
     if: always()
     needs: approval
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64)
+      || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest'
+      }}
     permissions:
       contents: read
       pull-requests: read
 
     steps:
-      - name: Checkout repository (Handle all events)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
-        with:
-          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+    - name: Checkout repository (Handle all events)
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd   #v6.0.2
+      with:
+        ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref
+          }}
+        repository: ${{ github.event.pull_request.head.repo.full_name || github.repository
+          }}
 
-      - name: Setup Bazel with shared caching
-        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 #v0.19.0
-        with:
-          disk-cache: ${{ inputs.bazel-disk-cache }}
-          repository-cache: true
-          bazelisk-cache: true
-          cache-save: ${{ github.event_name == 'push' }}
+    - name: Setup Bazel with shared caching
+      uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86   #v0.19.0
+      with:
+        disk-cache: ${{ inputs.bazel-disk-cache }}
+        repository-cache: true
+        bazelisk-cache: true
+        cache-save: ${{ github.event_name == 'push' }}
 
 
-      - name: Setup QNX SDP usage
-        uses: mtombosch/cicd-actions/setup-qnx-sdp@6e6c7eb5973701d665ee395fd57dfeeaae35c4fe
+    - name: Setup QNX SDP usage
+      uses: mtombosch/cicd-actions/setup-qnx-sdp@6e6c7eb5973701d665ee395fd57dfeeaae35c4fe
         #uses: eclipse-score/cicd-actions/.github/actions/setup-qnx-sdp@ceeecb09fef61202ea2bf5d93fa6160668525bec
-        with:
-          qnx-license: ${{ secrets.score-qnx-license }}
-          qnx-license-server: ${{ inputs.score-qnx-license-server }}
-          qnx-user: ${{ secrets.score-qnx-user }}
-          qnx-password: ${{ secrets.score-qnx-password }}
-          qnx-credential-helper: ${{ inputs.credential-helper }}
-          qnx-license-dir: "/opt/score_qnx/license"
+      with:
+        qnx-license: ${{ secrets.score-qnx-license }}
+        qnx-license-server: ${{ inputs.score-qnx-license-server }}
+        qnx-user: ${{ secrets.score-qnx-user }}
+        qnx-password: ${{ secrets.score-qnx-password }}
+        qnx-credential-helper: ${{ inputs.credential-helper }}
+        qnx-license-dir: /opt/score_qnx/license
 
-      - name: Build with QNX toolchain
-        run: |
-          set -euo pipefail
+    - name: Build with QNX toolchain
+      run: |
+        set -euo pipefail
 
-          bazel build --config ${{ inputs.bazel-config }} \
-            --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
-            ${{ inputs.bazel-target }}
+        bazel build --config ${{ inputs.bazel-config }} \
+          --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
+          ${{ inputs.bazel-target }}
 
-      - name: Install qemu
-        if: inputs.bazel-test-target != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system
+    - name: Install qemu
+      if: inputs.bazel-test-target != ''
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-system
 
-      - name: Enable KVM group permissons
-        if: inputs.bazel-test-target != ''
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+    - name: Enable KVM group permissons
+      if: inputs.bazel-test-target != ''
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
 
-      - name: Test with QNX toolchain
-        if: inputs.bazel-test-target != ''
-        run: |
-          set -euo pipefail
+    - name: Test with QNX toolchain
+      if: inputs.bazel-test-target != ''
+      run: |
+        set -euo pipefail
 
-          bazel test --config ${{ inputs.bazel-config }} \
-            --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-test-flags }} -- \
-            ${{ inputs.bazel-test-target }}
+        bazel test --config ${{ inputs.bazel-config }} \
+          --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-test-flags }} -- \
+          ${{ inputs.bazel-test-target }}
 
-      - name: Cleanup QNX license
-        if: always()
-        run: sudo rm -rf /opt/score_qnx || true
+    - name: Cleanup QNX license
+      if: always()
+      run: sudo rm -rf /opt/score_qnx || true
