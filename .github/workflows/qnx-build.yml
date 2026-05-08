@@ -66,6 +66,9 @@ on:
       score-qnx-password:
         description: "QNX account password"
         required: true
+      score-qnx-license-server:
+        description: "Address of the QNX license server (e.g. '6287@license-server-hostname'). Configures user.bazelrc with related action env vars."
+        required: false
 
 jobs:
   approval:
@@ -109,10 +112,11 @@ jobs:
 
 
       - name: Setup QNX SDP usage
-        uses: mtombosch/cicd-actions/.github/setup-qnx-sdp@7088052ee96893c0fec53f46c04cd02089c2ba73
+        uses: mtombosch/cicd-actions/.github/setup-qnx-sdp@e5dcf1d58c9f7be6b5783c72226a3c7de96c935c
         #uses: eclipse-score/cicd-actions/.github/actions/setup-qnx-sdp@ceeecb09fef61202ea2bf5d93fa6160668525bec
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
+          qnx-license-server: ${{ secrets.score-qnx-license-server }}
           qnx-user: ${{ secrets.score-qnx-user }}
           qnx-password: ${{ secrets.score-qnx-password }}
           qnx-credential-helper: ${{ inputs.credential-helper }}
