@@ -125,7 +125,7 @@ jobs:
 
 
     - name: Setup QNX SDP usage
-      uses: mtombosch/cicd-actions/setup-qnx-sdp@6e6c7eb5973701d665ee395fd57dfeeaae35c4fe
+      uses: mtombosch/cicd-actions/setup-qnx-sdp@82d7064f8995defd467216e4ae8f28c6c578f577
         #uses: eclipse-score/cicd-actions/.github/actions/setup-qnx-sdp@ceeecb09fef61202ea2bf5d93fa6160668525bec
       with:
         qnx-license: ${{ secrets.score-qnx-license }}
