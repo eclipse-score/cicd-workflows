@@ -167,4 +167,4 @@ jobs:
 
     - name: Cleanup QNX license
       if: always()
-      run: sudo rm -rf /opt/score_qnx || true
+      run: rm -rf /opt/score_qnx/license || sudo rm -rf /opt/score_qnx/license || true
