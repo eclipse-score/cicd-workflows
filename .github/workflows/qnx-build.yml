@@ -154,7 +154,3 @@ jobs:
           bazel test --config ${{ inputs.bazel-config }} \
             --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-test-flags }} -- \
             ${{ inputs.bazel-test-target }}
-
-      - name: Cleanup QNX license
-        if: always()
-        run: rm -rf /opt/score_qnx/license || sudo rm -rf /opt/score_qnx/license
