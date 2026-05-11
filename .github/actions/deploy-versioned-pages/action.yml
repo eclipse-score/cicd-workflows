@@ -75,6 +75,7 @@ runs:
         SERVER_URL: ${{ github.server_url }}
         REPOSITORY: ${{ github.repository }}
         TARGET_FOLDER: ${{ steps.calc.outputs.target_folder }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
       run: ${{ github.action_path }}/prepare-deploy-folder.sh
 
     - name: Deploy Documentation

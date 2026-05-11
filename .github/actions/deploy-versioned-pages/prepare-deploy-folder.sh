@@ -44,7 +44,13 @@ else
     new_url="${GITHUB_PAGES_URL}/${TARGET_FOLDER}/"
   fi
 
-  jq --arg version "$new_version" --arg url "$new_url" '. + [{"version": $version, "url": $url}]' "$VERSIONS_FILE" > tmp_versions.json
+  if [ -n "$PR_TITLE" ]; then
+    jq --arg version "$new_version" --arg url "$new_url" --arg name "$PR_TITLE" \
+      '. + [{"version": $version, "url": $url, "name": $name}]' "$VERSIONS_FILE" > tmp_versions.json
+  else
+    jq --arg version "$new_version" --arg url "$new_url" \
+      '. + [{"version": $version, "url": $url}]' "$VERSIONS_FILE" > tmp_versions.json
+  fi
   mv tmp_versions.json "$VERSIONS_FILE"
 fi
 mv "$VERSIONS_FILE" version_root/
