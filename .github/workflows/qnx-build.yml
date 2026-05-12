@@ -115,7 +115,7 @@ jobs:
       - name: Setup QNX SDP usage
         # Last version of the setup-qnx action where it was a composite action, all newer versions are JavaScript actions
         #uses: mtombosch/cicd-actions/setup-qnx-sdp@cc100f511b6144ab04ddc3c09750094f8cc7e561
-        uses: mtombosch/cicd-actions/setup-qnx-sdp@db194ba31b5d0e8cc22d61dbc60ec57032de9d0c
+        uses: mtombosch/cicd-actions/setup-qnx-sdp@db93edc8586a7774099705c9c1577d4f21ae5475
         #uses: eclipse-score/cicd-actions/.github/actions/setup-qnx-sdp@ceeecb09fef61202ea2bf5d93fa6160668525bec
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
