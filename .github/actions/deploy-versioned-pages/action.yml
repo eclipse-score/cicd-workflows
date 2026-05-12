@@ -86,7 +86,9 @@ runs:
         git fetch base gh-pages --depth 1
 
         # Checkout only the versions file from gh-pages branch of the base repo
-        git checkout base/gh-pages -- "${{ inputs.versions_file }}"
+        # If the file doesn't exist yet (first deployment), initialize with an empty array
+        git checkout base/gh-pages -- "${{ inputs.versions_file }}" \
+          || { echo "versions file not found on gh-pages, initializing empty"; echo '[]' > "${{ inputs.versions_file }}"; }
 
         target="${{ steps.calc.outputs.target_folder }}"
         new_version="${{ steps.calc.outputs.target_folder }}"
