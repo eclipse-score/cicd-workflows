@@ -33,6 +33,9 @@
   onboarding: false,
   requireConfig: "ignored",
 
+  // Disable the dependency dashboard issue
+  dependencyDashboard: false,
+
   // Limit PRs to 10 at a time, to avoid overwhelming maintainers
   prConcurrentLimit: 10,
 
