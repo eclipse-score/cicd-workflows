@@ -113,10 +113,7 @@ jobs:
           cache-save: ${{ github.event_name == 'push' }}
 
       - name: Setup QNX SDP usage
-        # Last version of the setup-qnx action where it was a composite action, all newer versions are JavaScript actions
-        #uses: mtombosch/cicd-actions/setup-qnx-sdp@cc100f511b6144ab04ddc3c09750094f8cc7e561
-        uses: mtombosch/cicd-actions/setup-qnx-sdp@feature/setup-qnx-contribution
-        #uses: eclipse-score/cicd-actions/.github/actions/setup-qnx-sdp@ceeecb09fef61202ea2bf5d93fa6160668525bec
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@e558daa74b7a12d839ab0d85083bb81118992813 # 2026-05-18
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
           qnx-license-server: ${{ inputs.score-qnx-license-server }}
