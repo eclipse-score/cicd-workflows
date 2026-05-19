@@ -113,7 +113,7 @@ jobs:
           cache-save: ${{ github.event_name == 'push' }}
 
       - name: Setup QNX SDP usage
-        uses: eclipse-score/cicd-actions/setup-qnx-sdp@e558daa74b7a12d839ab0d85083bb81118992813 # 2026-05-18
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@a2b3c36fc7d1b9d03880d19935c7ac9cfffe58c6 # 2026-05-19
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
           qnx-license-server: ${{ inputs.score-qnx-license-server }}
