@@ -66,6 +66,10 @@ jobs:
     runs-on: ${{ vars.runner_labels_ghub22_standard_x64 && fromJSON(vars.runner_labels_ghub22_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || inputs.runner-label }}
 
     steps:
+      - uses: eclipse-score/more-disk-space@6a3b48901846bf7f8cc985925157d71a8973e61f # v1
+        with:
+          level: 4
+
       - name: Checkout repository
         uses: actions/checkout@v6
 
