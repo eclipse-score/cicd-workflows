@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 from scripts.coverage.generate_cpp_coverage_full import _generate_synthetic_baseline
 from scripts.coverage.lcov_utils import coverage_stats_from_info, extract_covered_sources, normalize_sf_path
 from scripts.coverage.target_sets import _normalize_source_label, compute_target_sets
+from scripts.coverage.validate_cpp_coverage_denominator import _load_exclusions
 
 
 class NormalizeSourceLabelTests(unittest.TestCase):
@@ -146,6 +147,28 @@ class SyntheticBaselineTests(unittest.TestCase):
             self.assertEqual(stats.lines_found, 4)
             self.assertEqual(stats.lines_hit, 0)
             self.assertEqual(stats.line_rate, 0.0)
+
+
+class CoverageExclusionsTests(unittest.TestCase):
+    def test_load_exclusions_ignores_comments(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exclusions_path = pathlib.Path(tmp_dir) / "coverage_exclusions.txt"
+            exclusions_path.write_text(
+                "\n".join(
+                    [
+                        "# comment",
+                        "score/lib/a.cpp",
+                        "  # indented comment",
+                        "",
+                        "score/lib/b.cc",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            exclusions = _load_exclusions(exclusions_path)
+            self.assertEqual(exclusions, {"score/lib/a.cpp", "score/lib/b.cc"})
 
 
 if __name__ == "__main__":
