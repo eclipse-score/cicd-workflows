@@ -102,8 +102,6 @@ jobs:
         with:
           level: 4
 
-      - uses: elektrobit-contrib/eclipse-score_cicd-actions/unblock-user-namespace-for-linux-sandbox@add-unblock_user_namespace_for_linux_sandbox
-
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
         with:
@@ -117,6 +115,8 @@ jobs:
           repository-cache: true
           bazelisk-cache: true
           cache-save: ${{ github.event_name == 'push' }}
+
+      - uses: elektrobit-contrib/eclipse-score_cicd-actions/unblock-user-namespace-for-linux-sandbox@add-unblock_user_namespace_for_linux_sandbox
 
       - name: Setup QNX SDP usage
         uses: eclipse-score/cicd-actions/setup-qnx-sdp@a2b3c36fc7d1b9d03880d19935c7ac9cfffe58c6 # 2026-05-19
