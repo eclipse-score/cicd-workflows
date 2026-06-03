@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import shutil
 
 from scripts.coverage.common import ensure_dir, read_lines, repo_root_from_env, run_cmd
-from scripts.coverage.lcov_utils import coverage_stats_from_info
+from scripts.coverage.lcov_utils import coverage_stats_from_info, extract_covered_sources
 from scripts.coverage.target_sets import compute_target_sets
+
+LCOV_BRANCH_RC = ["--rc", "lcov_branch_coverage=1"]
 
 
 def _generate_synthetic_baseline(
@@ -39,6 +42,12 @@ def _generate_synthetic_baseline(
 
     baseline_info.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return baseline_info
+
+
+def _baseline_sources(expected_sources: list[str], covered_sources: set[str]) -> list[str]:
+    """Return deterministic list of sources that need synthetic baseline coverage."""
+
+    return sorted(set(expected_sources) - covered_sources)
 
 
 def main() -> int:
@@ -83,12 +92,6 @@ def main() -> int:
         + read_lines(functional_targets_path)
     )
 
-    baseline_info = _generate_synthetic_baseline(
-        out_dir=out_dir,
-        expected_sources=target_sets.functional_sources,
-        repo_root=repo_root,
-    )
-
     run_cmd(
         base_bazel
         + ["coverage"]
@@ -102,23 +105,36 @@ def main() -> int:
     if not runtime_info.exists():
         raise RuntimeError(f"Coverage runtime report not found: {runtime_info}")
 
+    covered_sources = extract_covered_sources(runtime_info, repo_root)
+    baseline_sources = _baseline_sources(target_sets.functional_sources, covered_sources)
+
     merged_info = out_dir / "coverage_full.info"
-    run_cmd(
-        [
-            "lcov",
-            "-a",
-            str(baseline_info),
-            "-a",
-            str(runtime_info),
-            "-o",
-            str(merged_info),
-        ]
-    )
+    if baseline_sources:
+        baseline_info = _generate_synthetic_baseline(
+            out_dir=out_dir,
+            expected_sources=baseline_sources,
+            repo_root=repo_root,
+        )
+        run_cmd(
+            [
+                "lcov",
+                *LCOV_BRANCH_RC,
+                "-a",
+                str(baseline_info),
+                "-a",
+                str(runtime_info),
+                "-o",
+                str(merged_info),
+            ]
+        )
+    else:
+        shutil.copyfile(runtime_info, merged_info)
 
     filtered_info = out_dir / "coverage_full.filtered.info"
     run_cmd(
         [
             "lcov",
+            *LCOV_BRANCH_RC,
             "--remove",
             str(merged_info),
             "*/external/*",
@@ -133,11 +149,13 @@ def main() -> int:
     run_cmd(
         [
             "genhtml",
+            "--legend",
             "--branch-coverage",
             "--output-directory",
             str(html_dir),
             str(filtered_info),
-        ]
+        ],
+        cwd=repo_root,
     )
 
     stats = coverage_stats_from_info(filtered_info)

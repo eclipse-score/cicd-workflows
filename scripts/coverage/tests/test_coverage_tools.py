@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts.coverage.generate_cpp_coverage_full import _generate_synthetic_baseline
+from scripts.coverage.generate_cpp_coverage_full import _baseline_sources, _generate_synthetic_baseline
 from scripts.coverage.lcov_utils import coverage_stats_from_info, extract_covered_sources, normalize_sf_path
 from scripts.coverage.target_sets import _normalize_source_label, compute_target_sets
 from scripts.coverage.validate_cpp_coverage_denominator import _load_exclusions
@@ -111,6 +111,13 @@ class ComputeTargetSetsTests(unittest.TestCase):
 
 
 class SyntheticBaselineTests(unittest.TestCase):
+    def test_baseline_sources_only_missing(self) -> None:
+        baseline = _baseline_sources(
+            expected_sources=["score/lib/a.cpp", "score/lib/b.cc", "score/lib/c.cpp"],
+            covered_sources={"score/lib/c.cpp", "score/lib/a.cpp"},
+        )
+        self.assertEqual(baseline, ["score/lib/b.cc"])
+
     def test_generate_synthetic_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = pathlib.Path(tmp_dir)
