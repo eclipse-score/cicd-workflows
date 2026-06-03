@@ -49,3 +49,4 @@ jobs:
           configurationFile: .github/renovate.json5
         env:
           LOG_LEVEL: debug
+          RENOVATE_DRY_RUN: full
