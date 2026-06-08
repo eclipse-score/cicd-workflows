@@ -11,6 +11,33 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
+# Verifies that MODULE.bazel and MODULE.bazel.lock are consistent and up to date.
+#
+# Two checks run in parallel:
+#   bzlmod-tidy-check     — runs `bazel mod tidy` and fails if it would change any file
+#   bzlmod-lockfile-check — runs `bazel mod deps --lockfile_mode=error` and fails if the
+#                           lockfile does not match the resolved dependency graph
+#
+# Recommended alternative: run these checks locally via pre-commit so issues are caught
+# before they reach CI. Add the following to your .pre-commit-config.yaml:
+#
+#   - repo: local
+#     hooks:
+#       - id: bzlmod-tidy
+#         name: bazel mod tidy
+#         entry: bazel mod tidy
+#         language: system
+#         pass_filenames: false
+#       - id: bzlmod-lockfile
+#         name: bazel mod deps lockfile check
+#         entry: bazel mod deps --lockfile_mode=error
+#         language: system
+#         pass_filenames: false
+#
+# Security note: this workflow refuses to run on pull_request_target. That event has
+# write access to repository secrets while checking out fork code, making it unsafe
+# to execute Bazel on untrusted input. Use pull_request or schedule instead.
+
 name: Bazel Bzlmod Lockfile Check
 
 on:
@@ -23,14 +50,20 @@ on:
         type: string
 
 jobs:
-  bzlmod-lock-check:
+  bzlmod-tidy-check:
     runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     steps:
-      - name: Checkout repository (Handle all events)
+      - name: Refuse to run on pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "This workflow must not be called from pull_request_target."
+          echo "That event has write access to repo secrets while checking out fork code,"
+          echo "making it unsafe to run bazel on untrusted input."
+          echo "Use pull_request or schedule instead."
+          exit 1
+
+      - name: Checkout repository
         uses: actions/checkout@v4.2.2
-        with:
-          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Setup Bazel with shared caching
         uses: bazel-contrib/setup-bazel@0.18.0
@@ -40,7 +73,36 @@ jobs:
           bazelisk-cache: true
           cache-save: ${{ github.event_name == 'push' }}
 
-      - name: Verify MODULE.bazel.lock exists
+      - name: Check MODULE.bazel formatting
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          bazel mod tidy
+          git diff --exit-code
+
+  bzlmod-lockfile-check:
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    steps:
+      - name: Refuse to run on pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "This workflow must not be called from pull_request_target."
+          echo "That event has write access to repo secrets while checking out fork code,"
+          echo "making it unsafe to run bazel on untrusted input."
+          echo "Use pull_request or schedule instead."
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: false
+          repository-cache: false
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' }}
+
+      - name: Verify MODULE.bazel and MODULE.bazel.lock exist
         working-directory: ${{ inputs.working-directory }}
         run: |
           if [ ! -f "MODULE.bazel" ]; then
@@ -53,10 +115,6 @@ jobs:
             exit 1
           fi
 
-      - name: Run bazel mod tidy
+      - name: Check lockfile is up to date
         working-directory: ${{ inputs.working-directory }}
-        run: bazel mod tidy
-
-      - name: Check lock consistency
-        working-directory: ${{ inputs.working-directory }}
-        run: git diff --exit-code -- MODULE.bazel MODULE.bazel.lock
+        run: bazel mod deps --lockfile_mode=error
