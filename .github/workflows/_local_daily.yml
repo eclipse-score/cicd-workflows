@@ -17,6 +17,11 @@ on:
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
+    inputs:
+      target_repo:
+        description: 'Limit rollout to a single repo (e.g. eclipse-score/score_somemodule). Leave empty to run for all repos.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -71,9 +76,14 @@ jobs:
           echo "Template .bazelversion: $BAZEL_VERSION"
 
           # Find all eclipse-score repos that have a .bazelversion file
-          REPOS=$(gh search code "filename:.bazelversion" \
-            --owner eclipse-score --limit 100 \
-            --json repository --jq '.[].repository.nameWithOwner' | sort -u)
+          # If target_repo is set (manual trigger), only process that one repo
+          if [ -n "${{ inputs.target_repo }}" ]; then
+            REPOS="${{ inputs.target_repo }}"
+          else
+            REPOS=$(gh search code "filename:.bazelversion" \
+              --owner eclipse-score --limit 100 \
+              --json repository --jq '.[].repository.nameWithOwner' | sort -u)
+          fi
 
           for repo in $REPOS; do
             [ "$repo" = "$TEMPLATE_REPO" ] && continue
