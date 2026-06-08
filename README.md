@@ -511,7 +511,29 @@ jobs:
 
 ### **16. Bzlmod Lockfile Check Workflow**
 
-This workflow keeps Bazel's lockfile in sync with your module declarations. It records the exact set of resolved module versions and extension outputs so builds are reproducible across machines. The job fails if the lockfile is missing or out of date after running `bazel mod tidy`, which means someone changed `MODULE.bazel` without updating the lockfile.
+This workflow keeps `MODULE.bazel` and `MODULE.bazel.lock` consistent and reproducible. Two checks run in parallel:
+
+- **`bzlmod-tidy-check`** — runs `bazel mod tidy` and fails if it would change any file, meaning `MODULE.bazel` has formatting or dependency declarations that are not normalized
+- **`bzlmod-lockfile-check`** — runs `bazel mod deps --lockfile_mode=error` and fails if the committed lockfile does not match the resolved dependency graph, meaning the lockfile is stale
+
+> ⚠️ **Security:** this workflow refuses to run when called from `pull_request_target`. That event has write access to repository secrets while checking out fork code, making it unsafe to execute Bazel on untrusted input. Use `pull_request` or `schedule` instead.
+
+> 💡 **Recommendation:** run these checks locally via [pre-commit](https://pre-commit.com/) so issues are caught before they reach CI:
+>
+> ```yaml
+> - repo: local
+>   hooks:
+>     - id: bzlmod-tidy
+>       name: bazel mod tidy
+>       entry: bazel mod tidy
+>       language: system
+>       pass_filenames: false
+>     - id: bzlmod-lockfile
+>       name: bazel mod deps lockfile check
+>       entry: bazel mod deps --lockfile_mode=error
+>       language: system
+>       pass_filenames: false
+> ```
 
 **Usage Example**
 
@@ -528,16 +550,17 @@ jobs:
   bzlmod-lock:
     uses: eclipse-score/cicd-workflows/.github/workflows/bzlmod-lock-check.yml@main
     with:
-      working-directory: .
+      working-directory: .  # optional, this is the default
 ```
 
 **Defaults**  
-- `working-directory`: `.`  
+- `working-directory`: `.`
 
 This workflow:  
 ✅ Fails if `MODULE.bazel.lock` is missing  
-✅ Runs `bazel mod tidy`  
-✅ Fails if `MODULE.bazel` or `MODULE.bazel.lock` changes after tidy  
+✅ Fails if `bazel mod tidy` would change `MODULE.bazel` or `MODULE.bazel.lock`  
+✅ Fails if `bazel mod deps --lockfile_mode=error` reports a stale or inconsistent lockfile  
+✅ Reports both failures independently in the PR checks UI  
 
 ---
 
