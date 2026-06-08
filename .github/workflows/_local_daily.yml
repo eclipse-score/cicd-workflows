@@ -54,7 +54,8 @@ jobs:
     name: Rollout .bazelversion from module_template to all dependent repos
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
     steps:
       - name: Create PRs to update .bazelversion in all dependent repos
         env:
