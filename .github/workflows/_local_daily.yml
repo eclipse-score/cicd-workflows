@@ -65,10 +65,12 @@ jobs:
       - name: Create PRs to update .bazelversion in all dependent repos
         env:
           GH_TOKEN: ${{ secrets.SCORE_BOT_CLASSIC_PAT }}
+          TARGET_REPO: ${{ github.event.inputs.target_repo || '' }}
         run: |
           set -euo pipefail
 
           TEMPLATE_REPO="eclipse-score/module_template"
+          TEMPLATE_DEFAULT_BRANCH=$(gh api "repos/$TEMPLATE_REPO" --jq '.default_branch')
 
           # Read target Bazel version from the template
           BAZEL_VERSION=$(gh api "repos/$TEMPLATE_REPO/contents/.bazelversion" \
@@ -76,9 +78,9 @@ jobs:
           echo "Template .bazelversion: $BAZEL_VERSION"
 
           # Find all eclipse-score repos that have a .bazelversion file
-          # If target_repo is set (manual trigger), only process that one repo
-          if [ -n "${{ inputs.target_repo }}" ]; then
-            REPOS="${{ inputs.target_repo }}"
+          # If TARGET_REPO is set (manual trigger), only process that one repo
+          if [ -n "$TARGET_REPO" ]; then
+            REPOS="$TARGET_REPO"
           else
             REPOS=$(gh search code "filename:.bazelversion" \
               --owner eclipse-score --limit 100 \
@@ -119,7 +121,7 @@ jobs:
             # Create PR (ignore error if one already exists for this branch)
             gh pr create --repo "$repo" \
               --title "chore: update .bazelversion to $BAZEL_VERSION" \
-              --body "Automated rollout of [.bazelversion](https://github.com/$TEMPLATE_REPO/blob/main/.bazelversion) from eclipse-score/module_template. Updates Bazel from \`$current\` to \`$BAZEL_VERSION\`." \
+              --body "Automated rollout of [.bazelversion](https://github.com/$TEMPLATE_REPO/blob/${TEMPLATE_DEFAULT_BRANCH}/.bazelversion) from $TEMPLATE_REPO. Updates Bazel from \`$current\` to \`$BAZEL_VERSION\`." \
               --base "$default_branch" \
               --head "$branch_name" 2>/dev/null || echo "PR already exists for $repo, skipping"
           done
