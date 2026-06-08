@@ -17,11 +17,6 @@ on:
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
-    inputs:
-      target_repo:
-        description: 'Limit rollout to a single repo (e.g. eclipse-score/score_somemodule). Leave empty to run for all repos.'
-        required: false
-        default: ''
 
 permissions:
   contents: write
@@ -65,7 +60,6 @@ jobs:
       - name: Create PRs to update .bazelversion in all dependent repos
         env:
           GH_TOKEN: ${{ secrets.SCORE_BOT_CLASSIC_PAT }}
-          TARGET_REPO: ${{ github.event.inputs.target_repo || '' }}
         run: |
           set -euo pipefail
 
@@ -78,14 +72,9 @@ jobs:
           echo "Template .bazelversion: $BAZEL_VERSION"
 
           # Find all eclipse-score repos that have a .bazelversion file
-          # If TARGET_REPO is set (manual trigger), only process that one repo
-          if [ -n "$TARGET_REPO" ]; then
-            REPOS="$TARGET_REPO"
-          else
-            REPOS=$(gh search code "filename:.bazelversion" \
-              --owner eclipse-score --limit 100 \
-              --json repository --jq '.[].repository.nameWithOwner' | sort -u)
-          fi
+          REPOS=$(gh search code "filename:.bazelversion" \
+            --owner eclipse-score --limit 100 \
+            --json repository --jq '.[].repository.nameWithOwner' | sort -u)
 
           for repo in $REPOS; do
             [ "$repo" = "$TEMPLATE_REPO" ] && continue
