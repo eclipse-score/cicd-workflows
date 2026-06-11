@@ -1,0 +1,168 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Publish Documentation
+
+# Assuming you have one workflow that builds the documentation artifact (e.g., "PR"),
+# this workflow can be used to deploy the documentation to GitHub Pages in a versioned manner.
+# It also updates a versions.json file to keep track of available documentation versions and
+# comments on the PR with a link to the preview if applicable.
+# Note: this can be used with any documentation-building workflow, not only docs-as-code.
+
+# It will use gh-pages branch internally to mix the new documentation with the existing one.
+# Use daily.yml to clean up old documentation versions (merged PRs).
+
+# Usage:
+# on:
+#   workflow_run:
+#     workflows: ["PR"] # <-- name of the workflow that builds the documentation artifact
+#     types:
+#       - completed
+# jobs:
+#   docs-deploy:
+#     uses: eclipse-score/cicd-workflows/.github/workflows/copyright.yml@<RECENT_HASH_HERE>
+#     permissions:
+#       pages: write
+#       id-token: write
+#       contents: write
+#       pull-requests: write
+
+on:
+  workflow_call:
+
+concurrency:
+  group: cicd-pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  docs-deploy:
+    name: Deploy documentation to GitHub Pages
+    if: github.event.workflow_run.conclusion == 'success'
+    permissions:
+      pages: write # publish to GitHub Pages
+      id-token: write # to verify the deployment originates from an appropriate source
+      contents: write # to update versions.json and commit to gh-pages
+      pull-requests: write # to comment on PRs with preview link
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve build metadata
+        id: metadata
+        run: |
+          EVENT_NAME="${{ github.event.workflow_run.event }}"
+          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+          REF_NAME="${{ github.event.workflow_run.head_branch }}"
+
+          if [[ "$EVENT_NAME" == "merge_group" ]]; then
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "event_name=$EVENT_NAME" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "ref_name=$REF_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Determine target folder
+        if: steps.metadata.outputs.should_deploy == 'true'
+        id: target
+        run: |
+          EVENT_NAME="${{ steps.metadata.outputs.event_name }}"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            echo "folder=pr-${{ steps.metadata.outputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "folder=${{ steps.metadata.outputs.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout gh-pages
+        if: steps.metadata.outputs.should_deploy == 'true'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: gh-pages
+          path: gh-pages-content
+
+      - name: Clean up old documentation
+        if: steps.metadata.outputs.should_deploy == 'true'
+        run: |
+          rm -rf "gh-pages-content/${{ steps.target.outputs.folder }}"
+
+      - name: Download documentation artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: github-pages
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: gh-pages-content/${{ steps.target.outputs.folder }}
+
+      - name: Ensure .nojekyll exists
+        if: steps.metadata.outputs.should_deploy == 'true'
+        run: touch gh-pages-content/.nojekyll
+
+      - name: Extend versions.json
+        if: steps.metadata.outputs.should_deploy == 'true'
+        run: |
+          TARGET="${{ steps.target.outputs.folder }}"
+
+          # if versions.json does not exist, create it with an empty array as content
+          if [ ! -f gh-pages-content/versions.json ]; then
+            echo '[]' > gh-pages-content/versions.json
+          fi
+
+          # Add new version entry to versions.json if it doesn't already exist
+          if jq -e --arg v "$TARGET" 'map(select(.version == $v)) | length > 0' gh-pages-content/versions.json > /dev/null; then
+            echo "Version '$TARGET' already exists in versions.json"
+          else
+            REPO_NAME=$(basename "${{ github.repository }}")
+            OWNER_NAME="${{ github.repository_owner }}"
+            PAGES_URL="https://${OWNER_NAME}.github.io/${REPO_NAME}"
+            jq --arg v "$TARGET" --arg u "${PAGES_URL}/${TARGET}/" \
+              '. + [{"version": $v, "url": $u}]' gh-pages-content/versions.json > gh-pages-content/tmp.json && mv gh-pages-content/tmp.json gh-pages-content/versions.json
+          fi
+
+      - name: Commit and push changes to gh-pages
+        if: steps.metadata.outputs.should_deploy == 'true'
+        run: |
+          cd gh-pages-content
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Update documentation for ${{ steps.target.outputs.folder }}" || echo "No changes to commit"
+          git push
+
+      - name: Create artifact from gh-pages
+        if: steps.metadata.outputs.should_deploy == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: gh-pages-content
+
+      - name: Deploy artifact to GitHub Pages
+        if: steps.metadata.outputs.should_deploy == 'true'
+        id: deploy-pages
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+      - name: Find existing PR comment
+        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.event_name == 'pull_request' && steps.metadata.outputs.pr_number != ''
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
+        id: fc
+        with:
+          issue-number: ${{ steps.metadata.outputs.pr_number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: Documentation preview for this pull request
+
+      - name: Comment on PR with preview link
+        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.event_name == 'pull_request' && steps.metadata.outputs.pr_number != '' && steps.fc.outputs.comment-id == ''
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          issue-number: ${{ steps.metadata.outputs.pr_number }}
+          body: |
+            Documentation preview for this pull request is available at:
+            **${{ steps.target.outputs.folder }}**: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ steps.target.outputs.folder }}/
