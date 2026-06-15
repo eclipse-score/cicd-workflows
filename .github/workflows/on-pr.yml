@@ -188,12 +188,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: ⚙️ Setup Bazel with shared caching
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@setup-bazel-cache/v0.0.0
         with:
-          disk-cache: false
-          repository-cache: false
-          bazelisk-cache: true
-          cache-save: false
+          unique-cache-name: ${{ github.workflow }}-${{ github.job }}
 
       - name: 🕵️ Detect Bazel targets
         id: detect
@@ -234,12 +231,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: ⚙️ Setup Bazel with shared caching
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@setup-bazel-cache/v0.0.0
         with:
-          disk-cache: false
-          repository-cache: false
-          bazelisk-cache: true
-          cache-save: false
+          unique-cache-name: ${{ github.workflow }}-${{ github.job }}
 
       - name: 🖌️ Run formatting check
         run: bazel test //:format.check
@@ -254,12 +248,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: ⚙️ Setup Bazel with shared caching
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@setup-bazel-cache/v0.0.0
         with:
-          disk-cache: false
-          repository-cache: false
-          bazelisk-cache: true
-          cache-save: false
+          unique-cache-name: ${{ github.workflow }}-${{ github.job }}
 
       - name: © Run copyright check
         run: bazel run //:copyright.check
