@@ -48,51 +48,10 @@ jobs:
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
-      - name: Compute cache paths (Linux)
-        id: paths
-        shell: bash
-        run: |
-          BASE="/home/runner/.cache"
-          echo "bazelisk_home=${BASE}/bazelisk" >> "$GITHUB_OUTPUT"
-          echo "output_base=${BASE}/bazel/output_base" >> "$GITHUB_OUTPUT"
-          echo "repo_contents=${BASE}/bazel/repo_contents" >> "$GITHUB_OUTPUT"
-          echo "repo_cache=${BASE}/bazel/repo" >> "$GITHUB_OUTPUT"
-          echo "disk_cache=${BASE}/bazel/disk" >> "$GITHUB_OUTPUT"
-          echo "pip_cache=${BASE}/pip" >> "$GITHUB_OUTPUT"
-
       - name: Setup Bazel
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@setup-bazel-cache/v0.0.0
         with:
-          disk-cache: false
-          repository-cache: false
-          bazelisk-cache: true
-          cache-save: ${{ github.event_name == 'push' }}
-
-      - name: Prepare cache dirs
-        shell: bash
-        run: |
-          mkdir -p \
-            "${{ steps.paths.outputs.bazelisk_home }}" \
-            "${{ steps.paths.outputs.output_base }}" \
-            "${{ steps.paths.outputs.repo_contents }}" \
-            "${{ steps.paths.outputs.repo_cache }}" \
-            "${{ steps.paths.outputs.disk_cache }}" \
-            "${{ steps.paths.outputs.pip_cache }}"
-
-      - name: Restore content cache
-        id: restore-content
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ${{ steps.paths.outputs.bazelisk_home }}
-            ${{ steps.paths.outputs.output_base }}
-            ${{ steps.paths.outputs.repo_contents }}
-            ${{ steps.paths.outputs.repo_cache }}
-            ${{ steps.paths.outputs.disk_cache }}
-            ${{ steps.paths.outputs.pip_cache }}
-          key: ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE*', '.bazelrc*') }}
-          restore-keys: |
-            ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-
+          unique-cache-name: ${{ github.workflow }}-${{ github.job }}
 
       - name: Install Graphviz
         uses: eclipse-score/apt-install@main
@@ -103,8 +62,4 @@ jobs:
       - name: Run docs verification
         id: verify
         run: |
-          bazel --output_base="${{ steps.paths.outputs.output_base }}" run \
-            --repo_contents_cache="${{ steps.paths.outputs.repo_contents }}" \
-            --repository_cache="${{ steps.paths.outputs.repo_cache }}" \
-            --disk_cache="${{ steps.paths.outputs.disk_cache }}" \
-            ${{ inputs.bazel-docs-verify-target }}
+          bazel ${{ inputs.bazel-docs-verify-target }}
