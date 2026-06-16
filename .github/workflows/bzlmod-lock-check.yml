@@ -70,6 +70,12 @@ jobs:
         with:
           unique-cache-name: ${{ github.workflow }}-${{ github.job }}
 
+      - name: Check MODULE.bazel formatting
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          bazel mod tidy
+          git diff --exit-code
+
   bzlmod-lockfile-check:
     runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     steps:
