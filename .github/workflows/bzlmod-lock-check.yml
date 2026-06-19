@@ -68,7 +68,7 @@ jobs:
       - name: Setup Bazel with shared caching
         uses: eclipse-score/cicd-actions/setup-bazel-cache@659dcbed63f6b7fbde88c7850125ea0a0a92f939 # setup-bazel-cache/v0.0.0
         with:
-          unique-cache-name: ${{ github.workflow }}-${{ github.job }}
+          unique-cache-name: ${{ github.job }}
 
       - name: Check MODULE.bazel formatting
         working-directory: ${{ inputs.working-directory }}
@@ -94,7 +94,7 @@ jobs:
       - name: Setup Bazel with shared caching
         uses: eclipse-score/cicd-actions/setup-bazel-cache@659dcbed63f6b7fbde88c7850125ea0a0a92f939 # setup-bazel-cache/v0.0.0
         with:
-          unique-cache-name: ${{ github.workflow }}-${{ github.job }}
+          unique-cache-name: ${{ github.job }}
 
       - name: Verify MODULE.bazel and MODULE.bazel.lock exist
         working-directory: ${{ inputs.working-directory }}

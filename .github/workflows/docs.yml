@@ -101,7 +101,7 @@ jobs:
       - name: Setup Bazel
         uses: eclipse-score/cicd-actions/setup-bazel-cache@659dcbed63f6b7fbde88c7850125ea0a0a92f939 # setup-bazel-cache/v0.0.0
         with:
-          unique-cache-name: ${{ github.workflow }}-${{ github.job }}
+          unique-cache-name: ${{ github.job }}
 
       - name: Install Graphviz
         uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
