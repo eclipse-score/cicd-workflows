@@ -31,11 +31,6 @@ on:
         required: false
         default: ""
         type: string
-      runner-label:
-        description: "Label of GitHub runner to use (used if REPO_RUNNER_LABELS is not set)"
-        required: false
-        default: "ubuntu-22.04"
-        type: string
       artifact-name-suffix:
         description: "Optional suffix for artifact names (e.g., -v2, -nightly)"
         required: false
@@ -63,7 +58,7 @@ permissions:
 jobs:
   coverage-report:
     name: C++ Coverage
-    runs-on: ${{ vars.runner_labels_ghub22_standard_x64 && fromJSON(vars.runner_labels_ghub22_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || inputs.runner-label }}
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
 
     steps:
       - uses: eclipse-score/more-disk-space@6a3b48901846bf7f8cc985925157d71a8973e61f # v1
