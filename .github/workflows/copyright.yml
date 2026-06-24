@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4.2.2
 
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@659dcbed63f6b7fbde88c7850125ea0a0a92f939 # setup-bazel-cache/v0.0.0
+        uses: elektrobit-contrib/eclipse-score_cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel
         with:
           unique-cache-name: ${{ github.job }}
 
