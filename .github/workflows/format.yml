@@ -18,7 +18,7 @@ on:
       bazel-target:
         description: "Custom Bazel target to run (e.g.: 'test //:format.check')"
         required: false
-        default: "test //:format.check"
+        default: "test --test_output=errors //:format.check"
         type: string
 
 jobs:
