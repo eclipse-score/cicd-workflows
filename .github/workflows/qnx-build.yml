@@ -100,7 +100,7 @@ jobs:
     steps:
       - uses: eclipse-score/more-disk-space@6a3b48901846bf7f8cc985925157d71a8973e61f # v1
         with:
-          level: 4
+          level: 2
 
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
