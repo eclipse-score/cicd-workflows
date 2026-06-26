@@ -98,124 +98,10 @@ jobs:
           # Reuse the token from inter-repo-access action to ensure access to private repos
           persist-credentials: false
 
-      - name: Compute cache paths (Linux)
-        id: paths
-        shell: bash
-        run: |
-          BASE="/home/runner/.cache"
-          echo "bazelisk_home=${BASE}/bazelisk" >> "$GITHUB_OUTPUT"
-          echo "output_base=${BASE}/bazel/output_base" >> "$GITHUB_OUTPUT"
-          echo "repo_contents=${BASE}/bazel/repo_contents" >> "$GITHUB_OUTPUT"
-          echo "repo_cache=${BASE}/bazel/repo" >> "$GITHUB_OUTPUT"
-          echo "disk_cache=${BASE}/bazel/disk" >> "$GITHUB_OUTPUT"
-          echo "pip_cache=${BASE}/pip" >> "$GITHUB_OUTPUT"
-
       - name: Setup Bazel
-        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@659dcbed63f6b7fbde88c7850125ea0a0a92f939 # setup-bazel-cache/v0.0.0
         with:
-          disk-cache: false
-          repository-cache: false
-          bazelisk-cache: true
-          cache-save: ${{ github.event_name == 'push' }}
-
-      - name: Prepare cache dirs
-        shell: bash
-        run: |
-          mkdir -p \
-            "${{ steps.paths.outputs.bazelisk_home }}" \
-            "${{ steps.paths.outputs.output_base }}" \
-            "${{ steps.paths.outputs.repo_contents }}" \
-            "${{ steps.paths.outputs.repo_cache }}" \
-            "${{ steps.paths.outputs.disk_cache }}" \
-            "${{ steps.paths.outputs.pip_cache }}"
-
-      - name: Restore content cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ${{ steps.paths.outputs.bazelisk_home }}
-            ${{ steps.paths.outputs.output_base }}
-            ${{ steps.paths.outputs.repo_contents }}
-            ${{ steps.paths.outputs.repo_cache }}
-            ${{ steps.paths.outputs.disk_cache }}
-            ${{ steps.paths.outputs.pip_cache }}
-          key: ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE*', '.bazelrc*') }}
-          restore-keys: |
-            ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-
-
-      - name: List cache contents after restore - bazelisk_home
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.bazelisk_home }}" || true
-
-      - name: List cache contents after restore - output_base
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.output_base }}" || true
-
-      - name: List cache contents after restore - repo_contents
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.repo_contents }}" || true
-
-      - name: List cache contents after restore - repo_cache
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.repo_cache }}" || true
-
-      - name: List cache contents after restore - disk_cache
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.disk_cache }}" || true
-
-      - name: List cache contents after restore - pip_cache
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.pip_cache }}" || true
-
-      - name: Create cache snapshot (tgz)
-        if: runner.debug
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -uxo pipefail
-
-          ARCHIVE_PATH="$RUNNER_TEMP/cache-snapshot.tgz"
-          entries=()
-          for p in \
-            "${{ steps.paths.outputs.bazelisk_home }}" \
-            "${{ steps.paths.outputs.output_base }}" \
-            "${{ steps.paths.outputs.repo_contents }}" \
-            "${{ steps.paths.outputs.repo_cache }}" \
-            "${{ steps.paths.outputs.disk_cache }}" \
-            "${{ steps.paths.outputs.pip_cache }}"; do
-            if [ -e "$p" ]; then
-              entries+=("${p#/}")
-            else
-              echo "Path does not exist (skipping): $p"
-            fi
-          done
-
-          if [ "${#entries[@]}" -eq 0 ]; then
-            echo "No cache paths found to archive; skipping snapshot creation."
-            exit 0
-          fi
-
-          if ! tar -C / -czf "$ARCHIVE_PATH" "${entries[@]}"; then
-            echo "Cache snapshot creation failed; removing incomplete archive."
-            rm -f "$ARCHIVE_PATH"
-            exit 1
-          fi
-
-      - name: Upload cache snapshot artifact
-        if: runner.debug
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cache-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/cache-snapshot.tgz
-          retention-days: 5
-          if-no-files-found: ignore
+          unique-cache-name: ${{ github.workflow }}-${{ github.job }}
 
       - name: Install Graphviz
         uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
@@ -241,11 +127,7 @@ jobs:
 
       - name: Build documentation
         run: |
-          bazel --output_base="${{ steps.paths.outputs.output_base }}" run \
-            --repo_contents_cache="${{ steps.paths.outputs.repo_contents }}" \
-            --repository_cache="${{ steps.paths.outputs.repo_cache }}" \
-            --disk_cache="${{ steps.paths.outputs.disk_cache }}" \
-              ${{ inputs.bazel-target }}
+          bazel ${{ inputs.bazel-target }}
 
           tar -cf github-pages.tar _build
 
@@ -256,20 +138,6 @@ jobs:
           path: github-pages.tar
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
-
-      - name: Save content cache (branch)
-        if: success() && github.event_name == 'push'
-        continue-on-error: true
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ${{ steps.paths.outputs.bazelisk_home }}
-            ${{ steps.paths.outputs.output_base }}
-            ${{ steps.paths.outputs.repo_contents }}
-            ${{ steps.paths.outputs.repo_cache }}
-            ${{ steps.paths.outputs.disk_cache }}
-            ${{ steps.paths.outputs.pip_cache }}
-          key: ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE*', '.bazelrc*') }}
 
   docs-deploy:
     name: Deploy Documentation to GitHub Pages
