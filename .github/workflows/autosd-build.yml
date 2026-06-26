@@ -1,0 +1,95 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: AutoSD Build
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        description: "Architecture to build"
+        required: false
+        type: string
+        default: "x86_64"
+      runner_label:
+        description: "Runner label to use"
+        required: false
+        type: string
+      bazel-action:
+        description: "Bazel action to run (build, test, etc)"
+        required: false
+        default: "build"
+        type: string
+      bazel-target:
+        description: "Bazel target to build or test"
+        required: false
+        default: "//score/..."
+        type: string
+      bazel-disk-cache:
+        description: "Enable Bazel disk cache on GitHub. The value can be a string to use as cache key for separating workflows"
+        required: false
+        default: "true"
+        type: string
+      extra-bazel-flags:
+        description: "Additional Bazel flags to pass to the build command (whitespace separated)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  build:
+    name: Build Target
+    runs-on: ${{ inputs.runner_label || (vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS)) || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout Repository (Handle all events)
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: odra/cicd-workflows
+          ref: autosd-bazel-ci
+          path: score-ci-cd-workflows
+      - name: Setup Bazel (Shared Caching)
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: ${{ inputs.bazel-disk-cache }}
+          repository-cache: true
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' }}
+
+      - name: Look for AutoSD Toolchain
+        run: |
+          bazel cquery '@score_autosd10_x86_64_toolchain//:x86_64-linux-autosd10'
+
+      - name: Check for toolchain bazelrc file
+        run: |
+          stat score-ci-cd-workflows/bazelrc.d/autosd.bazelrc
+
+      - name: Run Bazel Action
+        if: inputs.bazel-target != ''
+        run: |
+          set -euo pipefail
+
+          bazel \
+          --bazelrc=score-ci-cd-workflows/bazelrc.d/autosd.bazelrc \
+          --bazelrc=.bazelrc \
+          ${{ inputs.bazel-action }} \
+          --config autosd-${{ inputs.arch }} \
+          ${{ inputs.extra-bazel-flags }} -- ${{ inputs.bazel-target }}
