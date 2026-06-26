@@ -49,3 +49,68 @@ jobs:
           configurationFile: .github/renovate.json5
         env:
           LOG_LEVEL: debug
+
+  module_template_rollout:
+    name: Rollout .bazelversion from module_template to all dependent repos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Create PRs to update .bazelversion in all dependent repos
+        env:
+          GH_TOKEN: ${{ secrets.SCORE_BOT_CLASSIC_PAT }}
+        run: |
+          set -euo pipefail
+
+          TEMPLATE_REPO="eclipse-score/module_template"
+          TEMPLATE_DEFAULT_BRANCH=$(gh api "repos/$TEMPLATE_REPO" --jq '.default_branch')
+
+          # Read target Bazel version from the template
+          BAZEL_VERSION=$(gh api "repos/$TEMPLATE_REPO/contents/.bazelversion" \
+            --jq '.content' | base64 --decode | tr -d '[:space:]')
+          echo "Template .bazelversion: $BAZEL_VERSION"
+
+          # Find all eclipse-score repos that have a .bazelversion file
+          REPOS=$(gh search code "filename:.bazelversion" \
+            --owner eclipse-score --limit 100 \
+            --json repository --jq '.[].repository.nameWithOwner' | sort -u)
+
+          for repo in $REPOS; do
+            [ "$repo" = "$TEMPLATE_REPO" ] && continue
+
+            # Fetch the current .bazelversion of this repo
+            response=$(gh api "repos/$repo/contents/.bazelversion" 2>/dev/null) || continue
+            current=$(echo "$response" | jq -r '.content' | base64 --decode | tr -d '[:space:]')
+
+            if [ "$current" = "$BAZEL_VERSION" ]; then
+              echo "$repo: already up to date ($BAZEL_VERSION), skipping"
+              continue
+            fi
+            echo "$repo: updating $current -> $BAZEL_VERSION"
+
+            default_branch=$(gh api "repos/$repo" --jq '.default_branch')
+            branch_name="chore/update-bazelversion-to-${BAZEL_VERSION}"
+
+            # Create branch from default branch (ignore error if it already exists)
+            base_sha=$(gh api "repos/$repo/git/ref/heads/$default_branch" --jq '.object.sha')
+            gh api "repos/$repo/git/refs" -X POST \
+              -f ref="refs/heads/$branch_name" \
+              -f sha="$base_sha" 2>/dev/null || true
+
+            # Commit updated .bazelversion on the branch
+            file_sha=$(gh api "repos/$repo/contents/.bazelversion?ref=$branch_name" --jq '.sha')
+            new_content=$(printf '%s\n' "$BAZEL_VERSION" | base64 -w0)
+            gh api "repos/$repo/contents/.bazelversion" -X PUT \
+              -f message="chore: update .bazelversion to $BAZEL_VERSION" \
+              -f content="$new_content" \
+              -f sha="$file_sha" \
+              -f branch="$branch_name"
+
+            # Create PR (ignore error if one already exists for this branch)
+            gh pr create --repo "$repo" \
+              --title "chore: update .bazelversion to $BAZEL_VERSION" \
+              --body "Automated rollout of [.bazelversion](https://github.com/$TEMPLATE_REPO/blob/${TEMPLATE_DEFAULT_BRANCH}/.bazelversion) from $TEMPLATE_REPO. Updates Bazel from \`$current\` to \`$BAZEL_VERSION\`." \
+              --base "$default_branch" \
+              --head "$branch_name" 2>/dev/null || echo "PR already exists for $repo, skipping"
+          done
