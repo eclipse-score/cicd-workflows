@@ -1,0 +1,2 @@
+# One workspace-relative source path per line.
+# Keep this file intentionally minimal and review every change.

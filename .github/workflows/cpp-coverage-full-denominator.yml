@@ -1,0 +1,190 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: C++ Coverage Full Denominator
+
+on:
+  workflow_call:
+    inputs:
+      bazel-scope:
+        description: "Bazel scope used for functional target and test target discovery"
+        required: false
+        default: "//score/..."
+        type: string
+      bazel-config:
+        description: "Bazel config name"
+        required: false
+        default: "x86_64-linux"
+        type: string
+      extra-bazel-flags:
+        description: "Additional Bazel flags to pass to coverage execution"
+        required: false
+        default: "--test_output=errors --nocache_test_results --lockfile_mode=error"
+        type: string
+      min-coverage:
+        description: "Minimum line coverage percentage (0 disables threshold)"
+        required: false
+        default: 0
+        type: number
+      coverage-out-dir:
+        description: "Output directory for generated coverage artifacts"
+        required: false
+        default: "bazel-out/coverage"
+        type: string
+      coverage-exclusions-file:
+        description: "Optional caller-repo path with denominator exclusions"
+        required: false
+        default: ""
+        type: string
+      runner-label:
+        description: "Label of GitHub runner to use"
+        required: false
+        default: "ubuntu-22.04"
+        type: string
+      artifact-name-suffix:
+        description: "Optional suffix for artifact names"
+        required: false
+        default: ""
+        type: string
+      retention-days:
+        description: "Days to keep uploaded artifacts"
+        required: false
+        default: 30
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  coverage-report:
+    name: C++ Coverage (Full Denominator)
+    runs-on: ${{ vars.runner_labels_ghub22_standard_x64 && fromJSON(vars.runner_labels_ghub22_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || inputs.runner-label }}
+
+    steps:
+      - uses: eclipse-score/more-disk-space@6a3b48901846bf7f8cc985925157d71a8973e61f # v1
+        with:
+          level: 4
+
+      - name: Checkout caller repository
+        uses: actions/checkout@v6
+
+      - name: Resolve reusable workflow ref
+        id: workflow_ref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          echo "ref=${WORKFLOW_REF##*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout cicd-workflows repository
+        uses: actions/checkout@v6
+        with:
+          repository: eclipse-score/cicd-workflows
+          ref: ${{ steps.workflow_ref.outputs.ref }}
+          path: .cicd-workflows
+
+      - name: Setup Bazel with shared caching
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lcov
+
+      - name: Run coverage tooling unit tests
+        working-directory: .cicd-workflows
+        env:
+          PYTHONPATH: .
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/coverage/tests -p "test_*.py"
+
+      - name: Generate full-denominator C++ coverage
+        working-directory: .cicd-workflows
+        env:
+          COVERAGE_REPO_ROOT: ${{ github.workspace }}
+          PYTHONPATH: .
+        run: |
+          set -euo pipefail
+          ./scripts/coverage/generate_cpp_coverage_full.sh \
+            --scope "${{ inputs.bazel-scope }}" \
+            --config "${{ inputs.bazel-config }}" \
+            --min-coverage "${{ inputs.min-coverage }}" \
+            --out-dir "${{ inputs.coverage-out-dir }}" \
+            --extra-bazel-flags "${{ inputs.extra-bazel-flags }}"
+
+      - name: Validate denominator completeness
+        working-directory: .cicd-workflows
+        env:
+          COVERAGE_REPO_ROOT: ${{ github.workspace }}
+          PYTHONPATH: .
+          COVERAGE_EXCLUSIONS_FILE: ${{ inputs.coverage-exclusions-file }}
+          COVERAGE_OUT_DIR: ${{ inputs.coverage-out-dir }}
+        run: |
+          set -euo pipefail
+          exclusions_file="scripts/coverage/coverage_exclusions.txt"
+          if [[ -n "${COVERAGE_EXCLUSIONS_FILE}" ]]; then
+            exclusions_file="${COVERAGE_EXCLUSIONS_FILE}"
+          fi
+
+          ./scripts/coverage/validate_cpp_coverage_denominator.sh \
+            --out-dir "${COVERAGE_OUT_DIR}" \
+            --expected-sources "${COVERAGE_OUT_DIR}/expected_sources.txt" \
+            --coverage-info "${COVERAGE_OUT_DIR}/coverage_full.filtered.info" \
+            --exclusions-file "${exclusions_file}"
+
+      - name: Prepare coverage artifact
+        env:
+          COVERAGE_OUT_DIR: ${{ inputs.coverage-out-dir }}
+        run: |
+          set -euo pipefail
+          mkdir -p cpp_coverage
+          cp -r "${COVERAGE_OUT_DIR}/coverage_html" cpp_coverage/html
+          cp "${COVERAGE_OUT_DIR}/coverage_summary.txt" cpp_coverage/
+          cp "${COVERAGE_OUT_DIR}/missing_coverage_files.txt" cpp_coverage/
+          cp "${COVERAGE_OUT_DIR}/expected_sources.txt" cpp_coverage/
+          cp "${COVERAGE_OUT_DIR}/covered_sources.txt" cpp_coverage/
+          cp "${COVERAGE_OUT_DIR}/coverage_full.filtered.info" cpp_coverage/coverage.lcov
+
+      - name: Upload coverage artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ format('{0}_cpp_coverage{1}', github.event.repository.name, inputs.artifact-name-suffix) }}
+          path: |
+            cpp_coverage/
+            bazel-testlogs/**/*.log
+            bazel-testlogs/**/*.xml
+          if-no-files-found: ignore
+          retention-days: ${{ inputs.retention-days }}
+
+      - name: Coverage summary
+        if: ${{ always() }}
+        env:
+          COVERAGE_OUT_DIR: ${{ inputs.coverage-out-dir }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### C++ Coverage (Full Denominator)"
+            echo
+            cat "${COVERAGE_OUT_DIR}/coverage_summary.txt"
+            echo
+            echo "Missing files:"
+            wc -l < "${COVERAGE_OUT_DIR}/missing_coverage_files.txt"
+          } >> "$GITHUB_STEP_SUMMARY"

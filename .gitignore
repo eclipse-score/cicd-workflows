@@ -1,1 +1,5 @@
 /.codex
+
+# Python cache/bytecode artifacts
+__pycache__/
+*.py[cod]
