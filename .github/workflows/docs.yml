@@ -62,9 +62,17 @@ jobs:
     name: Build Documentation
     runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
-      pull-requests: write
       contents: read
     steps:
+      - name: Refuse to run on pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "This workflow must not be called from pull_request_target."
+          echo "That event has write access to repo secrets while checking out fork code,"
+          echo "making it unsafe to run bazel on untrusted input."
+          echo "Use pull_request or schedule instead."
+          exit 1
+
       - uses: eclipse-score/cicd-actions/inter-repo-access@51883d9cd772bee5b7d139a2e6ffd8aeabca4224 # main branch as of 2026-04-23
         # Hint: if condition cannot access secrets, so we pass them via env
         env:
@@ -76,280 +84,25 @@ jobs:
           github-app-client-id: ${{ inputs.gh_app_client_id }}
           github-app-private-key: ${{ secrets.gh_app_private_key }}
 
-      - uses: eclipse-score/more-disk-space@6a3b48901846bf7f8cc985925157d71a8973e61f # v1
-        with:
-          level: 3
+      - uses: eclipse-score/more-disk-space@3fac5780033e636b114cf69e891dc19d640855c2 # v1.1.0
 
-      - name: Checkout repository (Handle all events)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           # Reuse the token from inter-repo-access action to ensure access to private repos
           persist-credentials: false
 
-      - name: Checkout action
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: eclipse-score/cicd-actions/setup-bazel-cache@659dcbed63f6b7fbde88c7850125ea0a0a92f939 # setup-bazel-cache/v0.0.0
         with:
-          # current repo name
-          repository: eclipse-score/cicd-workflows
-          ref: ${{ inputs.workflow-version }}
-          path: ./cicd-workflows
-          # Reuse the token from inter-repo-access action to ensure access to private repos
-          persist-credentials: false
-
-      - name: Compute cache paths (Linux)
-        id: paths
-        shell: bash
-        run: |
-          BASE="/home/runner/.cache"
-          echo "bazelisk_home=${BASE}/bazelisk" >> "$GITHUB_OUTPUT"
-          echo "output_base=${BASE}/bazel/output_base" >> "$GITHUB_OUTPUT"
-          echo "repo_contents=${BASE}/bazel/repo_contents" >> "$GITHUB_OUTPUT"
-          echo "repo_cache=${BASE}/bazel/repo" >> "$GITHUB_OUTPUT"
-          echo "disk_cache=${BASE}/bazel/disk" >> "$GITHUB_OUTPUT"
-          echo "pip_cache=${BASE}/pip" >> "$GITHUB_OUTPUT"
-
-      - name: Setup Bazel
-        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
-        with:
-          disk-cache: false
-          repository-cache: false
-          bazelisk-cache: true
-          cache-save: ${{ github.event_name == 'push' }}
-
-      - name: Prepare cache dirs
-        shell: bash
-        run: |
-          mkdir -p \
-            "${{ steps.paths.outputs.bazelisk_home }}" \
-            "${{ steps.paths.outputs.output_base }}" \
-            "${{ steps.paths.outputs.repo_contents }}" \
-            "${{ steps.paths.outputs.repo_cache }}" \
-            "${{ steps.paths.outputs.disk_cache }}" \
-            "${{ steps.paths.outputs.pip_cache }}"
-
-      - name: Restore content cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ${{ steps.paths.outputs.bazelisk_home }}
-            ${{ steps.paths.outputs.output_base }}
-            ${{ steps.paths.outputs.repo_contents }}
-            ${{ steps.paths.outputs.repo_cache }}
-            ${{ steps.paths.outputs.disk_cache }}
-            ${{ steps.paths.outputs.pip_cache }}
-          key: ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE*', '.bazelrc*') }}
-          restore-keys: |
-            ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-
-
-      - name: List cache contents after restore - bazelisk_home
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.bazelisk_home }}" || true
-
-      - name: List cache contents after restore - output_base
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.output_base }}" || true
-
-      - name: List cache contents after restore - repo_contents
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.repo_contents }}" || true
-
-      - name: List cache contents after restore - repo_cache
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.repo_cache }}" || true
-
-      - name: List cache contents after restore - disk_cache
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.disk_cache }}" || true
-
-      - name: List cache contents after restore - pip_cache
-        shell: bash
-        if: runner.debug
-        run: tree -nf -L 3 "${{ steps.paths.outputs.pip_cache }}" || true
-
-      - name: Create cache snapshot (tgz)
-        if: runner.debug
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -uxo pipefail
-
-          ARCHIVE_PATH="$RUNNER_TEMP/cache-snapshot.tgz"
-          entries=()
-          for p in \
-            "${{ steps.paths.outputs.bazelisk_home }}" \
-            "${{ steps.paths.outputs.output_base }}" \
-            "${{ steps.paths.outputs.repo_contents }}" \
-            "${{ steps.paths.outputs.repo_cache }}" \
-            "${{ steps.paths.outputs.disk_cache }}" \
-            "${{ steps.paths.outputs.pip_cache }}"; do
-            if [ -e "$p" ]; then
-              entries+=("${p#/}")
-            else
-              echo "Path does not exist (skipping): $p"
-            fi
-          done
-
-          if [ "${#entries[@]}" -eq 0 ]; then
-            echo "No cache paths found to archive; skipping snapshot creation."
-            exit 0
-          fi
-
-          if ! tar -C / -czf "$ARCHIVE_PATH" "${entries[@]}"; then
-            echo "Cache snapshot creation failed; removing incomplete archive."
-            rm -f "$ARCHIVE_PATH"
-            exit 1
-          fi
-
-      - name: Upload cache snapshot artifact
-        if: runner.debug
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cache-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/cache-snapshot.tgz
-          retention-days: 5
-          if-no-files-found: ignore
-
-      - name: Install Graphviz
-        uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
-        with:
-          packages: graphviz
-          cache: false
-
-      - name: Download test report
-        if: ${{ inputs.tests-report-artifact != '' }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ inputs.tests-report-artifact }}
-          path: tests-report
-
-      - name: List downloaded test report contents
-        if: ${{ inputs.tests-report-artifact != '' }}
-        run: |
-          echo "Contents of downloaded test report artifact:"
-          find tests-report -type f -exec ls -la {} \;
-          echo ""
-          echo "Directory structure:"
-          find tests-report -type d | sort
+          unique-cache-name: ${{ github.workflow }}-${{ github.job }}
 
       - name: Build documentation
-        run: |
-          bazel --output_base="${{ steps.paths.outputs.output_base }}" run \
-            --repo_contents_cache="${{ steps.paths.outputs.repo_contents }}" \
-            --repository_cache="${{ steps.paths.outputs.repo_cache }}" \
-            --disk_cache="${{ steps.paths.outputs.disk_cache }}" \
-              ${{ inputs.bazel-target }}
-
-          tar -cf github-pages.tar _build
+        run: bazel run //:docs
 
       - name: Upload documentation artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: github-pages-${{ github.event.pull_request.head.sha || github.sha }}
-          path: github-pages.tar
+          name: github-pages
+          path: _build
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
-
-      - name: Save content cache (branch)
-        if: success() && github.event_name == 'push'
-        continue-on-error: true
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ${{ steps.paths.outputs.bazelisk_home }}
-            ${{ steps.paths.outputs.output_base }}
-            ${{ steps.paths.outputs.repo_contents }}
-            ${{ steps.paths.outputs.repo_cache }}
-            ${{ steps.paths.outputs.disk_cache }}
-            ${{ steps.paths.outputs.pip_cache }}
-          key: ${{ env.CACHE_KEY_PREFIX }}-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE*', '.bazelrc*') }}
-
-  docs-deploy:
-    name: Deploy Documentation to GitHub Pages
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
-    needs: docs-build
-    concurrency:
-      group: pages-deploy-${{ github.repository }}-${{ github.ref }}
-      cancel-in-progress: false
-    permissions:
-      pages: write
-      id-token: write
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Ensure gh-pages branch exists with initial files
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -e
-          if ! git ls-remote --exit-code --heads "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" gh-pages; then
-            echo "gh-pages branch does not exist. Creating it..."
-            git clone --depth=1 "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" repo
-            cd repo
-            git fetch origin main --depth=1
-            AUTHOR_NAME=$(git log origin/main -1 --pretty=format:'%an')
-            AUTHOR_EMAIL=$(git log origin/main -1 --pretty=format:'%ae')
-            git config user.name "$AUTHOR_NAME"
-            git config user.email "$AUTHOR_EMAIL"
-            echo "Using commit identity: $AUTHOR_NAME <$AUTHOR_EMAIL>"
-
-            git checkout --orphan gh-pages
-            git rm -rf . || true
-            REPO_NAME=$(basename "${REPO}")
-            OWNER_NAME="${REPO%%/*}"
-
-            touch versions.json
-            echo "[" > versions.json
-            echo "  {" >> versions.json
-            echo "    \"version\": \"main\"," >> versions.json
-            echo "    \"url\": \"https://${OWNER_NAME}.github.io/${REPO_NAME}/main/\"" >> versions.json
-            echo "  }" >> versions.json
-            echo "]" >> versions.json
-
-            touch index.html
-            echo '<!DOCTYPE html>' > index.html
-            echo '<html lang="en">' >> index.html
-            echo '<head>' >> index.html
-            echo '    <meta charset="UTF-8">' >> index.html
-            echo '    <meta http-equiv="refresh" content="0; URL=main/">' >> index.html
-            echo '    <title>Redirecting...</title>' >> index.html
-            echo '</head>' >> index.html
-            echo '<body>' >> index.html
-            echo '    <p>If you are not redirected, <a href="main/">click here</a>.</p>' >> index.html
-            echo '</body>' >> index.html
-            echo '</html>' >> index.html
-
-            touch .nojekyll
-            git add versions.json index.html .nojekyll
-            git commit -m "Initialize gh-pages branch with versions.json and index.html"
-            git push origin gh-pages
-            cd ..
-            rm -rf repo
-          else
-            echo "gh-pages branch exists. Skipping creation."
-          fi
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Download documentation artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: github-pages-${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Untar documentation artifact
-        run: mkdir -p extracted_docs && tar -xf github-pages.tar -C extracted_docs
-
-      - name: Deploy 🚀
-        id: pages-deployment
-        uses: eclipse-score/cicd-workflows/.github/actions/deploy-versioned-pages@main
-        with:
-          source_folder: extracted_docs/_build
-          deployment_type: ${{ inputs.deployment_type }}
