@@ -1,22 +1,40 @@
 {
   // Use Renovate's recommended baseline (PR limits, grouping, etc.)
-  extends: ["config:recommended"],
+  // ":disableDependencyDashboard" must be listed after "config:recommended" so it wins
+  // during preset expansion. A bare `dependencyDashboard: false` is not enough because
+  // Renovate expands presets from resolvedRepoConfig on top of the global config, which
+  // causes config:recommended's ":dependencyDashboard" to overwrite the explicit override.
+  // See: https://github.com/renovatebot/renovate/pull/43686
+  extends: ["config:recommended", ":disableDependencyDashboard"],
 
   // Commit author
   gitAuthor: "eclipse-score-bot <score-bot@eclipse.org>",
 
   // Target following repositories
   repositories: [
+    "eclipse-score/baselibs",
     "eclipse-score/bazel_cpp_toolchains",
+    "eclipse-score/communication",
+    "eclipse-score/config_management",
     "eclipse-score/devcontainer",
     "eclipse-score/docs-as-code",
     "eclipse-score/inc_someip_gateway",
+    "eclipse-score/infrastructure",
     "eclipse-score/itf",
+    "eclipse-score/logging",
+    "eclipse-score/module_template",
     "eclipse-score/os_images",
+    "eclipse-score/process_description",
     "eclipse-score/qnx_unit_tests",
+    "eclipse-score/persistency",
+    "eclipse-score/reference_integration",
     "eclipse-score/rules_imagefs",
+    "eclipse-score/scrample",
     "eclipse-score/score",
+    "eclipse-score/score-crates",
+    "eclipse-score/score_cpp_policies",
     "eclipse-score/testing_tools",
+    "eclipse-score/toolchains_gcc",
     "eclipse-score/toolchains_rust",
   ],
 
@@ -31,9 +49,9 @@
 
   // Run on all repos, without requiring local renovate.json
   onboarding: false,
-  requireConfig: "ignored",
+  requireConfig: "optional",
 
-  // Disable the dependency dashboard issue
+  // Kept for clarity; the actual suppression happens via :disableDependencyDashboard above.
   dependencyDashboard: false,
 
   // Limit PRs to 10 at a time, to avoid overwhelming maintainers
