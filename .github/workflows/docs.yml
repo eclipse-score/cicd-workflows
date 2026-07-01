@@ -278,6 +278,7 @@ jobs:
     concurrency:
       group: pages-deploy-${{ github.repository }}
       cancel-in-progress: false
+      queue: max
     permissions:
       pages: write
       id-token: write
