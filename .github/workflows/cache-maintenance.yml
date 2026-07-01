@@ -43,8 +43,6 @@ jobs:
     permissions:
       actions: write # needed for cache deletion at setup-bazel-cache
       contents: read
-    env:
-      OLD_CACHES_JSON: ${{ github.workspace }}/.tmp/old_caches.json
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -54,8 +52,6 @@ jobs:
       - name: Check if Bazel repository cache inputs changed
         id: check
         uses: eclipse-score/cicd-actions/repository-cache-check@use-lurtz-setup-bazel
-        with:
-          old-caches-json: ${{ env.OLD_CACHES_JSON }}
 
       - uses: eclipse-score/more-disk-space@v1
         if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
@@ -105,4 +101,4 @@ jobs:
         uses: eclipse-score/cicd-actions/repository-cache-refresh@use-lurtz-setup-bazel
         with:
           variants: ${{ inputs.variants }}
-          old-caches-json: ${{ env.OLD_CACHES_JSON }}
+          old-caches-json: ${{ steps.check.outputs.old-caches-json }}
