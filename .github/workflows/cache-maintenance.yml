@@ -25,13 +25,13 @@ on:
     secrets:
       score-qnx-license:
         description: Base64-encoded QNX license content
-        required: true
+        required: false
       score-qnx-user:
         description: QNX account username
-        required: true
+        required: false
       score-qnx-password:
         description: QNX account password
-        required: true
+        required: false
 
 jobs:
   repository_cache_maintenance:
@@ -75,8 +75,24 @@ jobs:
           unique-cache-name: ${{ github.job }}
           skip-cache-restore: true
 
-      - name: Setup QNX SDP usage
+      - name: Check QNX secret availability
+        id: qnx_secrets
         if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        shell: bash
+        env:
+          QNX_LICENSE: ${{ secrets.score-qnx-license }}
+          QNX_USER: ${{ secrets.score-qnx-user }}
+          QNX_PASSWORD: ${{ secrets.score-qnx-password }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${QNX_LICENSE}" && -n "${QNX_USER}" && -n "${QNX_PASSWORD}" ]]; then
+            echo "has_all=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_all=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup QNX SDP usage
+        if: ${{ steps.check.outputs.should_refresh_cache == 'true' && steps.qnx_secrets.outputs.has_all == 'true' }}
         uses: eclipse-score/cicd-actions/setup-qnx-sdp@a2b3c36fc7d1b9d03880d19935c7ac9cfffe58c6 # 2026-05-19
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
