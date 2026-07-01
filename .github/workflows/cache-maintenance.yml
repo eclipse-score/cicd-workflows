@@ -78,5 +78,5 @@ jobs:
         if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
         uses: eclipse-score/cicd-actions/repository-cache-refresh@use-lurtz-setup-bazel
         with:
-            variants: ${{ inputs.variants }}
+          variants: ${{ inputs.variants }}
           old-caches-json: ${{ env.OLD_CACHES_JSON }}
