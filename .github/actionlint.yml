@@ -1,4 +1,0 @@
-# TODO: Remove once actionlint supports the `queue` key in concurrency sections.
-# See https://github.com/rhysd/actionlint/pull/654
-ignore:
-  - 'unexpected key "queue" for "concurrency" section'
