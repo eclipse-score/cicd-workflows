@@ -15,6 +15,13 @@ name: Repository cache maintenance
 
 on:
   workflow_call:
+    inputs:
+      variants:
+        description: |-
+          Newline-separated variant specs in the form <platform>|<targets>,
+          forwarded to repository-cache-refresh.
+        required: true
+        type: string
 
 jobs:
   repository_cache_maintenance:
@@ -71,9 +78,5 @@ jobs:
         if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
         uses: eclipse-score/cicd-actions/repository-cache-refresh@use-lurtz-setup-bazel
         with:
-          variants: |
-            x86_64-linux|//...
-            aarch64-linux|//...
-            x86_64-qnx|//src/... //tests/...
-            aarch64-qnx|//src/... //tests/...
+            variants: ${{ inputs.variants }}
           old-caches-json: ${{ env.OLD_CACHES_JSON }}
