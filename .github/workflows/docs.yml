@@ -99,7 +99,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Bazel
-        uses: elektrobit-contrib/eclipse-score_cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel
         with:
           unique-cache-name: ${{ github.job }}
 
