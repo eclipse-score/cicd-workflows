@@ -1,0 +1,102 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Repository cache maintenance
+
+on:
+  workflow_call:
+    inputs:
+      variants:
+        description: |-
+          Newline-separated variant specs in the form <platform>|<targets>,
+          forwarded to repository-cache-refresh.
+        required: true
+        type: string
+    secrets:
+      score-qnx-license:
+        description: Base64-encoded QNX license content
+        required: false
+      score-qnx-user:
+        description: QNX account username
+        required: false
+      score-qnx-password:
+        description: QNX account password
+        required: false
+
+jobs:
+  repository_cache_maintenance:
+    # Check cache inputs and recreate repository cache only when required.
+    # Fetch dependencies for configured variants and upload a single repository cache.
+    # This job should be the only one which uploads a repository cache.
+    name: Repository cache maintenance
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write # needed for cache deletion at setup-bazel-cache
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Check if Bazel repository cache inputs changed
+        id: check
+        uses: eclipse-score/cicd-actions/repository-cache-check@use-lurtz-setup-bazel
+
+      - uses: eclipse-score/more-disk-space@v1
+        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+
+      - name: Create Bazel output base directory
+        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /mnt/.bazel
+          sudo chown -R $USER:$USER /mnt/.bazel
+
+      - name: Setup Bazel
+        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel
+        with:
+          unique-cache-name: ${{ github.job }}
+          skip-cache-restore: true
+
+      - name: Check QNX secret availability
+        id: qnx_secrets
+        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        shell: bash
+        env:
+          QNX_LICENSE: ${{ secrets.score-qnx-license }}
+          QNX_USER: ${{ secrets.score-qnx-user }}
+          QNX_PASSWORD: ${{ secrets.score-qnx-password }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${QNX_LICENSE}" && -n "${QNX_USER}" && -n "${QNX_PASSWORD}" ]]; then
+            echo "has_all=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_all=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup QNX SDP usage
+        if: ${{ steps.check.outputs.should_refresh_cache == 'true' && steps.qnx_secrets.outputs.has_all == 'true' }}
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@a2b3c36fc7d1b9d03880d19935c7ac9cfffe58c6 # 2026-05-19
+        with:
+          qnx-license: ${{ secrets.score-qnx-license }}
+          qnx-user: ${{ secrets.score-qnx-user }}
+          qnx-password: ${{ secrets.score-qnx-password }}
+          qnx-license-dir: /opt/score_qnx/license
+
+      - name: Refresh Bazel repository cache artifacts
+        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        uses: eclipse-score/cicd-actions/repository-cache-refresh@use-lurtz-setup-bazel
+        with:
+          variants: ${{ inputs.variants }}
+          old-caches-json: ${{ steps.check.outputs.old-caches-json }}

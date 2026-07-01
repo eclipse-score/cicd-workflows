@@ -29,12 +29,9 @@ jobs:
         uses: actions/checkout@v4.2.2
 
       - name: Setup Bazel with shared caching
-        uses: bazel-contrib/setup-bazel@0.18.0
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel
         with:
-          disk-cache: false
-          repository-cache: false
-          bazelisk-cache: true
-          cache-save: ${{ github.event_name == 'push' }}
+          unique-cache-name: ${{ github.job }}
 
       - name: Run Formatting Check
         run: |

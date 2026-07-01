@@ -627,35 +627,6 @@ uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@v1.0.0
 
 ---
 
-## ⚡️ Bazel Setup with Shared Caching
-
-To improve performance and reduce redundant downloads across workflow runs, the reusable workflows configure Bazel with shared caching:
-
-```yaml
-- name: Setup Bazel with shared caching
-  uses: bazel-contrib/setup-bazel@0.18.0
-  with:
-    disk-cache: true
-    repository-cache: true
-    bazelisk-cache: true
-    cache-save: ${{ github.event_name == 'push' }}
-```
-
-### Benefits
-
-- **`disk-cache`**: Stores compiled Bazel outputs across jobs.
-- **`repository-cache`**: Caches external dependencies (e.g., modules, WORKSPACE fetches).
-- **`bazelisk-cache`**: Avoids re-downloading Bazel binaries.
-- **`cache-save`**: Saves the cache only on push events to avoid unnecessary cache updates (e.g., from pull requests).
-
-This setup significantly reduces CI build time and improves reuse across different workflows.
-
-
-### **Summary**
-✅ **Standardized** CI/CD workflows across all projects  
-✅ **Reusable & Maintainable** with centralized updates  
-✅ **Bazel-powered** for consistent testing & analysis
-
 ## 🏃‍♂️ Runner Selection Logic
 
 All workflows in this repository use the following logic for selecting the runner:
