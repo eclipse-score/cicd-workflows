@@ -22,6 +22,16 @@ on:
           forwarded to repository-cache-refresh.
         required: true
         type: string
+    secrets:
+      score-qnx-license:
+        description: Base64-encoded QNX license content
+        required: true
+      score-qnx-user:
+        description: QNX account username
+        required: true
+      score-qnx-password:
+        description: QNX account password
+        required: true
 
 jobs:
   repository_cache_maintenance:
@@ -69,9 +79,9 @@ jobs:
         if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
         uses: eclipse-score/cicd-actions/setup-qnx-sdp@a2b3c36fc7d1b9d03880d19935c7ac9cfffe58c6 # 2026-05-19
         with:
-          qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
-          qnx-user: ${{ secrets.SCORE_QNX_USER }}
-          qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
+          qnx-license: ${{ secrets.score-qnx-license }}
+          qnx-user: ${{ secrets.score-qnx-user }}
+          qnx-password: ${{ secrets.score-qnx-password }}
           qnx-license-dir: /opt/score_qnx/license
 
       - name: Refresh Bazel repository cache artifacts
