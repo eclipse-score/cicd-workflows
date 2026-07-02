@@ -69,6 +69,8 @@ jobs:
           unique-cache-name: ${{ github.job }}
           skip-cache-restore: true
 
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@30ed908edcf367bc38ebff5b386a244f9b6417a7 # 2025-06-04
+
       - name: Check QNX secret availability
         id: qnx_secrets
         if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
