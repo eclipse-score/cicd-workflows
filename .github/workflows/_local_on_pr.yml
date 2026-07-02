@@ -24,3 +24,4 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      actions: write # needed for cache deletion at setup-bazel-cache
