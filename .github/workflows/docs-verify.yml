@@ -37,6 +37,8 @@ jobs:
       verification-result: ${{ steps.verify.outcome }}
     permissions:
       contents: read
+      actions: write # needed for cache deletion at setup-bazel-cache
+
     steps:
       - uses: eclipse-score/more-disk-space@6a3b48901846bf7f8cc985925157d71a8973e61f # v1
         with:

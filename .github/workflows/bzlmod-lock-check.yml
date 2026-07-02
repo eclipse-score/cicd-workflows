@@ -52,6 +52,11 @@ on:
 jobs:
   bzlmod-tidy-check:
     runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+
+    permissions:
+      contents: read
+      actions: write # needed for cache deletion at setup-bazel-cache
+
     steps:
       - name: Refuse to run on pull_request_target
         if: github.event_name == 'pull_request_target'
@@ -78,6 +83,11 @@ jobs:
 
   bzlmod-lockfile-check:
     runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+
+    permissions:
+      contents: read
+      actions: write # needed for cache deletion at setup-bazel-cache
+
     steps:
       - name: Refuse to run on pull_request_target
         if: github.event_name == 'pull_request_target'
