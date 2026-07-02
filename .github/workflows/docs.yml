@@ -128,7 +128,7 @@ jobs:
 
       - name: Build documentation
         run: |
-          bazel ${{ inputs.bazel-target }}
+          bazel run ${{ inputs.bazel-target }}
 
           tar -cf github-pages.tar _build
 
