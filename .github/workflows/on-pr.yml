@@ -29,6 +29,32 @@ name: 🔁
 
 on:
   workflow_call:
+    inputs:
+      skip-pre-commit:
+        description: "Skip the pre-commit check even if .pre-commit-config.yaml exists"
+        required: false
+        default: false
+        type: boolean
+      skip-python-tests:
+        description: "Skip the uv/pytest run even if pyproject.toml and uv.lock exist"
+        required: false
+        default: false
+        type: boolean
+      skip-format:
+        description: "Skip bazel //:format.check even if the target exists"
+        required: false
+        default: false
+        type: boolean
+      skip-copyright:
+        description: "Skip bazel //:copyright.check even if the target exists"
+        required: false
+        default: false
+        type: boolean
+      skip-bzlmod-lock:
+        description: "Skip the Bazel bzlmod tidy/lockfile checks even if MODULE.bazel.lock exists"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   pr-checks:
@@ -113,11 +139,11 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: 🧹 Run pre-commit checks
-        if: ${{ !cancelled() && steps.detect.outputs.has_precommit == 'true' }}
+        if: ${{ !cancelled() && steps.detect.outputs.has_precommit == 'true' && !inputs.skip-pre-commit }}
         run: uvx pre-commit run --all-files
 
       - name: 🐍 Run Python tests with uv
-        if: ${{ !cancelled() && steps.detect.outputs.has_python_uv == 'true' }}
+        if: ${{ !cancelled() && steps.detect.outputs.has_python_uv == 'true' && !inputs.skip-python-tests }}
         run: uv run --frozen python -m pytest
 
       - name: 📝 Check Bazel module name
@@ -191,21 +217,21 @@ jobs:
           emit_output has_format_check has_bazel_target "//:format.check"
 
       - name: 🖌️ Run bazel //:format.check
-        if: ${{ !cancelled() && steps.bazel.outputs.has_format_check == 'true' }}
+        if: ${{ !cancelled() && steps.bazel.outputs.has_format_check == 'true' && !inputs.skip-format }}
         run: bazel test //:format.check
 
       - name: © Run bazel //:copyright.check
-        if: ${{ !cancelled() && steps.bazel.outputs.has_copyright_check == 'true' }}
+        if: ${{ !cancelled() && steps.bazel.outputs.has_copyright_check == 'true' && !inputs.skip-copyright }}
         run: bazel run //:copyright.check
 
       - name: 🔒 Check Bazel module is tidy
-        if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' }}
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
         run: |
           bazel mod tidy
           git diff --exit-code
 
       - name: 🔒 Check Bazel lockfile is up to date
-        if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' }}
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
         run: |
           if [ ! -f "MODULE.bazel" ]; then
             echo "MODULE.bazel not found in $PWD"
