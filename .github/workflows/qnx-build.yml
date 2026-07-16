@@ -90,7 +90,7 @@ jobs:
     name: Build QNX target
     # run this job always unless the workflow was canceled; approval may still be skipped by intention
     # Do not use always(), see https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#always
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') }}
     needs: approval
     runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
