@@ -100,7 +100,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Bazel
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel-part-2
         with:
           unique-cache-name: ${{ github.job }}
 

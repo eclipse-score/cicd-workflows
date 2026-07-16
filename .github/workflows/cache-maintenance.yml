@@ -49,7 +49,7 @@ jobs:
 
       - name: Check if Bazel repository cache inputs changed
         id: check
-        uses: eclipse-score/cicd-actions/repository-cache-check@use-lurtz-setup-bazel
+        uses: eclipse-score/cicd-actions/repository-cache-check@use-lurtz-setup-bazel-part-2
 
       - uses: eclipse-score/more-disk-space@v1
         if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
@@ -64,7 +64,7 @@ jobs:
 
       - name: Setup Bazel
         if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel-part-2
         with:
           unique-cache-name: ${{ github.job }}
           skip-cache-restore: true
@@ -98,7 +98,7 @@ jobs:
 
       - name: Refresh Bazel repository cache artifacts
         if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
-        uses: eclipse-score/cicd-actions/repository-cache-refresh@use-lurtz-setup-bazel
+        uses: eclipse-score/cicd-actions/repository-cache-refresh@use-lurtz-setup-bazel-part-2
         with:
           variants: ${{ inputs.variants }}
           old-caches-json: ${{ steps.check.outputs.old-caches-json }}
