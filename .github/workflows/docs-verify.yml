@@ -62,4 +62,4 @@ jobs:
       - name: Run docs verification
         id: verify
         run: |
-          bazel ${{ inputs.bazel-docs-verify-target }}
+          bazel run ${{ inputs.bazel-docs-verify-target }}
