@@ -41,7 +41,7 @@ jobs:
     name: Repository cache maintenance
     runs-on: ubuntu-24.04
     permissions:
-      actions: write # needed for cache deletion at setup-bazel-cache
+      actions: write # needed for cache deletion in last step
       contents: read
     steps:
       - name: Checkout repository

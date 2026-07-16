@@ -64,7 +64,6 @@ jobs:
     permissions:
       pull-requests: write
       contents: read
-      actions: write # needed for cache deletion at setup-bazel-cache
     steps:
       - uses: eclipse-score/cicd-actions/inter-repo-access@51883d9cd772bee5b7d139a2e6ffd8aeabca4224 # main branch as of 2026-04-23
         # Hint: if condition cannot access secrets, so we pass them via env

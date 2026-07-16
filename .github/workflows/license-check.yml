@@ -36,7 +36,6 @@ jobs:
     permissions:
       pull-requests: write
       issues: write
-      actions: write # needed for cache deletion at setup-bazel-cache
     steps:
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@v4.2.2

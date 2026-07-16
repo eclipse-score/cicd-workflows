@@ -54,7 +54,6 @@ on:
 
 permissions:
   contents: read
-  actions: write # needed for cache deletion at setup-bazel-cache
 
 jobs:
   coverage-report:

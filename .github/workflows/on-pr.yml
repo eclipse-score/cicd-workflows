@@ -132,9 +132,6 @@ jobs:
     name: 🔒 Check Bazel Bzlmod lockfile
     needs: detect-repo-capabilities
     if: needs.detect-repo-capabilities.outputs.has_bazel_lock == 'true'
-    permissions:
-      contents: read
-      actions: write # needed for cache deletion at setup-bazel-cache
     uses: ./.github/workflows/bzlmod-lock-check.yml
 
   bazel-module-name-check:
@@ -185,7 +182,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-      actions: write # needed for cache deletion at setup-bazel-cache
 
     steps:
       - name: 📥 Check out
@@ -230,11 +226,6 @@ jobs:
     needs: detect-repo-bazel-targets
     if: needs.detect-repo-bazel-targets.outputs.has_format_check == 'true'
     runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-
-    permissions:
-      contents: read
-      actions: write # needed for cache deletion at setup-bazel-cache
-
     steps:
       - name: 📥 Check out
         uses: actions/checkout@v6
@@ -252,10 +243,6 @@ jobs:
     needs: detect-repo-bazel-targets
     if: needs.detect-repo-bazel-targets.outputs.has_copyright_check == 'true'
     runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-
-    permissions:
-      contents: read
-      actions: write # needed for cache deletion at setup-bazel-cache
 
     steps:
       - name: 📥 Check out
