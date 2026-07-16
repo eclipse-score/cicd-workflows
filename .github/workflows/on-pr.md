@@ -33,14 +33,14 @@ and runs only the applicable checks — no per-repo configuration needed.
 Every check runs in **one job**, and only if its capability is detected (and it is
 not explicitly skipped — see [Skipping checks](#skipping-checks)).
 
-| Check           | Runs when                                        | Command                                     |
-| --------------- | ------------------------------------------------ | ------------------------------------------- |
-| pre-commit      | `.pre-commit-config.yaml` exists                 | `uvx pre-commit run --all-files`            |
-| Python tests    | `pyproject.toml` **and** `uv.lock` exist         | `uv run --frozen python -m pytest`          |
-| Bazel format    | `//:format.check` target exists                  | `bazel test //:format.check`                |
-| Bazel copyright | `//:copyright.check` target exists               | `bazel run //:copyright.check`              |
-| Bzlmod tidy     | `MODULE.bazel.lock` exists                       | `bazel mod tidy` + `git diff --exit-code`   |
-| Bzlmod lockfile | `MODULE.bazel.lock` exists                       | `bazel mod deps --lockfile_mode=error`      |
+| Check           | Runs when                                | Command                                   |
+| --------------- | ---------------------------------------- | ----------------------------------------- |
+| pre-commit      | `.pre-commit-config.yaml` exists         | `uvx pre-commit run --all-files`          |
+| Python tests    | `pyproject.toml` **and** `uv.lock` exist | `uv run --frozen python -m pytest`        |
+| Bazel format    | `//:format.check` target exists          | `bazel test //:format.check`              |
+| Bazel copyright | `//:copyright.check` target exists       | `bazel run //:copyright.check`            |
+| Bzlmod tidy     | `MODULE.bazel.lock` exists               | `bazel mod tidy` + `git diff --exit-code` |
+| Bzlmod lockfile | `MODULE.bazel.lock` exists               | `bazel mod deps --lockfile_mode=error`    |
 
 Capability detection looks for:
 
@@ -62,13 +62,13 @@ Sometimes a capability is present but you do not want `on-pr` to run that check
 (for example, you already run pre-commit a different way). Set the matching input
 to `true`:
 
-| Input               | Skips                                          |
-| ------------------- | ---------------------------------------------- |
-| `skip-pre-commit`   | pre-commit                                     |
-| `skip-python-tests` | Python / pytest                                |
-| `skip-format`       | `bazel //:format.check`                        |
-| `skip-copyright`    | `bazel //:copyright.check`                     |
-| `skip-bzlmod-lock`  | both the bzlmod tidy and lockfile checks       |
+| Input               | Skips                                    |
+| ------------------- | ---------------------------------------- |
+| `skip-pre-commit`   | pre-commit                               |
+| `skip-python-tests` | Python / pytest                          |
+| `skip-format`       | `bazel //:format.check`                  |
+| `skip-copyright`    | `bazel //:copyright.check`               |
+| `skip-bzlmod-lock`  | both the bzlmod tidy and lockfile checks |
 
 All inputs default to `false`, so existing callers are unaffected. Example:
 
@@ -99,14 +99,13 @@ jobs:
 
 ## Permissions
 
-The caller must grant:
+No additional permissions required.
+Standard `contents: read` is sufficient for all checks.
 
 ```yaml
 permissions:
   contents: read
 ```
-
-No OIDC (`id-token`) permission is required.
 
 ## Runner selection
 
