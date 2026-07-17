@@ -12,6 +12,18 @@
 # *******************************************************************************
 
 name: Repository cache maintenance
+# Check cache inputs and recreate repository cache only when required.
+# Fetch dependencies for configured variants and upload a single repository cache.
+# This workflow should be the only one which uploads a repository cache.
+#
+# Cache strategies:
+# - repository cache: refreshed when MODULE.bazel.lock changes.
+#   In this case **ALL** caches will be rebuild from scratch and the old one deleted.
+#   Deletion of all caches is done to limit the growth of the disk caches.
+# - disk cache: Except when MODULE.bazel.lock changes, this is never deleted by this workflow.
+#   Deletion has to be taken care of by the calling workflow.
+#   With each workflow run the old disk cache (if it exists) is restored and using that a new one is build.
+#   The new disk cache is uploaded and the calling workflow needs to delete old ones using eclipse-score/cicd-actions/prune-cache as last step.
 
 on:
   workflow_call:
@@ -36,23 +48,10 @@ on:
 
 jobs:
   repository_cache_maintenance:
-    # Check cache inputs and recreate repository cache only when required.
-    # Fetch dependencies for configured variants and upload a single repository cache.
-    # This job should be the only one which uploads a repository cache.
-    #
-    # Cache strategies:
-    # - repository cache: refreshed when MODULE.bazel.lock changes.
-    #   In this case **ALL** caches will be rebuild from scratch and the old one deleted.
-    #   Deletion of all caches is done to limit the growth of the disk caches.
-    # - disk cache: Except when MODULE.bazel.lock changes, this is never deleted by this workflow.
-    #   Deletion has to be taken care of by the calling workflow.
-    #   With each workflow run the old disk cache (if it exists) is restored and using that a new one is build.
-    #   The new disk cache is uploaded and the calling workflow needs to delete old ones using eclipse-score/cicd-actions/prune-cache as last step.
-    name: Repository cache maintenance
+    name: Create new repository cache if required
     runs-on: ubuntu-24.04
-    permissions:
-      actions: write # needed for cache deletion in last step
-      contents: read
+    outputs:
+      should_refresh_cache: ${{ steps.check.outputs.should_refresh_cache }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -112,4 +111,21 @@ jobs:
         uses: eclipse-score/cicd-actions/repository-cache-refresh@use-lurtz-setup-bazel-part-2
         with:
           variants: ${{ inputs.variants }}
-          old-caches-json: ${{ steps.check.outputs.old-caches-json }}
+
+  prune_old_caches:
+    # Extra job for deletion of caches is needed to avoid time window with no repository cache available.
+    # `setup-bazel-cache` uploads caches in its post step. With an extra job we can be sure that is finished.
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write # needed for cache deletion
+      contents: read
+    needs: repository_cache_maintenance
+    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' }}
+    steps:
+      - name: Delete all disk caches
+        run: |
+          gh cache list --limit 1000 --json id,key \
+          | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
+          | xargs -n1 gh cache delete
+      - name: Prune repository cache
+        uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7
