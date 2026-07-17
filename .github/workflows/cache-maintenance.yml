@@ -123,7 +123,10 @@ jobs:
     if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' }}
     steps:
       - name: Delete all disk caches
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           gh cache list --limit 1000 --json id,key \
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
           | xargs -n1 gh cache delete
