@@ -87,6 +87,9 @@ jobs:
 - **All checks run, even if one fails.** A failing check does not stop the ones
   after it — each reports its own pass/fail, and the job as a whole fails if any
   check failed.
+- **Failures come with guidance.** When a check fails it writes a block to the
+  run's **Summary** page explaining what failed, how to reproduce it locally, and
+  how to fix it — so a red check is actionable without digging through logs.
 - **Sequential.** Checks run one after another in a single runner rather than in
   parallel across jobs. This trades a little wall-clock time for far less runner
   spin-up overhead and no skipped-job clutter in the PR checks UI.

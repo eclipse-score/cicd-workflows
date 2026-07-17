@@ -140,11 +140,44 @@ jobs:
 
       - name: 🧹 Run pre-commit checks
         if: ${{ !cancelled() && steps.detect.outputs.has_precommit == 'true' && !inputs.skip-pre-commit }}
-        run: uvx pre-commit run --all-files
+        run: |
+          if ! uvx pre-commit run --all-files; then
+            {
+              echo '### ❌ pre-commit failed'
+              echo ''
+              echo 'One or more pre-commit hooks reported problems (formatting, linting, etc.).'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'uvx pre-commit run --all-files'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Most hooks auto-fix. Re-run the command above, review the changes it made, then commit them.'
+              echo 'Run `uvx pre-commit install` once to catch this before pushing.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: 🐍 Run Python tests with uv
         if: ${{ !cancelled() && steps.detect.outputs.has_python_uv == 'true' && !inputs.skip-python-tests }}
-        run: uv run --frozen python -m pytest
+        run: |
+          if ! uv run --frozen python -m pytest; then
+            {
+              echo '### ❌ Python tests failed'
+              echo ''
+              echo 'Tests failed, or `uv.lock` is out of date (`--frozen` forbids updating it during the run).'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'uv run --frozen python -m pytest'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Fix the failing tests. If the failure is about the lockfile, run `uv lock` and commit the updated `uv.lock`.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: 📝 Check Bazel module name
         # The script to detect the module name is broken; kept disabled (&& false) until fixed.
@@ -218,17 +251,69 @@ jobs:
 
       - name: 🖌️ Run bazel //:format.check
         if: ${{ !cancelled() && steps.bazel.outputs.has_format_check == 'true' && !inputs.skip-format }}
-        run: bazel test //:format.check
+        run: |
+          if ! bazel test //:format.check; then
+            {
+              echo '### ❌ Formatting check failed'
+              echo ''
+              echo '`//:format.check` found files that are not formatted according to the project formatting rules.'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'bazel test //:format.check'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Auto-format the sources, then commit:'
+              echo '```bash'
+              echo 'bazel run //:format'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: © Run bazel //:copyright.check
         if: ${{ !cancelled() && steps.bazel.outputs.has_copyright_check == 'true' && !inputs.skip-copyright }}
-        run: bazel run //:copyright.check
+        run: |
+          if ! bazel run //:copyright.check; then
+            {
+              echo '### ❌ Copyright check failed'
+              echo ''
+              echo 'One or more source files are missing the required copyright/license header.'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'bazel run //:copyright.check'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Add the missing headers automatically, then commit:'
+              echo '```bash'
+              echo 'bazel run //:copyright.fix'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: 🔒 Check Bazel module is tidy
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
         run: |
-          bazel mod tidy
-          git diff --exit-code
+          if ! { bazel mod tidy && git diff --exit-code; }; then
+            {
+              echo '### ❌ Bazel module is not tidy'
+              echo ''
+              echo '`bazel mod tidy` would change `MODULE.bazel` or `MODULE.bazel.lock`, so they are not tidy.'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'bazel mod tidy && git diff'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Run `bazel mod tidy` and commit the resulting changes to `MODULE.bazel` / `MODULE.bazel.lock`.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: 🔒 Check Bazel lockfile is up to date
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
@@ -243,4 +328,19 @@ jobs:
             exit 1
           fi
 
-          bazel mod deps --lockfile_mode=error
+          if ! bazel mod deps --lockfile_mode=error; then
+            {
+              echo '### ❌ Bazel lockfile is out of date'
+              echo ''
+              echo '`MODULE.bazel.lock` does not match the resolved dependency graph.'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'bazel mod deps --lockfile_mode=error'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Regenerate the lockfile with `bazel mod tidy` and commit the updated `MODULE.bazel.lock`.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
