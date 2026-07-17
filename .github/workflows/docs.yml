@@ -71,7 +71,6 @@ jobs:
         env:
           HAS_GH_APP_PRIVATE_KEY: ${{ secrets.gh_app_private_key != '' }}
           HAS_TOKEN: ${{ secrets.token != '' }}
-        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' }}
         with:
           token: ${{ secrets.token }}
           github-app-client-id: ${{ inputs.gh_app_client_id }}
