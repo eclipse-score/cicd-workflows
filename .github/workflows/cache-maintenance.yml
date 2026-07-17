@@ -18,8 +18,9 @@ on:
     inputs:
       variants:
         description: |-
-          Newline-separated variant specs in the form <platform>|<targets>,
-          forwarded to repository-cache-refresh.
+          Newline-separated list of arguments to append to `bazel fetch`.
+          Each line is split on whitespace and passed as one fetch invocation.
+          Examples: `--config=x86_64-linux //...`, `//...`, `//test //quality`.
         required: true
         type: string
     secrets:
