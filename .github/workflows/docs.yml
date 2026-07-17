@@ -53,6 +53,7 @@ on:
       token:
         description: "GitHub Token for inter-repo access (not used in public S-CORE)"
         required: false
+  push: {}
 
 env:
   CACHE_KEY_PREFIX: bazel-cache
@@ -65,7 +66,7 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - uses: eclipse-score/cicd-actions/inter-repo-access@51883d9cd772bee5b7d139a2e6ffd8aeabca4224 # main branch as of 2026-04-23
+      - uses: eclipse-score/cicd-actions/inter-repo-access@test # main branch as of 2026-04-23
         # Hint: if condition cannot access secrets, so we pass them via env
         env:
           HAS_GH_APP_PRIVATE_KEY: ${{ secrets.gh_app_private_key != '' }}
