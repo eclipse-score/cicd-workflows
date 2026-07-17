@@ -127,8 +127,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh cache list --limit 1000 --json id,key \
+          gh cache list --repo ${{ github.repository }} --limit 1000 --json id,key \
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
-          | xargs -n1 gh cache delete
+          | xargs -n1 gh cache delete --repo ${{ github.repository }}
       - name: Prune repository cache
         uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7
