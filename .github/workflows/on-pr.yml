@@ -243,7 +243,6 @@ jobs:
     needs: detect-repo-bazel-targets
     if: needs.detect-repo-bazel-targets.outputs.has_copyright_check == 'true'
     runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-
     steps:
       - name: 📥 Check out
         uses: actions/checkout@v6

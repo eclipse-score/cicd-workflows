@@ -8,6 +8,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 
 | Workflow                       | Description                                                       |
 | ------------------------------ | ----------------------------------------------------------------- |
+| **[PR Checks](.github/workflows/on-pr.md)** | Main PR entry point: auto-detects capabilities and runs pre-commit, tests, format, copyright and lockfile checks in one job |
 | **Documentation Build**        | Builds project documentation and deploys it to GitHub Pages       |
 | **Documentation Cleanup**      | Cleans up old documentation versions from the `gh-pages` branch   |
 | **License Check**              | Verifies OSS licenses and compliance                              |
