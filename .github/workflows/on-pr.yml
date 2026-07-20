@@ -11,38 +11,69 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
-# This is designed as the main entry point for PR checks, for all S-CORE repositories.
+# This is the main entry point for PR checks, for all S-CORE repositories.
+#
+# It runs as a SINGLE job whose steps are the individual checks. Each check step is
+# gated with `if: ${{ !cancelled() && <capability> }}` so that:
+#   - a check only runs when the repository actually has the relevant capability, and
+#   - a failing check does NOT stop the checks after it (each still reports its own
+#     pass/fail), while the job as a whole still fails if any step failed.
+# `checkout` and the detection steps keep the default `success()` gate, so if they fail
+# the capability outputs are empty and every check is skipped while the job is red.
 
 # Attention: this workflow must be called with following permissions:
 #    permissions:
-#      id-token: write
 #      contents: read
 
-# The name will show up as "PR Checl / 🔁 / <workflow-name>",
-# so there is no reason to add any text where the icon is.
-# ---
-# Update: this name is actually not used anywhere! wtf?
 name: 🔁
 
 on:
   workflow_call:
+    inputs:
+      skip-pre-commit:
+        description: "Skip the pre-commit check even if .pre-commit-config.yaml exists"
+        required: false
+        default: false
+        type: boolean
+      skip-python-tests:
+        description: "Skip the uv/pytest run even if pyproject.toml and uv.lock exist"
+        required: false
+        default: false
+        type: boolean
+      skip-format:
+        description: "Skip bazel //:format.check even if the target exists"
+        required: false
+        default: false
+        type: boolean
+      skip-copyright:
+        description: "Skip bazel //:copyright.check even if the target exists"
+        required: false
+        default: false
+        type: boolean
+      skip-bzlmod-lock:
+        description: "Skip the Bazel bzlmod tidy/lockfile checks even if MODULE.bazel.lock exists"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  detect-repo-capabilities:
-    name: Detect repository capabilities
+  pr-checks:
+    name: 🔁 Common PR checks
     runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-    outputs:
-      has_bazel: ${{ steps.detect.outputs.has_bazel }}
-      has_bazel_lock: ${{ steps.detect.outputs.has_bazel_lock }}
-      has_devcontainer: ${{ steps.detect.outputs.has_devcontainer }}
-      has_python_uv: ${{ steps.detect.outputs.has_python_uv }}
-      has_precommit: ${{ steps.detect.outputs.has_precommit }}
 
     permissions:
-      id-token: write
       contents: read
 
     steps:
+      - name: 🚫 Refuse to run on pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "This workflow must not be called from pull_request_target."
+          echo "That event has write access to repo secrets while checking out fork code,"
+          echo "making it unsafe to run repository code on untrusted input."
+          echo "Use pull_request or merge_group instead."
+          exit 1
+
       - name: 📥 Check out
         uses: actions/checkout@v6
 
@@ -51,18 +82,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "::group:: Detecting repository capabilities"
+          echo "Detected repository capabilities:"
 
-          # Runs a boolean-style check function and writes to GITHUB_OUTPUT.
+          # Runs a boolean-style check function, writes it to GITHUB_OUTPUT and
+          # echoes the result so the detection is visible in the step log.
           emit_output() {
             local name="$1"
             shift
 
+            local value
             if "$@"; then
-              echo "$name=true" >> "$GITHUB_OUTPUT"
+              value=true
             else
-              echo "$name=false" >> "$GITHUB_OUTPUT"
+              value=false
             fi
+
+            echo "$name=$value" >> "$GITHUB_OUTPUT"
+            echo "  $name=$value"
           }
 
           # Returns success if any provided file path exists.
@@ -98,53 +134,54 @@ jobs:
           emit_output has_precommit any_file_exists \
             ".pre-commit-config.yaml"
 
-          echo "::endgroup::"
-
-  precommit:
-    name: 🧹 Run pre-commit checks
-    needs: detect-repo-capabilities
-    if: needs.detect-repo-capabilities.outputs.has_precommit == 'true'
-    runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-    steps:
-      - name: 📥 Check out
-        uses: actions/checkout@v6
       - name: ⚙️ Setup uv
-        uses: astral-sh/setup-uv@v5
-      - name: 🛠️ Run pre-commit
-        run: uvx pre-commit run --all-files
-
-  python-uv-pytest:
-    name: 🐍 Run Python tests with uv
-    needs: detect-repo-capabilities
-    if: needs.detect-repo-capabilities.outputs.has_python_uv == 'true'
-    runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-    steps:
-      - name: 📥 Check out
-        uses: actions/checkout@v6
-
-      - name: ⚙️ Setup uv
+        if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true') }}
         uses: astral-sh/setup-uv@v5
 
-      - name: Run checks via uv
-        run: uv run --frozen python -m pytest
+      - name: 🧹 Run pre-commit checks
+        if: ${{ !cancelled() && steps.detect.outputs.has_precommit == 'true' && !inputs.skip-pre-commit }}
+        run: |
+          if ! uvx pre-commit run --all-files; then
+            {
+              echo '### ❌ pre-commit failed'
+              echo ''
+              echo 'One or more pre-commit hooks reported problems (formatting, linting, etc.).'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'uvx pre-commit run --all-files'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Most hooks auto-fix. Re-run the command above, review the changes it made, then commit them.'
+              echo 'Run `uvx pre-commit install` once to catch this before pushing.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
-  bazel-bzlmod-lock-check:
-    name: 🔒 Check Bazel Bzlmod lockfile
-    needs: detect-repo-capabilities
-    if: needs.detect-repo-capabilities.outputs.has_bazel_lock == 'true'
-    uses: ./.github/workflows/bzlmod-lock-check.yml
+      - name: 🐍 Run Python tests with uv
+        if: ${{ !cancelled() && steps.detect.outputs.has_python_uv == 'true' && !inputs.skip-python-tests }}
+        run: |
+          if ! uv run --frozen python -m pytest; then
+            {
+              echo '### ❌ Python tests failed'
+              echo ''
+              echo 'Tests failed, or `uv.lock` is out of date (`--frozen` forbids updating it during the run).'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'uv run --frozen python -m pytest'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Fix the failing tests. If the failure is about the lockfile, run `uv lock` and commit the updated `uv.lock`.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
-  bazel-module-name-check:
-    name: 📝 Check Bazel module name
-    needs: detect-repo-capabilities
-    # The script to detect the module name is broken
-    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true' && false
-    runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-    steps:
-      - name: 📥 Check out
-        uses: actions/checkout@v6
-
-      - name: 📝 Validate Bazel module name
+      - name: 📝 Check Bazel module name
+        # The script to detect the module name is broken; kept disabled (&& false) until fixed.
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' && false }}
         run: |
           if ! MODULE_LINE=$(grep '^module(' MODULE.bazel | head -1); then
             echo "❌ No module declaration found in MODULE.bazel"
@@ -170,45 +207,34 @@ jobs:
 
           echo "✅ Module name is valid: $MODULE_NAME"
 
-  detect-repo-bazel-targets:
-    name: Detect repo bazel targets
-    needs: detect-repo-capabilities
-    if: needs.detect-repo-capabilities.outputs.has_bazel == 'true'
-    runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-    outputs:
-      has_copyright_check: ${{ steps.detect.outputs.has_copyright_check }}
-      has_format_check: ${{ steps.detect.outputs.has_format_check }}
-
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: 📥 Check out
-        uses: actions/checkout@v6
-
       - name: ⚙️ Setup Bazel with shared caching
         uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
           unique-cache-name: ${{ github.job }}
 
       - name: 🕵️ Detect Bazel targets
-        id: detect
+        id: bazel
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
         run: |
           set -euo pipefail
 
-          echo "::group:: Detecting Bazel targets"
+          echo "Detected Bazel targets:"
 
-          # Runs a boolean-style check function and writes to GITHUB_OUTPUT.
+          # Runs a boolean-style check function, writes it to GITHUB_OUTPUT and
+          # echoes the result so the detection is visible in the step log.
           emit_output() {
             local name="$1"
             shift
 
+            local value
             if "$@"; then
-              echo "$name=true" >> "$GITHUB_OUTPUT"
+              value=true
             else
-              echo "$name=false" >> "$GITHUB_OUTPUT"
+              value=false
             fi
+
+            echo "$name=$value" >> "$GITHUB_OUTPUT"
+            echo "  $name=$value"
           }
 
           # Returns success if the given Bazel label can be queried from the repo root.
@@ -219,38 +245,98 @@ jobs:
           emit_output has_copyright_check has_bazel_target "//:copyright.check"
           emit_output has_format_check has_bazel_target "//:format.check"
 
-          echo "::endgroup::"
+      - name: 🖌️ Run bazel //:format.check
+        if: ${{ !cancelled() && steps.bazel.outputs.has_format_check == 'true' && !inputs.skip-format }}
+        run: |
+          if ! bazel test //:format.check; then
+            {
+              echo '### ❌ Formatting check failed'
+              echo ''
+              echo '`//:format.check` found files that are not formatted according to the project formatting rules.'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'bazel test //:format.check'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Auto-format the sources, then commit:'
+              echo '```bash'
+              echo 'bazel run //:format'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
-  bazel-format-check:
-    name: 🖌️ Run bazel //:format.check
-    needs: detect-repo-bazel-targets
-    if: needs.detect-repo-bazel-targets.outputs.has_format_check == 'true'
-    runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-    steps:
-      - name: 📥 Check out
-        uses: actions/checkout@v6
+      - name: © Run bazel //:copyright.check
+        if: ${{ !cancelled() && steps.bazel.outputs.has_copyright_check == 'true' && !inputs.skip-copyright }}
+        run: |
+          if ! bazel run //:copyright.check; then
+            {
+              echo '### ❌ Copyright check failed'
+              echo ''
+              echo 'One or more source files are missing the required copyright/license header.'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'bazel run //:copyright.check'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Add the missing headers automatically, then commit:'
+              echo '```bash'
+              echo 'bazel run //:copyright.fix'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
-      - name: ⚙️ Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
-        with:
-          unique-cache-name: ${{ github.job }}
+      - name: 🔒 Check Bazel module is tidy
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
+        run: |
+          if ! { bazel mod tidy && git diff --exit-code; }; then
+            {
+              echo '### ❌ Bazel module is not tidy'
+              echo ''
+              echo '`bazel mod tidy` would change `MODULE.bazel` or `MODULE.bazel.lock`, so they are not tidy.'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'bazel mod tidy && git diff'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Run `bazel mod tidy` and commit the resulting changes to `MODULE.bazel` / `MODULE.bazel.lock`.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
-      - name: 🖌️ Run formatting check
-        run: bazel test //:format.check
+      - name: 🔒 Check Bazel lockfile is up to date
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
+        run: |
+          if [ ! -f "MODULE.bazel" ]; then
+            echo "MODULE.bazel not found in $PWD"
+            exit 1
+          fi
 
-  bazel-copyright-check:
-    name: © Run bazel //:copyright.check
-    needs: detect-repo-bazel-targets
-    if: needs.detect-repo-bazel-targets.outputs.has_copyright_check == 'true'
-    runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-    steps:
-      - name: 📥 Check out
-        uses: actions/checkout@v6
+          if [ ! -f "MODULE.bazel.lock" ]; then
+            echo "MODULE.bazel.lock is missing. Run: bazel mod tidy"
+            exit 1
+          fi
 
-      - name: ⚙️ Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
-        with:
-          unique-cache-name: ${{ github.job }}
-
-      - name: © Run copyright check
-        run: bazel run //:copyright.check
+          if ! bazel mod deps --lockfile_mode=error; then
+            {
+              echo '### ❌ Bazel lockfile is out of date'
+              echo ''
+              echo '`MODULE.bazel.lock` does not match the resolved dependency graph.'
+              echo ''
+              echo '**Reproduce locally**'
+              echo '```bash'
+              echo 'bazel mod deps --lockfile_mode=error'
+              echo '```'
+              echo ''
+              echo '**Fix**'
+              echo 'Regenerate the lockfile with `bazel mod tidy` and commit the updated `MODULE.bazel.lock`.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
