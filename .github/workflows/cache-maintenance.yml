@@ -81,7 +81,7 @@ jobs:
           unique-cache-name: ${{ github.job }}
           skip-cache-restore: true
 
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@30ed908edcf367bc38ebff5b386a244f9b6417a7 # 2025-06-04
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@af1be61755b13c1f33b6c250080dc6ac025012f1
         if: ${{ steps.check.outputs.any_changed == 'true' }}
 
       - name: Check QNX secret availability
@@ -102,7 +102,7 @@ jobs:
 
       - name: Setup QNX SDP usage
         if: ${{ steps.check.outputs.any_changed == 'true' && steps.qnx_secrets.outputs.has_all == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-qnx-sdp@a2b3c36fc7d1b9d03880d19935c7ac9cfffe58c6 # 2026-05-19
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
           qnx-user: ${{ secrets.score-qnx-user }}
@@ -134,4 +134,4 @@ jobs:
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
           | xargs -n1 gh cache delete --repo ${{ github.repository }}
       - name: Prune repository cache
-        uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7
+        uses: eclipse-score/cicd-actions/prune-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
