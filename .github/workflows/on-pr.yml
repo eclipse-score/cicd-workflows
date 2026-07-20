@@ -208,6 +208,7 @@ jobs:
           echo "✅ Module name is valid: $MODULE_NAME"
 
       - name: ⚙️ Setup Bazel with shared caching
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
         uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
           unique-cache-name: ${{ github.job }}
