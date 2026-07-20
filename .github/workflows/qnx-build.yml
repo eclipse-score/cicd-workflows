@@ -37,9 +37,9 @@ on:
         default: workflow-approval
         type: string
       bazel-disk-cache:
-        description: Enable Bazel disk cache on GitHub. The value can be a string to use as cache key for separating workflows
+        description: Name to append to the Bazel disk cache name. The value can be a string to use as cache key for separating workflows
         required: false
-        default: 'true'
+        default: ''
         type: string
       extra-bazel-flags:
         description: Additional Bazel flags to pass to the build command (whitespace separated)
@@ -111,7 +111,7 @@ jobs:
       - name: Setup Bazel with shared caching
         uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
-          unique-cache-name: ${{ inputs.bazel-disk-cache }}
+          unique-cache-name: ${{ github.job }}${{ inputs.bazel-disk-cache }}
 
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@30ed908edcf367bc38ebff5b386a244f9b6417a7 # 2025-06-04
 
