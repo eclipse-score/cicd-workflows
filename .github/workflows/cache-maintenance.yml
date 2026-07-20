@@ -18,12 +18,9 @@ name: Repository cache maintenance
 #
 # Cache strategies:
 # - repository cache: refreshed when MODULE.bazel.lock changes.
-#   In this case **ALL** caches will be rebuild from scratch and the old one deleted.
-#   Deletion of all caches is done to limit the growth of the disk caches.
-# - disk cache: Except when MODULE.bazel.lock changes, this is never deleted by this workflow.
-#   Deletion has to be taken care of by the calling workflow.
-#   With each workflow run the old disk cache (if it exists) is restored and using that a new one is build.
-#   The new disk cache is uploaded and the calling workflow needs to delete old ones using eclipse-score/cicd-actions/prune-cache as last step.
+#   In this case a new cache will be rebuilt from scratch and the old one deleted.
+# - disk cache: Except when MODULE.bazel.lock changes, contents are only added.
+#   It is wiped on MODULE.bazel.lock changes to avoid stale content and limit the size of the cache.
 
 on:
   workflow_call:
