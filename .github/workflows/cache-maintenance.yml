@@ -76,7 +76,7 @@ jobs:
 
       - name: Setup Bazel
         if: ${{ steps.check.outputs.any_changed == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel-part-2
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
           unique-cache-name: ${{ github.job }}
           skip-cache-restore: true
@@ -111,7 +111,7 @@ jobs:
 
       - name: Warm Bazel repository cache artifacts
         if: ${{ steps.check.outputs.any_changed == 'true' }}
-        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@use-lurtz-setup-bazel-part-2
+        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
           variants: ${{ inputs.variants }}
 
