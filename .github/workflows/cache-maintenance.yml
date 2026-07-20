@@ -51,20 +51,26 @@ jobs:
     name: Create new repository cache if required
     runs-on: ubuntu-24.04
     outputs:
-      should_refresh_cache: ${{ steps.check.outputs.should_refresh_cache }}
+      should_refresh_cache: ${{ steps.check.outputs.any_changed }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with: # configuration needed for tj-actions/changed-files
+          fetch-depth: 2 # needed for push events
+          persist-credentials: true
 
       - name: Check if Bazel repository cache inputs changed
         id: check
-        uses: eclipse-score/cicd-actions/repository-cache-check@use-lurtz-setup-bazel-part-2
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        with:
+          files: |
+            MODULE.bazel.lock
 
       - uses: eclipse-score/more-disk-space@v1
-        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' }}
 
       - name: Create Bazel output base directory
-        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -72,18 +78,18 @@ jobs:
           sudo chown -R $USER:$USER /mnt/.bazel
 
       - name: Setup Bazel
-        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' }}
         uses: eclipse-score/cicd-actions/setup-bazel-cache@use-lurtz-setup-bazel-part-2
         with:
           unique-cache-name: ${{ github.job }}
           skip-cache-restore: true
 
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@30ed908edcf367bc38ebff5b386a244f9b6417a7 # 2025-06-04
-        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' }}
 
       - name: Check QNX secret availability
         id: qnx_secrets
-        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' }}
         shell: bash
         env:
           QNX_LICENSE: ${{ secrets.score-qnx-license }}
@@ -98,7 +104,7 @@ jobs:
           fi
 
       - name: Setup QNX SDP usage
-        if: ${{ steps.check.outputs.should_refresh_cache == 'true' && steps.qnx_secrets.outputs.has_all == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && steps.qnx_secrets.outputs.has_all == 'true' }}
         uses: eclipse-score/cicd-actions/setup-qnx-sdp@a2b3c36fc7d1b9d03880d19935c7ac9cfffe58c6 # 2026-05-19
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
@@ -107,7 +113,7 @@ jobs:
           qnx-license-dir: /opt/score_qnx/license
 
       - name: Refresh Bazel repository cache artifacts
-        if: ${{ steps.check.outputs.should_refresh_cache == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' }}
         uses: eclipse-score/cicd-actions/repository-cache-refresh@use-lurtz-setup-bazel-part-2
         with:
           variants: ${{ inputs.variants }}
