@@ -14,7 +14,8 @@
 name: Repository cache maintenance
 # Check cache inputs and recreate repository cache only when required.
 # Fetch dependencies for configured variants and upload a single repository cache.
-# This workflow should be the only one which uploads a repository cache.
+# This workflow should be the only one which uploads a repository cache,
+# because setup-bazel will not upload a new cache on cache hit when hash based keying is used.
 #
 # Cache strategies:
 # - repository cache: refreshed when MODULE.bazel.lock changes.
@@ -129,6 +130,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # setup-bazel creates disk cache names containing `-disk-` to distinguish them from other (bazelisk, repository) caches
           set -euo pipefail
           gh cache list --repo ${{ github.repository }} --limit 1000 --json id,key \
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
