@@ -112,9 +112,9 @@ jobs:
           qnx-password: ${{ secrets.score-qnx-password }}
           qnx-license-dir: /opt/score_qnx/license
 
-      - name: Refresh Bazel repository cache artifacts
+      - name: Warm Bazel repository cache artifacts
         if: ${{ steps.check.outputs.any_changed == 'true' }}
-        uses: eclipse-score/cicd-actions/repository-cache-refresh@use-lurtz-setup-bazel-part-2
+        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@use-lurtz-setup-bazel-part-2
         with:
           variants: ${{ inputs.variants }}
 
