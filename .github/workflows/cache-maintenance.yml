@@ -23,13 +23,13 @@ name: Repository cache maintenance
 # - disk cache: Except when MODULE.bazel.lock changes, contents are only added.
 #   It is wiped on MODULE.bazel.lock changes to avoid stale content and limit the size of the cache.
 #
-# Both caches are only updated when the workflow is triggered by a push to the default branch.
+# Both caches are only updated when the workflow is triggered by a push to the main branch.
 # In pull requests and merge_queue the caches are read-only.
 #
 # Usage:
-#   This workflow shall be called on pushes to the default branch and cannot be run with other workflows in parallel, which also make use of bazel caches.
+#   This workflow shall be called on pushes to the main branch and cannot be run with other workflows in parallel, which also make use of bazel caches.
 #   Its purpose is to create a new repository cache and there should not be a race with another job doing the same.
-#   Thus you should have single workflow triggered on pushes to the default branch, which calls this workflow and then your CI workflow.
+#   Thus you should have single workflow triggered on pushes to the main branch, which calls this workflow and then your CI workflow.
 #
 # Example:
 # ```
