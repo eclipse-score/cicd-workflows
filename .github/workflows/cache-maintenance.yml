@@ -132,6 +132,6 @@ jobs:
           set -euo pipefail
           gh cache list --repo ${{ github.repository }} --limit 1000 --json id,key \
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
-          | xargs -n1 gh cache delete --repo ${{ github.repository }}
+          | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
       - name: Prune repository cache
         uses: eclipse-score/cicd-actions/prune-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
