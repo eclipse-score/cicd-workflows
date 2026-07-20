@@ -22,6 +22,55 @@ name: Repository cache maintenance
 #   In this case a new cache will be rebuilt from scratch and the old one deleted.
 # - disk cache: Except when MODULE.bazel.lock changes, contents are only added.
 #   It is wiped on MODULE.bazel.lock changes to avoid stale content and limit the size of the cache.
+#
+# Usage:
+#   This workflow shall be called on pushes to the default branch and cannot be run with other workflows in parallel, which also make use of bazel caches.
+#   Its purpose is to create a new repository cache and there should not be a race with another job doing the same.
+#   Thus you should have single workflow triggered on pushes to the default branch, which calls this workflow and then your CI workflow.
+#
+# Example:
+# ```
+# name: Cache maintenance
+
+# on:
+#   workflow_dispatch:
+#   push:
+#     branches: [main]
+
+# jobs:
+#   repository_cache_maintenance:
+#     permissions:
+#       actions: write # needed for cache deletion after cache refresh
+#       contents: read
+#     secrets:
+#       score-qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
+#       score-qnx-user: ${{ secrets.SCORE_QNX_USER }}
+#       score-qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
+#     uses: eclipse-score/cicd-workflows/.github/workflows/cache-maintenance.yml@<hash>
+#     with:
+#       variants: |
+#         //...
+#         --config=x86_64-linux //...
+#
+#   ci:
+#     needs:
+#       - repository_cache_maintenance
+#     secrets: inherit
+#     if: ${{ !cancelled() }}
+#     uses: ./.github/workflows/ci.yml
+#
+#   delete_old_caches:
+#     runs-on: ubuntu-24.04
+#     needs:
+#       - ci
+#     permissions:
+#       actions: write # needed for deletion of old caches
+#       contents: read
+#     if: ${{ !cancelled() }}
+#     steps:
+#       - name: Prune obsolete Bazel caches
+#         uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7
+# ```
 
 on:
   workflow_call:
