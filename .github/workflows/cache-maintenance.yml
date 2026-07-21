@@ -139,7 +139,7 @@ jobs:
           skip-cache-restore: true
 
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@af1be61755b13c1f33b6c250080dc6ac025012f1
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
 
       - name: Check QNX secret availability
         id: qnx_secrets
