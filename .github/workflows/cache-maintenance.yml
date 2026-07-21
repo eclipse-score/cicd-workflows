@@ -124,7 +124,7 @@ jobs:
         if: ${{ steps.check.outputs.any_changed == 'true' }}
 
       - name: Create Bazel output base directory
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -132,7 +132,7 @@ jobs:
           sudo chown -R $USER:$USER /mnt/.bazel
 
       - name: Setup Bazel
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
         uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
           unique-cache-name: ${{ github.job }}
@@ -167,7 +167,7 @@ jobs:
           qnx-license-dir: /opt/score_qnx/license
 
       - name: Validate variants with Bazel cquery
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
         shell: bash
         env:
           VARIANTS: ${{ inputs.variants }}
