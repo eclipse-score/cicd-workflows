@@ -136,7 +136,7 @@ jobs:
         uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
           unique-cache-name: ${{ github.job }}
-          skip-cache-restore: true
+          skip-cache-restore: ${{ github.event_name == 'push' }}
 
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@af1be61755b13c1f33b6c250080dc6ac025012f1
         if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
