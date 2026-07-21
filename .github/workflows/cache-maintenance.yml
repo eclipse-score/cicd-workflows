@@ -27,9 +27,11 @@ name: Repository cache maintenance
 # In pull requests and merge_queue the caches are read-only.
 #
 # Usage:
-#   This workflow shall be called on pushes to the main branch and cannot be run with other workflows in parallel, which also make use of bazel caches.
+#   This workflow shall be called on pushes to the main branch and in the merge queue and cannot be run with other workflows in parallel, which also make use of bazel caches.
 #   Its purpose is to create a new repository cache and there should not be a race with another job doing the same.
 #   Thus you should have single workflow triggered on pushes to the main branch, which calls this workflow and then your CI workflow.
+#   Once it has finished, jobs using bazels repository cache can be run in parallel.
+#   Running this workflow in the merge queue does not have concurrency issues, because there it is prevented from writing or deleting caches.
 #
 # Example:
 # ```
@@ -37,6 +39,8 @@ name: Repository cache maintenance
 
 # on:
 #   workflow_dispatch:
+#   merge_group:
+#     types: [checks_requested]
 #   push:
 #     branches: [main]
 
@@ -176,7 +180,7 @@ jobs:
       actions: write # needed for cache deletion
       contents: read
     needs: repository_cache_maintenance
-    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' }}
+    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' && github.event_name == 'push' }}
     steps:
       - name: Delete all disk caches
         env:
