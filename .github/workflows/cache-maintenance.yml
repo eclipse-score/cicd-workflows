@@ -180,9 +180,10 @@ jobs:
       actions: write # needed for cache deletion
       contents: read
     needs: repository_cache_maintenance
-    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' && github.event_name == 'push' }}
+    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' }}
     steps:
       - name: Delete all disk caches
+        if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
