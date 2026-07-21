@@ -166,8 +166,65 @@ jobs:
           qnx-password: ${{ secrets.score-qnx-password }}
           qnx-license-dir: /opt/score_qnx/license
 
-      - name: Warm Bazel repository cache artifacts
+      - name: Validate variants with Bazel cquery
         if: ${{ steps.check.outputs.any_changed == 'true' }}
+        shell: bash
+        env:
+          VARIANTS: ${{ inputs.variants }}
+        run: |
+          set -euo pipefail
+
+          line_no=0
+          while IFS= read -r variant_line || [[ -n "$variant_line" ]]; do
+            line_no=$((line_no + 1))
+
+            # Skip empty lines from the multiline input.
+            if [[ -z "${variant_line//[[:space:]]/}" ]]; then
+              continue
+            fi
+
+            read -r -a tokens <<< "$variant_line"
+
+            config_arg=""
+            config_count=0
+            targets=()
+
+            for token in "${tokens[@]}"; do
+              if [[ "$token" == --config=* ]]; then
+                config_arg="$token"
+                config_count=$((config_count + 1))
+                continue
+              fi
+
+              if [[ "$token" == --* ]]; then
+                echo "Unsupported option '$token' in variants line $line_no. Only --config=<name> is supported in this workflow input." >&2
+                exit 1
+              fi
+
+              targets+=("$token")
+            done
+
+            if [[ $config_count -gt 1 ]]; then
+              echo "variants line $line_no contains more than one --config=... argument: $variant_line" >&2
+              exit 1
+            fi
+
+            if [[ ${#targets[@]} -eq 0 ]]; then
+              echo "variants line $line_no does not contain a target: $variant_line" >&2
+              exit 1
+            fi
+
+            for target in "${targets[@]}"; do
+              if [[ -n "$config_arg" ]]; then
+                bazel cquery "$config_arg" "$target"
+              else
+                bazel cquery "$target"
+              fi
+            done
+          done <<< "$VARIANTS"
+
+      - name: Warm Bazel repository cache artifacts
+        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
         uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
           variants: ${{ inputs.variants }}
