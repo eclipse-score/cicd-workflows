@@ -121,7 +121,7 @@ jobs:
             MODULE.bazel.lock
 
       - uses: eclipse-score/more-disk-space@3fac5780033e636b114cf69e891dc19d640855c2 # v1.1
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
 
       - name: Create Bazel output base directory
         if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
@@ -139,11 +139,11 @@ jobs:
           skip-cache-restore: true
 
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@af1be61755b13c1f33b6c250080dc6ac025012f1
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
 
       - name: Check QNX secret availability
         id: qnx_secrets
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
         shell: bash
         env:
           QNX_LICENSE: ${{ secrets.score-qnx-license }}
@@ -158,7 +158,7 @@ jobs:
           fi
 
       - name: Setup QNX SDP usage
-        if: ${{ steps.check.outputs.any_changed == 'true' && steps.qnx_secrets.outputs.has_all == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' && steps.qnx_secrets.outputs.has_all == 'true' }}
         uses: eclipse-score/cicd-actions/setup-qnx-sdp@af1be61755b13c1f33b6c250080dc6ac025012f1
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
@@ -186,10 +186,9 @@ jobs:
       actions: write # needed for cache deletion
       contents: read
     needs: repository_cache_maintenance
-    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' }}
+    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' && github.event_name == 'push' }}
     steps:
       - name: Delete all disk caches
-        if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
