@@ -166,17 +166,12 @@ jobs:
           qnx-password: ${{ secrets.score-qnx-password }}
           qnx-license-dir: /opt/score_qnx/license
 
-      - name: Validate repository cache variants
-        if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
-        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache-input-check@add-repository-input-check
+      - name: Validate variants and warm Bazel repository cache artifacts
+        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@add-repository-input-check
         with:
           variants: ${{ inputs.variants }}
-
-      - name: Warm Bazel repository cache artifacts
-        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
-        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
-        with:
-          variants: ${{ inputs.variants }}
+          dry-run: ${{ github.event_name != 'push' }}
 
   prune_old_caches:
     # Extra job for deletion of caches is needed to avoid time window with no repository cache available.
