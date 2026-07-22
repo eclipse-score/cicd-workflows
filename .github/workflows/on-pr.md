@@ -23,6 +23,7 @@ jobs:
     uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@main
     permissions:
       contents: read
+      pull-requests: write
 ```
 
 That is all that is required. The workflow detects your repository's capabilities
@@ -82,17 +83,38 @@ jobs:
       contents: read
 ```
 
+## Failure reporting
+
+| Input | Default | Behavior |
+| --- | --- | --- |
+| `write-pr-comment` | `true` | Adds each failure's guidance as a PR comment. Comments created by the workflow are removed after a later successful run. |
+| `write-step-summary` | `false` | Adds failure guidance to the GitHub Actions run summary. |
+| `write-annotation` | `false` | Adds a GitHub Actions error annotation for each failure. |
+
+Both reporting options can be changed independently:
+
+```yaml
+jobs:
+  common:
+    uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@main
+    with:
+      write-pr-comment: false
+      write-step-summary: true
+      write-annotation: true
+    permissions:
+      contents: read
+      pull-requests: write
+```
+
 ## Behavior notes
 
 - **All checks run, even if one fails.** A failing check does not stop the ones
   after it — each reports its own pass/fail, and the job as a whole fails if any
   check failed.
 - **Failures come with guidance.** When a check fails it explains what failed, how
-  to reproduce it locally, and how to fix it. The same guidance is surfaced in
-  three places so a red check is actionable without hunting: in the **failing
-  step's own log** (what you land on when you click *Details*), as an **error
-  annotation** (PR *Checks* tab and the run's annotations box), and on the run's
-  **Summary** page.
+  to reproduce it locally, and how to fix it. Guidance is always in the **failing
+  step's own log**. PR comments, error annotations (PR *Checks* tab and the run's
+  annotations box), and the run **Summary** are controlled by the inputs above.
 - **Shared checkout stays clean.** All checks share one checkout, so a check that
   rewrites files (pre-commit, `bazel mod tidy`) restores the working tree
   afterwards. Later git-diff-based checks therefore see the original PR state, not
@@ -109,12 +131,15 @@ jobs:
 
 ## Permissions
 
-No additional permissions required.
-Standard `contents: read` is sufficient for all checks.
+`contents: read` is sufficient for the checks themselves. With the default
+`write-pr-comment: true`, grant `pull-requests: write` so the workflow can add
+and later remove its PR comments. Set `write-pr-comment: false` to keep the
+workflow read-only.
 
 ```yaml
 permissions:
   contents: read
+  pull-requests: write
 ```
 
 ## Runner selection
