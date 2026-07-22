@@ -167,7 +167,7 @@ jobs:
           qnx-license-dir: /opt/score_qnx/license
 
       - name: Validate variants and warm Bazel repository cache artifacts
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
         uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@add-repository-input-check
         with:
           variants: ${{ inputs.variants }}
