@@ -26,14 +26,15 @@
 # later git-diff-based checks see the original PR state instead of the auto-fixed one.
 #
 # Failing checks report through the shared `report_failure` helper (see the
-# "Prepare failure-reporting helper" step), which surfaces the same guidance in the
-# step log, and optionally as an annotation, on the run's Summary page, and as a
-# PR comment that is removed after a later successful run.
+# "Prepare failure-reporting helper" step), which writes actionable guidance to
+# the failing step's log. Do not duplicate it in step summaries or annotations:
+# both are easy to miss. They do NOT show up on the page that is linked from PRs.
+# And do not write PR comments either: they require write permissions from every
+# caller and cannot reliably be created for fork PRs.
 
 # Attention: this workflow must be called with following permissions:
 #    permissions:
 #      contents: read
-#      pull-requests: write  # only needed when write-pr-comment is true
 
 name: 🔁
 
@@ -65,21 +66,6 @@ on:
         required: false
         default: false
         type: boolean
-      write-pr-comment:
-        description: "Write failure guidance as PR comments and remove those comments after a successful run"
-        required: false
-        default: true
-        type: boolean
-      write-step-summary:
-        description: "Write failure guidance to the GitHub Actions step summary"
-        required: false
-        default: false
-        type: boolean
-      write-annotation:
-        description: "Write a GitHub Actions error annotation for each failure"
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   pr-checks:
@@ -88,7 +74,6 @@ jobs:
 
     permissions:
       contents: read
-      pull-requests: write
 
     steps:
       - name: 🚫 Refuse to run on pull_request_target
@@ -105,31 +90,12 @@ jobs:
 
       - name: 🧰 Prepare failure-reporting helper
         if: ${{ !cancelled() }}
-        env:
-          WRITE_PR_COMMENT: ${{ inputs.write-pr-comment }}
-          WRITE_STEP_SUMMARY: ${{ inputs.write-step-summary }}
-          WRITE_ANNOTATION: ${{ inputs.write-annotation }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           # Shared helper sourced by every check below. A failing check calls
           # `report_failure "<title>"` and pipes the Markdown guidance in via a
-          # heredoc. It always writes the guidance to the failing step's log, and
-          # optionally to the PR conversation, as an annotation, and to the step
-          # summary.
+          # heredoc. It writes the guidance to the failing step's log, which is
+          # where the failed check opens when you click "Details".
           cat > "$RUNNER_TEMP/pr-check-lib.sh" <<'LIB'
-          write_pr_comment() {
-            [[ "$WRITE_PR_COMMENT" == "true" && -n "$PR_NUMBER" ]] || return 0
-
-            local comment
-            comment="$(printf '%s\n\n### ❌ %s\n\n%s' '<!-- score-on-pr-failure -->' "$1" "$2")"
-
-            gh api --method POST \
-              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-              -f body="$comment" \
-              || echo "::warning::Could not write the PR failure comment. Ensure pull-requests: write is granted."
-          }
-
           report_failure() {
             local title="$1"
             local body
@@ -141,15 +107,7 @@ jobs:
               /[^[:space:]]/ { match($0, /^[[:space:]]*/); if (min == "" || RLENGTH < min) min = RLENGTH }
               END { for (i = 1; i <= NR; i++) print substr(line[i], min + 1) }
             ')"
-            if [[ "$WRITE_ANNOTATION" == "true" ]]; then
-              echo "::error title=${title}::${title}. See this step's log for how to reproduce and fix."
-            fi
             printf '❌ %s\n\n%s\n' "$title" "$body"
-            touch "$RUNNER_TEMP/pr-check-failed"
-            write_pr_comment "$title" "$body"
-            if [[ "$WRITE_STEP_SUMMARY" == "true" ]]; then
-              printf '### ❌ %s\n\n%s\n' "$title" "$body" >> "$GITHUB_STEP_SUMMARY"
-            fi
             exit 1
           }
           LIB
@@ -419,22 +377,3 @@ jobs:
               Regenerate the lockfile with `bazel mod tidy` and commit the updated `MODULE.bazel.lock`.
           MD
           fi
-
-      - name: 🧹 Remove resolved PR failure comments
-        if: ${{ !cancelled() && inputs.write-pr-comment && github.event.pull_request.number }}
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # report_failure leaves this marker behind. Do not remove comments from
-          # a failed run; a later successful run removes only this workflow's
-          # comments.
-          [[ ! -f "$RUNNER_TEMP/pr-check-failed" ]] || exit 0
-
-          comment_ids="$(gh api \
-            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- score-on-pr-failure -->"))) | .id')"
-
-          for comment_id in $comment_ids; do
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id"
-          done
