@@ -26,7 +26,7 @@
 # later git-diff-based checks see the original PR state instead of the auto-fixed one.
 #
 # Failing checks report through the shared `report_failure` helper (see the
-# "Prepare failure-reporting helper" step), which writes actionable guidance to
+# "Prepare shared check helper" step), which writes actionable guidance to
 # the failing step's log. Do not duplicate it in step summaries or annotations:
 # both are easy to miss. They do NOT show up on the page that is linked from PRs.
 # And do not write PR comments either: they require write permissions from every
@@ -88,7 +88,7 @@ jobs:
       - name: 📥 Check out
         uses: actions/checkout@v6
 
-      - name: 🧰 Prepare failure-reporting helper
+      - name: 🧰 Prepare shared check helper
         if: ${{ !cancelled() }}
         run: |
           # Shared helper sourced by every check below. A failing check calls
@@ -96,6 +96,34 @@ jobs:
           # heredoc. It writes the guidance to the failing step's log, which is
           # where the failed check opens when you click "Details".
           cat > "$RUNNER_TEMP/pr-check-lib.sh" <<'LIB'
+          run_grouped() {
+            local title="$1"
+            shift
+
+            echo "::group::$title"
+            "$@"
+            local status=$?
+            echo "::endgroup::"
+            return "$status"
+          }
+
+          # Runs a boolean-style check function, writes it to GITHUB_OUTPUT and
+          # echoes the result so the detection is visible in the step log.
+          emit_output() {
+            local name="$1"
+            shift
+
+            local value
+            if "$@"; then
+              value=true
+            else
+              value=false
+            fi
+
+            echo "$name=$value" >> "$GITHUB_OUTPUT"
+            echo "  $name=$value"
+          }
+
           report_failure() {
             local title="$1"
             local body
@@ -116,25 +144,9 @@ jobs:
         id: detect
         run: |
           set -euo pipefail
+          source "$RUNNER_TEMP/pr-check-lib.sh"
 
           echo "Detected repository capabilities:"
-
-          # Runs a boolean-style check function, writes it to GITHUB_OUTPUT and
-          # echoes the result so the detection is visible in the step log.
-          emit_output() {
-            local name="$1"
-            shift
-
-            local value
-            if "$@"; then
-              value=true
-            else
-              value=false
-            fi
-
-            echo "$name=$value" >> "$GITHUB_OUTPUT"
-            echo "  $name=$value"
-          }
 
           # Returns success if any provided file path exists.
           any_file_exists() {
@@ -178,11 +190,11 @@ jobs:
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
 
-          if ! uvx pre-commit run --all-files; then
+          if ! run_grouped "pre-commit checks" uvx pre-commit run --all-files; then
             # pre-commit auto-fixes files in place, and only reports failure when it
             # changed something. Restore the working tree so later git-diff-based
             # checks (e.g. `bazel mod tidy`) see the original PR state, not the fixes.
-            git checkout -- .
+            git checkout -- . >/dev/null
             report_failure "pre-commit failed" <<'MD'
               One or more pre-commit hooks reported problems (formatting, linting, etc.).
 
@@ -202,7 +214,7 @@ jobs:
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
 
-          if ! uv run --frozen python -m pytest; then
+          if ! run_grouped "Python tests" uv run --frozen python -m pytest; then
             report_failure "Python tests failed" <<'MD'
               Tests failed, or `uv.lock` is out of date (`--frozen` forbids updating it during the run).
 
@@ -255,25 +267,9 @@ jobs:
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
         run: |
           set -euo pipefail
+          source "$RUNNER_TEMP/pr-check-lib.sh"
 
           echo "Detected Bazel targets:"
-
-          # Runs a boolean-style check function, writes it to GITHUB_OUTPUT and
-          # echoes the result so the detection is visible in the step log.
-          emit_output() {
-            local name="$1"
-            shift
-
-            local value
-            if "$@"; then
-              value=true
-            else
-              value=false
-            fi
-
-            echo "$name=$value" >> "$GITHUB_OUTPUT"
-            echo "  $name=$value"
-          }
 
           # Returns success if the given Bazel label can be queried from the repo root.
           has_bazel_target() {
@@ -288,7 +284,7 @@ jobs:
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
 
-          if ! bazel test //:format.check; then
+          if ! run_grouped "bazel test //:format.check" bazel test //:format.check; then
             report_failure "Formatting check failed" <<'MD'
               `//:format.check` found files that are not formatted according to the project formatting rules.
 
@@ -310,7 +306,7 @@ jobs:
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
 
-          if ! bazel run //:copyright.check; then
+          if ! run_grouped "bazel run //:copyright.check" bazel run //:copyright.check; then
             report_failure "Copyright check failed" <<'MD'
               One or more source files are missing the required copyright/license header.
 
@@ -332,10 +328,16 @@ jobs:
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
 
-          if ! { bazel mod tidy && git diff --exit-code; }; then
+          if ! (
+            echo "::group::bazel mod tidy and lockfile diff"
+            bazel mod tidy && git diff --exit-code
+            status=$?
+            echo "::endgroup::"
+            exit "$status"
+          ); then
             # bazel mod tidy rewrites MODULE.bazel / MODULE.bazel.lock in place;
             # restore them so the lockfile check below sees the original PR state.
-            git checkout -- .
+            git checkout -- . >/dev/null
             report_failure "Bazel module is not tidy" <<'MD'
               `bazel mod tidy` would change `MODULE.bazel` or `MODULE.bazel.lock`, so they are not tidy.
 
@@ -364,7 +366,7 @@ jobs:
             exit 1
           fi
 
-          if ! bazel mod deps --lockfile_mode=error; then
+          if ! run_grouped "bazel mod deps --lockfile_mode=error" bazel mod deps --lockfile_mode=error; then
             report_failure "Bazel lockfile is out of date" <<'MD'
               `MODULE.bazel.lock` does not match the resolved dependency graph.
 
