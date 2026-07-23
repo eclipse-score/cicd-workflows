@@ -26,21 +26,24 @@ name: Repository cache maintenance
 # Both caches are only updated when the workflow is triggered by a push to the main branch.
 # In pull requests and merge_queue the caches are read-only.
 #
+# Concurrency:
+# - Rebuilding caches should not be done in parallel.
+# - Reading caches and dry-runs can be done in parallel.
+#
 # Usage:
-#   This workflow shall be called on pushes to the main branch and in the merge queue and cannot be run with other workflows in parallel, which also make use of bazel caches.
-#   Its purpose is to create a new repository cache and there should not be a race with another job doing the same.
-#   Thus you should have single workflow triggered on pushes to the main branch, which calls this workflow and then your CI workflow.
-#   Once it has finished, jobs using bazels repository cache can be run in parallel.
-#   Running this workflow in the merge queue does not have concurrency issues, because there it is prevented from writing or deleting caches.
+#   This workflow shall be called on pushes to the main branch to rebuild caches if needed.
+#   For dry-runs execute this workflow in pull requests or the merge queue.
 #
 # Example:
 # ```
 # name: Cache maintenance
 
 # on:
-#   workflow_dispatch:
+#   pull_request:
+#     types: [opened, reopened, synchronize, labeled, unlabeled]
 #   merge_group:
 #     types: [checks_requested]
+#   workflow_dispatch:
 #   push:
 #     branches: [main]
 
@@ -63,7 +66,7 @@ name: Repository cache maintenance
 #     needs:
 #       - repository_cache_maintenance
 #     secrets: inherit
-#     if: ${{ !cancelled() }}
+#     if: ${{ github.event_name == 'push' }}
 #     uses: ./.github/workflows/ci.yml
 #
 #   delete_old_caches:
@@ -73,10 +76,10 @@ name: Repository cache maintenance
 #     permissions:
 #       actions: write # needed for deletion of old caches
 #       contents: read
-#     if: ${{ !cancelled() }}
+#     if: ${{ !cancelled() && github.event_name == 'push' }}
 #     steps:
 #       - name: Prune obsolete Bazel caches
-#         uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7
+#         uses: eclipse-score/cicd-actions/prune-cache@<hash>
 # ```
 
 on:
@@ -133,12 +136,12 @@ jobs:
 
       - name: Setup Bazel
         if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
         with:
           unique-cache-name: ${{ github.job }}
           skip-cache-restore: true
 
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@af1be61755b13c1f33b6c250080dc6ac025012f1
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
         if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
 
       - name: Check QNX secret availability
@@ -159,7 +162,7 @@ jobs:
 
       - name: Setup QNX SDP usage
         if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' && steps.qnx_secrets.outputs.has_all == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-qnx-sdp@af1be61755b13c1f33b6c250080dc6ac025012f1
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
           qnx-user: ${{ secrets.score-qnx-user }}
@@ -168,7 +171,7 @@ jobs:
 
       - name: Validate variants and warm Bazel repository cache artifacts
         if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
-        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@add-repository-input-check
+        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
         with:
           variants: ${{ inputs.variants }}
           dry-run: ${{ github.event_name != 'push' }}
@@ -193,4 +196,4 @@ jobs:
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
           | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
       - name: Prune repository cache
-        uses: eclipse-score/cicd-actions/prune-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
+        uses: eclipse-score/cicd-actions/prune-cache@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
