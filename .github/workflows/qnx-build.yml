@@ -107,7 +107,8 @@ jobs:
         with:
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          # this job is gated by the approval job
+          # This job is gated by the approval job.
+          # A reviewer must validate the content before approving the workflow.
           allow-unsafe-pr-checkout: true
 
       - name: Setup Bazel with shared caching
