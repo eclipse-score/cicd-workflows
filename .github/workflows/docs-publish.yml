@@ -257,7 +257,7 @@ jobs:
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
 
       - name: Find existing PR comment
-        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != ''
+        if: always() && steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != ''
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
         id: fc
         with:
@@ -266,7 +266,7 @@ jobs:
           body-includes: Documentation preview for this pull request
 
       - name: Comment on PR with preview link
-        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != '' && steps.fc.outputs.comment-id == ''
+        if: always() && steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != '' && steps.fc.outputs.comment-id == ''
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
           issue-number: ${{ steps.metadata.outputs.pr_number }}
