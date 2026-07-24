@@ -21,26 +21,6 @@ on:
         required: false
         default: 1
         type: number
-      workflow-version:
-        description: "Version or branch to checkout"
-        required: false
-        default: "main"
-        type: string
-      bazel-target:
-        description: "The Bazel target to build (e.g., //docs)"
-        required: false
-        type: string
-        default: "//:docs"
-      tests-report-artifact:
-        description: "Name of the artifact that contains test reports"
-        required: false
-        default: ""
-        type: string
-      deployment_type:
-        description: "Type of deployment: legacy or workflow"
-        type: string
-        required: false
-        default: "workflow"
       gh_app_client_id:
         description: "GitHub App Client ID for inter-repo access (not used in public S-CORE)"
         required: false
