@@ -201,4 +201,4 @@ jobs:
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
           | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
       - name: Prune repository cache
-        uses: eclipse-score/cicd-actions/prune-cache@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
+        uses: eclipse-score/cicd-actions/prune-cache@94ffd2cc2840f31ebec202859266e49d35f0ffb1
