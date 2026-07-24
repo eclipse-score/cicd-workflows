@@ -43,6 +43,7 @@ on:
 concurrency:
   group: cicd-pages-deploy
   cancel-in-progress: false
+  queue: max
 
 jobs:
   docs-deploy:
