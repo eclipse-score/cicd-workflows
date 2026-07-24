@@ -63,7 +63,7 @@ jobs:
           exit 1
 
       - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7
 
       - name: Setup Bazel with shared caching
         uses: eclipse-score/cicd-actions/setup-bazel-cache@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
@@ -90,7 +90,7 @@ jobs:
           exit 1
 
       - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7
 
       - name: Setup Bazel with shared caching
         uses: eclipse-score/cicd-actions/setup-bazel-cache@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
