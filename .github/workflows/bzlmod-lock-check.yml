@@ -66,7 +66,7 @@ jobs:
         uses: actions/checkout@v4.2.2
 
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
         with:
           unique-cache-name: ${{ github.job }}
 
@@ -93,7 +93,7 @@ jobs:
         uses: actions/checkout@v4.2.2
 
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
         with:
           unique-cache-name: ${{ github.job }}
 
