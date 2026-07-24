@@ -30,7 +30,8 @@ name: Publish Documentation
 #       - completed
 # jobs:
 #   docs-deploy:
-#     uses: eclipse-score/cicd-workflows/.github/workflows/copyright.yml@<RECENT_HASH_HERE>
+#     if: github.event.workflow_run.conclusion == 'success'
+#     uses: eclipse-score/cicd-workflows/.github/workflows/docs-publish.yml@<HASH>
 #     permissions:
 #       pages: write
 #       id-token: write
