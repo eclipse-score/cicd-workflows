@@ -62,6 +62,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          HEAD_REPO_OWNER: ${{ github.event.workflow_run.head_repository.owner.login || '' }}
         run: |
           EVENT_NAME="${{ github.event.workflow_run.event }}"
           PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number || '' }}"
@@ -79,6 +80,16 @@ jobs:
               | head -n1 || true)"
           fi
 
+          # pull_request_target runs may not expose pull_requests[] in workflow_run payload.
+          # Fallback to searching by head owner + branch to find the matching open PR.
+          if [[ "$EVENT_NAME" == "pull_request_target" && -z "$PR_NUMBER" && -n "$HEAD_REPO_OWNER" && -n "$REF_NAME" ]]; then
+            PR_NUMBER="$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/pulls?state=open&head=${HEAD_REPO_OWNER}:${REF_NAME}" \
+              | jq -r '.[0].number // empty' || true)"
+          fi
+
           if [[ "$PR_NUMBER" == "null" ]]; then
             PR_NUMBER=""
           fi
@@ -89,16 +100,22 @@ jobs:
             echo "should_deploy=true" >> "$GITHUB_OUTPUT"
           fi
 
+          if [[ -n "$PR_NUMBER" ]]; then
+            IS_PR_CONTEXT="true"
+          else
+            IS_PR_CONTEXT="false"
+          fi
+
           echo "event_name=$EVENT_NAME" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "ref_name=$REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "is_pr_context=$IS_PR_CONTEXT" >> "$GITHUB_OUTPUT"
 
       - name: Determine target folder
         if: steps.metadata.outputs.should_deploy == 'true'
         id: target
         run: |
-          EVENT_NAME="${{ steps.metadata.outputs.event_name }}"
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+          if [[ -n "${{ steps.metadata.outputs.pr_number }}" ]]; then
             echo "folder=pr-${{ steps.metadata.outputs.pr_number }}" >> "$GITHUB_OUTPUT"
           else
             echo "folder=${{ steps.metadata.outputs.ref_name }}" >> "$GITHUB_OUTPUT"
@@ -229,7 +246,7 @@ jobs:
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
 
       - name: Find existing PR comment
-        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.event_name == 'pull_request' && steps.metadata.outputs.pr_number != ''
+        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != ''
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
         id: fc
         with:
@@ -238,7 +255,7 @@ jobs:
           body-includes: Documentation preview for this pull request
 
       - name: Comment on PR with preview link
-        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.event_name == 'pull_request' && steps.metadata.outputs.pr_number != '' && steps.fc.outputs.comment-id == ''
+        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != '' && steps.fc.outputs.comment-id == ''
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
           issue-number: ${{ steps.metadata.outputs.pr_number }}
