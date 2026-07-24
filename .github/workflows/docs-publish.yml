@@ -68,10 +68,21 @@ jobs:
           PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number || '' }}"
           REF_NAME="${{ github.event.workflow_run.head_branch }}"
           HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          CHECK_SUITE_ID="${{ github.event.workflow_run.check_suite_id || '' }}"
 
           # Some fork-origin workflow_run payloads do not include pull_requests[];
           # resolve the PR from the run's HEAD commit as a fallback.
-          if [[ "$EVENT_NAME" == "pull_request" && -z "$PR_NUMBER" && -n "$HEAD_SHA" ]]; then
+          # If the workflow_run references a check suite, use it to recover the PR number.
+          if [[ -z "$PR_NUMBER" && -n "$CHECK_SUITE_ID" ]]; then
+            PR_NUMBER="$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/check-suites/${CHECK_SUITE_ID}" \
+              | jq -r '.pull_requests[]? | select(.number != null) | .number' \
+              | head -n1 || true)"
+          fi
+
+          if [[ -z "$PR_NUMBER" && -n "$HEAD_SHA" ]]; then
             PR_NUMBER="$(curl -fsSL \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
