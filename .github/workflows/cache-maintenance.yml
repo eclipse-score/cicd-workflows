@@ -103,6 +103,11 @@ on:
         description: QNX account password
         required: false
 
+concurrency:
+  # Serialize push and workflow_dispatch runs per branch; keep other events parallel.
+  group: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && format('{0}-{1}', github.workflow, github.ref_name) || format('{0}-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: false
+
 jobs:
   repository_cache_maintenance:
     name: Create new repository cache if required
