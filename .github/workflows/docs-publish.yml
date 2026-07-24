@@ -59,10 +59,29 @@ jobs:
     steps:
       - name: Resolve build metadata
         id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           EVENT_NAME="${{ github.event.workflow_run.event }}"
-          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number || '' }}"
           REF_NAME="${{ github.event.workflow_run.head_branch }}"
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+
+          # Some fork-origin workflow_run payloads do not include pull_requests[];
+          # resolve the PR from the run's HEAD commit as a fallback.
+          if [[ "$EVENT_NAME" == "pull_request" && -z "$PR_NUMBER" && -n "$HEAD_SHA" ]]; then
+            PR_NUMBER="$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/commits/${HEAD_SHA}/pulls" \
+              | jq -r '.[] | select(.state == "open") | .number' \
+              | head -n1 || true)"
+          fi
+
+          if [[ "$PR_NUMBER" == "null" ]]; then
+            PR_NUMBER=""
+          fi
 
           if [[ "$EVENT_NAME" == "merge_group" ]]; then
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
