@@ -36,6 +36,11 @@ on:
         required: false
         default: workflow-approval
         type: string
+      working-directory:
+        description: Working directory for build and test steps (relative to the repository root)
+        required: false
+        default: '.'
+        type: string
       bazel-disk-cache:
         description: Name to append to the Bazel disk cache name. The value can be a string to use as cache key for separating workflows
         required: false
@@ -129,6 +134,7 @@ jobs:
           qnx-license-dir: /opt/score_qnx/license
 
       - name: Build with QNX toolchain
+        working-directory: ${{ inputs.working-directory }}
         run: |
           set -euo pipefail
 
@@ -151,6 +157,7 @@ jobs:
 
       - name: Test with QNX toolchain
         if: inputs.bazel-test-target != ''
+        working-directory: ${{ inputs.working-directory }}
         run: |
           set -euo pipefail
 
