@@ -76,8 +76,14 @@ jobs:
       - name: Run Rust tests with coverage instrumentation
         run: |
           set -euo pipefail
-          echo "Running: bazel test ${{ inputs.bazel-test-config-flags }} ${{ inputs.bazel-test-args }} ${{ inputs.bazel-test-targets }}"
-          bazel test ${{ inputs.bazel-test-config-flags }} ${{ inputs.bazel-test-args }} ${{ inputs.bazel-test-targets }}
+          # --build_tests_only: restrict building to test targets that pass the
+          # test filters, so consumers' --test_lang_filters/--test_tag_filters
+          # also exclude filtered tests from BUILDING. Without it, wildcard
+          # patterns build even filtered-out tests (e.g. Miri targets, whose
+          # Miri-sysroot compiles fail when coverage instrumentation is
+          # enabled). See issue #164.
+          echo "Running: bazel test --build_tests_only ${{ inputs.bazel-test-config-flags }} ${{ inputs.bazel-test-args }} ${{ inputs.bazel-test-targets }}"
+          bazel test --build_tests_only ${{ inputs.bazel-test-config-flags }} ${{ inputs.bazel-test-args }} ${{ inputs.bazel-test-targets }}
 
       - name: Generate coverage reports
         run: |
