@@ -88,7 +88,12 @@ jobs:
           set -euo pipefail
           set -f  # disable globbing
 
-          cmd=(bazel coverage)
+          # --build_tests_only: restrict building to test targets that pass the
+          # test filters. Without it, wildcard patterns build even filtered-out
+          # tests (e.g. --test_lang_filters=-rust,-miri still BUILDS Miri test
+          # targets, whose Miri-sysroot compiles fail under coverage
+          # instrumentation). See issue #164.
+          cmd=(bazel coverage --build_tests_only)
 
           if [[ -n "${BAZEL_CONFIG}" ]]; then
             cmd+=(--config="${BAZEL_CONFIG}")
