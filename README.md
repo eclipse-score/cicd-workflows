@@ -9,7 +9,8 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | Workflow                       | Description                                                       |
 | ------------------------------ | ----------------------------------------------------------------- |
 | **[PR Checks](.github/workflows/on-pr.md)** | Main PR entry point: auto-detects capabilities and runs pre-commit, tests, format, copyright and lockfile checks in one job |
-| **Documentation Build**        | Builds project documentation and deploys it to GitHub Pages       |
+| **Documentation Build**        | Builds project documentation and uploads it as an artifact        |
+| **Documentation Publish**      | Publishes a completed documentation-build artifact to GitHub Pages |
 | **Documentation Cleanup**      | Cleans up old documentation versions from the `gh-pages` branch   |
 | **License Check**              | Verifies OSS licenses and compliance                              |
 | **Static Code Analysis**       | Runs Clang-Tidy, Clippy, Pylint, and other linters                |
@@ -48,15 +49,38 @@ jobs:
     uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
     with:
       retention-days: 3
-      # Optionally override:
-      # workflow-version: main
-      # bazel-target: "//docs:github-pages"
+      # bazel-target: "//:docs" # optional, default shown
 ```
 This workflow:
 
 ✅ Builds project documentation  
 ✅ Uploads it as an artifact  
-✅ Deploys it to **GitHub Pages** on push to `main`  
+
+To deploy the artifact safely, add a separate workflow. It runs with write
+permissions only after the unprivileged documentation build has completed:
+
+```yaml
+name: Publish Documentation
+
+on:
+  workflow_run:
+    workflows: ["Documentation CI"]
+    types: [completed]
+
+jobs:
+  docs-deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-publish.yml@main
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      pages: write
+      pull-requests: write
+```
+
+`deployment_type` remains accepted for compatibility, but is deprecated and
+has no effect. Publishing is always performed by `docs-publish.yml`.
 
 ---
 

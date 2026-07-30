@@ -51,6 +51,7 @@ jobs:
     name: Deploy documentation to GitHub Pages
     if: github.event.workflow_run.conclusion == 'success'
     permissions:
+      actions: read # download the artifact produced by the triggering workflow run
       pages: write # publish to GitHub Pages
       id-token: write # to verify the deployment originates from an appropriate source
       contents: write # to update versions.json and commit to gh-pages
@@ -63,13 +64,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_REPO_OWNER: ${{ github.event.workflow_run.head_repository.owner.login || '' }}
+          EVENT_NAME: ${{ github.event.workflow_run.event }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
+          REF_NAME: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CHECK_SUITE_ID: ${{ github.event.workflow_run.check_suite_id || '' }}
         run: |
-          EVENT_NAME="${{ github.event.workflow_run.event }}"
-          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number || '' }}"
-          REF_NAME="${{ github.event.workflow_run.head_branch }}"
-          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
-          CHECK_SUITE_ID="${{ github.event.workflow_run.check_suite_id || '' }}"
-
           # Some fork-origin workflow_run payloads do not include pull_requests[];
           # resolve the PR from the run's HEAD commit as a fallback.
           # If the workflow_run references a check suite, use it to recover the PR number.
@@ -125,14 +125,18 @@ jobs:
       - name: Determine target folder
         if: steps.metadata.outputs.should_deploy == 'true'
         id: target
+        env:
+          PR_NUMBER: ${{ steps.metadata.outputs.pr_number }}
+          REF_NAME: ${{ steps.metadata.outputs.ref_name }}
         run: |
-          if [[ -n "${{ steps.metadata.outputs.pr_number }}" ]]; then
-            echo "folder=pr-${{ steps.metadata.outputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$PR_NUMBER" ]]; then
+            echo "folder=pr-$PR_NUMBER" >> "$GITHUB_OUTPUT"
           else
-            echo "folder=${{ steps.metadata.outputs.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "folder=$REF_NAME" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Ensure gh-pages branch exists with initial files
+        if: steps.metadata.outputs.should_deploy == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -194,8 +198,10 @@ jobs:
 
       - name: Clean up old documentation
         if: steps.metadata.outputs.should_deploy == 'true'
+        env:
+          TARGET_FOLDER: ${{ steps.target.outputs.folder }}
         run: |
-          rm -rf "gh-pages-content/${{ steps.target.outputs.folder }}"
+          rm -rf "gh-pages-content/$TARGET_FOLDER"
 
       - name: Download documentation artifact
         if: steps.metadata.outputs.should_deploy == 'true'
@@ -212,9 +218,11 @@ jobs:
 
       - name: Extend versions.json
         if: steps.metadata.outputs.should_deploy == 'true'
+        env:
+          TARGET: ${{ steps.target.outputs.folder }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          TARGET="${{ steps.target.outputs.folder }}"
-
           # if versions.json does not exist, create it with an empty array as content
           if [ ! -f gh-pages-content/versions.json ]; then
             echo '[]' > gh-pages-content/versions.json
@@ -224,8 +232,8 @@ jobs:
           if jq -e --arg v "$TARGET" 'map(select(.version == $v)) | length > 0' gh-pages-content/versions.json > /dev/null; then
             echo "Version '$TARGET' already exists in versions.json"
           else
-            REPO_NAME=$(basename "${{ github.repository }}")
-            OWNER_NAME="${{ github.repository_owner }}"
+            REPO_NAME=$(basename "$REPOSITORY")
+            OWNER_NAME="$REPOSITORY_OWNER"
             PAGES_URL="https://${OWNER_NAME}.github.io/${REPO_NAME}"
             jq --arg v "$TARGET" --arg u "${PAGES_URL}/${TARGET}/" \
               '. + [{"version": $v, "url": $u}]' gh-pages-content/versions.json > gh-pages-content/tmp.json && mv gh-pages-content/tmp.json gh-pages-content/versions.json
@@ -233,12 +241,14 @@ jobs:
 
       - name: Commit and push changes to gh-pages
         if: steps.metadata.outputs.should_deploy == 'true'
+        env:
+          TARGET_FOLDER: ${{ steps.target.outputs.folder }}
         run: |
           cd gh-pages-content
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Update documentation for ${{ steps.target.outputs.folder }}" || echo "No changes to commit"
+          git commit -m "Update documentation for $TARGET_FOLDER" || echo "No changes to commit"
           git push
 
       - name: Remove git metadata before creating Pages artifact
