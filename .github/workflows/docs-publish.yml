@@ -70,6 +70,7 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           CHECK_SUITE_ID: ${{ github.event.workflow_run.check_suite_id || '' }}
         run: |
+          if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
           # Some fork-origin workflow_run payloads do not include pull_requests[];
           # resolve the PR from the run's HEAD commit as a fallback.
           # If the workflow_run references a check suite, use it to recover the PR number.
@@ -100,40 +101,15 @@ jobs:
               "https://api.github.com/repos/${REPO}/pulls?state=open&head=${HEAD_REPO_OWNER}:${REF_NAME}" \
               | jq -r '.[0].number // empty' || true)"
           fi
+          fi
 
           if [[ "$PR_NUMBER" == "null" ]]; then
             PR_NUMBER=""
           fi
 
-          # workflow_run does not provide a tag name for every tag or release
-          # run. Resolve the tag from the immutable commit SHA instead.
-          if [[ "$EVENT_NAME" == "release" || -z "$REF_NAME" ]]; then
-            set -o pipefail
-            if ! TAG_LIST="$(
-              git ls-remote --tags "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
-                | awk -v sha="$HEAD_SHA" '$1 == sha {
-                    tag = $2
-                    sub("^refs/tags/", "", tag)
-                    sub("\\^\\{\\}$", "", tag)
-                    print tag
-                  }' \
-                | sort -u
-            )"; then
-              echo "Could not resolve tags for workflow run commit $HEAD_SHA." >&2
-              exit 1
-            fi
-
-            TAGS=()
-            if [[ -n "$TAG_LIST" ]]; then
-              mapfile -t TAGS <<< "$TAG_LIST"
-            fi
-
-            if [[ "${#TAGS[@]}" -ne 1 ]]; then
-              echo "Expected exactly one tag for workflow run commit $HEAD_SHA, found ${#TAGS[@]}." >&2
-              exit 1
-            fi
-
-            REF_NAME="${TAGS[0]}"
+          if [[ -z "$REF_NAME" && "$EVENT_NAME" != "merge_group" ]]; then
+            echo "The triggering workflow run did not provide a source ref." >&2
+            exit 1
           fi
 
           if [[ "$EVENT_NAME" == "merge_group" ]]; then

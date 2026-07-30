@@ -62,10 +62,10 @@ jobs:
 The value in `workflows` must exactly match the build workflow's `name`.
 Merge-queue builds are validated but not published.
 
-For a tag push or published release, the publish workflow resolves the unique
-Git tag that points to the completed build's commit and uses that tag as the
-documentation version. Do not configure both events for the same release
-unless publishing the same version twice is intended.
+For a tag push or published release, the publish workflow uses the triggering
+run's source ref (`github.event.workflow_run.head_branch`) as the documentation
+version. Do not configure both events for the same release unless publishing
+the same version twice is intended.
 
 ## Build inputs
 
