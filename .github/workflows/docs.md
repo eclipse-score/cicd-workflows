@@ -22,6 +22,10 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
+  release:
+    types: [published]
   merge_group:
     types: [checks_requested]
 
@@ -58,6 +62,11 @@ jobs:
 The value in `workflows` must exactly match the build workflow's `name`.
 Merge-queue builds are validated but not published.
 
+For a tag push or published release, the publish workflow resolves the unique
+Git tag that points to the completed build's commit and uses that tag as the
+documentation version. Do not configure both events for the same release
+unless publishing the same version twice is intended.
+
 ## Build inputs
 
 | Input | Default | Description |
@@ -71,5 +80,6 @@ Merge-queue builds are validated but not published.
 
 Documentation from the default branch is published under its branch name, such
 as `/main/`. Pull requests are published under `/pr-<number>/`; a link to that
-preview is added to the pull request. The workflow initializes the `gh-pages`
-branch when necessary and maintains its `versions.json` file.
+preview is added to the pull request. Tags and releases are published under the
+tag name, such as `/v1.2.3/`. The workflow initializes the `gh-pages` branch
+when necessary and maintains its `versions.json` file.
