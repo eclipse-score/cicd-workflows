@@ -51,6 +51,10 @@ jobs:
   docs-deploy:
     if: github.event.workflow_run.conclusion == 'success'
     uses: eclipse-score/cicd-workflows/.github/workflows/docs-publish.yml@main
+    with:
+      # Omit for GitHub Actions Pages deployments. Set to "legacy" when
+      # GitHub Pages is configured to publish from the gh-pages branch.
+      deployment_type: workflow
     permissions:
       actions: read
       contents: write
@@ -61,6 +65,9 @@ jobs:
 
 The value in `workflows` must exactly match the build workflow's `name`.
 Merge-queue builds are validated but not published.
+For repositories using the legacy "Deploy from a branch" Pages source, set
+`deployment_type: legacy`; the workflow updates `gh-pages` but does not run the
+GitHub Actions Pages deployment.
 
 For a tag push or published release, the publish workflow uses the triggering
 run's source ref (`github.event.workflow_run.head_branch`) as the documentation
