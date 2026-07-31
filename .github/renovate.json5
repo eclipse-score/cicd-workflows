@@ -21,6 +21,7 @@
     "eclipse-score/inc_someip_gateway",
     "eclipse-score/infrastructure",
     "eclipse-score/itf",
+    "eclipse-score/lifecycle",
     "eclipse-score/logging",
     "eclipse-score/module_template",
     "eclipse-score/os_images",

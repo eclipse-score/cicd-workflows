@@ -36,6 +36,11 @@ on:
         required: false
         default: workflow-approval
         type: string
+      working-directory:
+        description: Working directory for build and test steps (relative to the repository root)
+        required: false
+        default: '.'
+        type: string
       bazel-disk-cache:
         description: Name to append to the Bazel disk cache name. The value can be a string to use as cache key for separating workflows
         required: false
@@ -98,18 +103,21 @@ jobs:
       pull-requests: read
 
     steps:
-      - uses: eclipse-score/more-disk-space@6a3b48901846bf7f8cc985925157d71a8973e61f # v1
+      - uses: eclipse-score/more-disk-space@3fac5780033e636b114cf69e891dc19d640855c2 # v1.1
         with:
           level: 2
 
       - name: Checkout repository (Handle all events)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
         with:
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          # This job is gated by the approval job.
+          # A reviewer must validate the content before approving the workflow.
+          allow-unsafe-pr-checkout: true
 
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
         with:
           unique-cache-name: ${{ github.job }}${{ inputs.bazel-disk-cache }}
 
@@ -126,6 +134,7 @@ jobs:
           qnx-license-dir: /opt/score_qnx/license
 
       - name: Build with QNX toolchain
+        working-directory: ${{ inputs.working-directory }}
         run: |
           set -euo pipefail
 
@@ -148,6 +157,7 @@ jobs:
 
       - name: Test with QNX toolchain
         if: inputs.bazel-test-target != ''
+        working-directory: ${{ inputs.working-directory }}
         run: |
           set -euo pipefail
 

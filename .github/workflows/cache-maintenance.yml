@@ -26,16 +26,23 @@ name: Repository cache maintenance
 # Both caches are only updated when the workflow is triggered by a push to the main branch.
 # In pull requests and merge_queue the caches are read-only.
 #
+# Concurrency:
+# - Rebuilding caches should not be done in parallel.
+# - Reading caches and dry-runs can be done in parallel.
+#
 # Usage:
-#   This workflow shall be called on pushes to the main branch and cannot be run with other workflows in parallel, which also make use of bazel caches.
-#   Its purpose is to create a new repository cache and there should not be a race with another job doing the same.
-#   Thus you should have single workflow triggered on pushes to the main branch, which calls this workflow and then your CI workflow.
+#   This workflow shall be called on pushes to the main branch to rebuild caches if needed.
+#   For dry-runs execute this workflow in pull requests or the merge queue.
 #
 # Example:
 # ```
 # name: Cache maintenance
 
 # on:
+#   pull_request:
+#     types: [opened, reopened, synchronize, labeled, unlabeled]
+#   merge_group:
+#     types: [checks_requested]
 #   workflow_dispatch:
 #   push:
 #     branches: [main]
@@ -59,7 +66,7 @@ name: Repository cache maintenance
 #     needs:
 #       - repository_cache_maintenance
 #     secrets: inherit
-#     if: ${{ !cancelled() }}
+#     if: ${{ github.event_name == 'push' }}
 #     uses: ./.github/workflows/ci.yml
 #
 #   delete_old_caches:
@@ -69,10 +76,10 @@ name: Repository cache maintenance
 #     permissions:
 #       actions: write # needed for deletion of old caches
 #       contents: read
-#     if: ${{ !cancelled() }}
+#     if: ${{ !cancelled() && github.event_name == 'push' }}
 #     steps:
 #       - name: Prune obsolete Bazel caches
-#         uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7
+#         uses: eclipse-score/cicd-actions/prune-cache@<hash>
 # ```
 
 on:
@@ -96,6 +103,11 @@ on:
         description: QNX account password
         required: false
 
+concurrency:
+  # Serialize push and workflow_dispatch runs per branch; keep other events parallel.
+  group: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && format('{0}-{1}', github.workflow, github.ref_name) || format('{0}-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: false
+
 jobs:
   repository_cache_maintenance:
     name: Create new repository cache if required
@@ -117,10 +129,10 @@ jobs:
             MODULE.bazel.lock
 
       - uses: eclipse-score/more-disk-space@3fac5780033e636b114cf69e891dc19d640855c2 # v1.1
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
 
       - name: Create Bazel output base directory
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -128,18 +140,18 @@ jobs:
           sudo chown -R $USER:$USER /mnt/.bazel
 
       - name: Setup Bazel
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
+        if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
         with:
           unique-cache-name: ${{ github.job }}
           skip-cache-restore: true
 
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@af1be61755b13c1f33b6c250080dc6ac025012f1
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
+        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
 
       - name: Check QNX secret availability
         id: qnx_secrets
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
         shell: bash
         env:
           QNX_LICENSE: ${{ secrets.score-qnx-license }}
@@ -154,19 +166,20 @@ jobs:
           fi
 
       - name: Setup QNX SDP usage
-        if: ${{ steps.check.outputs.any_changed == 'true' && steps.qnx_secrets.outputs.has_all == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-qnx-sdp@af1be61755b13c1f33b6c250080dc6ac025012f1
+        if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' && steps.qnx_secrets.outputs.has_all == 'true' }}
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
         with:
           qnx-license: ${{ secrets.score-qnx-license }}
           qnx-user: ${{ secrets.score-qnx-user }}
           qnx-password: ${{ secrets.score-qnx-password }}
           qnx-license-dir: /opt/score_qnx/license
 
-      - name: Warm Bazel repository cache artifacts
-        if: ${{ steps.check.outputs.any_changed == 'true' }}
-        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
+      - name: Validate variants and warm Bazel repository cache artifacts
+        if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
+        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@94ffd2cc2840f31ebec202859266e49d35f0ffb1
         with:
           variants: ${{ inputs.variants }}
+          dry-run: ${{ github.event_name != 'push' }}
 
   prune_old_caches:
     # Extra job for deletion of caches is needed to avoid time window with no repository cache available.
@@ -176,7 +189,7 @@ jobs:
       actions: write # needed for cache deletion
       contents: read
     needs: repository_cache_maintenance
-    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' }}
+    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' && github.event_name == 'push' }}
     steps:
       - name: Delete all disk caches
         env:
@@ -188,4 +201,4 @@ jobs:
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
           | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
       - name: Prune repository cache
-        uses: eclipse-score/cicd-actions/prune-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
+        uses: eclipse-score/cicd-actions/prune-cache@212bbf86267e9381da9d2daf962d12f6feafbc90

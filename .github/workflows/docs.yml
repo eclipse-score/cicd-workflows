@@ -65,7 +65,7 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - uses: eclipse-score/cicd-actions/inter-repo-access@51883d9cd772bee5b7d139a2e6ffd8aeabca4224 # main branch as of 2026-04-23
+      - uses: eclipse-score/cicd-actions/inter-repo-access@94ffd2cc2840f31ebec202859266e49d35f0ffb1 # main branch as of 2026-04-23
         # Hint: if condition cannot access secrets, so we pass them via env
         env:
           HAS_GH_APP_PRIVATE_KEY: ${{ secrets.gh_app_private_key != '' }}
@@ -76,7 +76,7 @@ jobs:
           github-app-client-id: ${{ inputs.gh_app_client_id }}
           github-app-private-key: ${{ secrets.gh_app_private_key }}
 
-      - uses: eclipse-score/more-disk-space@6a3b48901846bf7f8cc985925157d71a8973e61f # v1
+      - uses: eclipse-score/more-disk-space@3fac5780033e636b114cf69e891dc19d640855c2 # v1.1
         with:
           level: 3
 
@@ -99,7 +99,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Bazel
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@af1be61755b13c1f33b6c250080dc6ac025012f1
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
         with:
           unique-cache-name: ${{ github.job }}
 
