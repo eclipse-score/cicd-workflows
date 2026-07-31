@@ -117,7 +117,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with: # configuration needed for tj-actions/changed-files
+        with:
+          lfs: true
+          # configuration needed for tj-actions/changed-files
           fetch-depth: 2 # needed for push events
           persist-credentials: true
 
@@ -141,12 +143,12 @@ jobs:
 
       - name: Setup Bazel
         if: ${{ steps.check.outputs.any_changed == 'true' || github.event_name != 'push' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           unique-cache-name: ${{ github.job }}
           skip-cache-restore: true
 
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@07cd8ac969b01fbab47f1a0b91040bcd83008fa7
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
         if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
 
       - name: Check QNX secret availability
@@ -201,4 +203,4 @@ jobs:
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
           | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
       - name: Prune repository cache
-        uses: eclipse-score/cicd-actions/prune-cache@94ffd2cc2840f31ebec202859266e49d35f0ffb1
+        uses: eclipse-score/cicd-actions/prune-cache@212bbf86267e9381da9d2daf962d12f6feafbc90

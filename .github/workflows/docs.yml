@@ -79,7 +79,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Bazel
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-31)
         with:
           unique-cache-name: ${{ github.job }}
 

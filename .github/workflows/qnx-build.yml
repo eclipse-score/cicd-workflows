@@ -36,6 +36,11 @@ on:
         required: false
         default: workflow-approval
         type: string
+      working-directory:
+        description: Working directory for build and test steps (relative to the repository root)
+        required: false
+        default: '.'
+        type: string
       bazel-disk-cache:
         description: Name to append to the Bazel disk cache name. The value can be a string to use as cache key for separating workflows
         required: false
@@ -105,6 +110,7 @@ jobs:
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
         with:
+          lfs: true
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           # This job is gated by the approval job.
@@ -112,11 +118,11 @@ jobs:
           allow-unsafe-pr-checkout: true
 
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           unique-cache-name: ${{ github.job }}${{ inputs.bazel-disk-cache }}
 
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@30ed908edcf367bc38ebff5b386a244f9b6417a7 # 2025-06-04
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90 # 2025-06-04
 
       - name: Setup QNX SDP usage
         uses: eclipse-score/cicd-actions/setup-qnx-sdp@a2b3c36fc7d1b9d03880d19935c7ac9cfffe58c6 # 2026-05-19
@@ -129,6 +135,7 @@ jobs:
           qnx-license-dir: /opt/score_qnx/license
 
       - name: Build with QNX toolchain
+        working-directory: ${{ inputs.working-directory }}
         run: |
           set -euo pipefail
 
@@ -151,6 +158,7 @@ jobs:
 
       - name: Test with QNX toolchain
         if: inputs.bazel-test-target != ''
+        working-directory: ${{ inputs.working-directory }}
         run: |
           set -euo pipefail
 

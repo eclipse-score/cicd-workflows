@@ -76,6 +76,8 @@ jobs:
 
       - name: 📥 Check out
         uses: actions/checkout@v6
+        with:
+          lfs: true
 
       - name: 🕵️ Detect repository capabilities
         id: detect
@@ -136,7 +138,7 @@ jobs:
 
       - name: ⚙️ Setup uv
         if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true') }}
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: 🧹 Run pre-commit checks
         if: ${{ !cancelled() && steps.detect.outputs.has_precommit == 'true' && !inputs.skip-pre-commit }}
@@ -209,7 +211,7 @@ jobs:
 
       - name: ⚙️ Setup Bazel with shared caching
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           unique-cache-name: ${{ github.job }}
 
