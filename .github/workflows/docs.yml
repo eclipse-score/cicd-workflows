@@ -83,6 +83,7 @@ jobs:
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          lfs: true
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           # Reuse the token from inter-repo-access action to ensure access to private repos
