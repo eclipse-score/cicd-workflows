@@ -40,11 +40,12 @@ jobs:
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@v4.2.2
         with:
+          lfs: true
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           unique-cache-name: ${{ github.job }}
 
@@ -82,7 +83,7 @@ jobs:
 
       - name: Find Existing Comment
         if: github.event.pull_request
-        uses: peter-evans/find-comment@v3
+        uses: peter-evans/find-comment@v4
         id: fc
         with:
           issue-number: ${{ github.event.pull_request.number }}

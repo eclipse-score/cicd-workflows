@@ -27,9 +27,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4.2.2
+        with:
+          lfs: true
 
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@44248a21e169b7513b78c12d7b1a800323bb7b75
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           unique-cache-name: ${{ github.job }}
 
