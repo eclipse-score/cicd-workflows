@@ -20,6 +20,17 @@
 #     pass/fail), while the job as a whole still fails if any step failed.
 # `checkout` and the detection steps keep the default `success()` gate, so if they fail
 # the capability outputs are empty and every check is skipped while the job is red.
+#
+# Because all checks share ONE checkout, a check that rewrites files (pre-commit,
+# `bazel mod tidy`) restores the working tree afterwards with `git checkout -- .`, so
+# later git-diff-based checks see the original PR state instead of the auto-fixed one.
+#
+# Failing checks report through the shared `report_failure` helper (see the
+# "Prepare shared check helper" step), which writes actionable guidance to
+# the failing step's log. Do not duplicate it in step summaries or annotations:
+# both are easy to miss. They do NOT show up on the page that is linked from PRs.
+# And do not write PR comments either: they require write permissions from every
+# caller and cannot reliably be created for fork PRs.
 
 # Attention: this workflow must be called with following permissions:
 #    permissions:
@@ -75,16 +86,28 @@ jobs:
           exit 1
 
       - name: 📥 Check out
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
 
-      - name: 🕵️ Detect repository capabilities
-        id: detect
+      - name: 🧰 Prepare shared check helper
+        if: ${{ !cancelled() }}
         run: |
-          set -euo pipefail
+          # Shared helper sourced by every check below. A failing check calls
+          # `report_failure "<title>"` and pipes the Markdown guidance in via a
+          # heredoc. It writes the guidance to the failing step's log, which is
+          # where the failed check opens when you click "Details".
+          cat > "$RUNNER_TEMP/pr-check-lib.sh" <<'LIB'
+          run_grouped() {
+            local title="$1"
+            shift
 
-          echo "Detected repository capabilities:"
+            echo "::group::$title"
+            "$@"
+            local status=$?
+            echo "::endgroup::"
+            return "$status"
+          }
 
           # Runs a boolean-style check function, writes it to GITHUB_OUTPUT and
           # echoes the result so the detection is visible in the step log.
@@ -102,6 +125,30 @@ jobs:
             echo "$name=$value" >> "$GITHUB_OUTPUT"
             echo "  $name=$value"
           }
+
+          report_failure() {
+            local title="$1"
+            local body
+            # Read the heredoc body from stdin and strip the indentation shared by
+            # all non-blank lines, so callers can indent the Markdown block for
+            # readability without it being rendered as a code block (4+ spaces).
+            body="$(awk '
+              { line[NR] = $0 }
+              /[^[:space:]]/ { match($0, /^[[:space:]]*/); if (min == "" || RLENGTH < min) min = RLENGTH }
+              END { for (i = 1; i <= NR; i++) print substr(line[i], min + 1) }
+            ')"
+            printf '❌ %s\n\n%s\n' "$title" "$body"
+            exit 1
+          }
+          LIB
+
+      - name: 🕵️ Detect repository capabilities
+        id: detect
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/pr-check-lib.sh"
+
+          echo "Detected repository capabilities:"
 
           # Returns success if any provided file path exists.
           any_file_exists() {
@@ -138,47 +185,49 @@ jobs:
 
       - name: ⚙️ Setup uv
         if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true') }}
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: 🧹 Run pre-commit checks
         if: ${{ !cancelled() && steps.detect.outputs.has_precommit == 'true' && !inputs.skip-pre-commit }}
         run: |
-          if ! uvx pre-commit run --all-files; then
-            {
-              echo '### ❌ pre-commit failed'
-              echo ''
-              echo 'One or more pre-commit hooks reported problems (formatting, linting, etc.).'
-              echo ''
-              echo '**Reproduce locally**'
-              echo '```bash'
-              echo 'uvx pre-commit run --all-files'
-              echo '```'
-              echo ''
-              echo '**Fix**'
-              echo 'Most hooks auto-fix. Re-run the command above, review the changes it made, then commit them.'
-              echo 'Run `uvx pre-commit install` once to catch this before pushing.'
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+          source "$RUNNER_TEMP/pr-check-lib.sh"
+
+          if ! run_grouped "pre-commit checks" uvx pre-commit run --all-files; then
+            # pre-commit auto-fixes files in place, and only reports failure when it
+            # changed something. Restore the working tree so later git-diff-based
+            # checks (e.g. `bazel mod tidy`) see the original PR state, not the fixes.
+            git checkout -- . >/dev/null
+            report_failure "pre-commit failed" <<'MD'
+              One or more pre-commit hooks reported problems (formatting, linting, etc.).
+
+              **Reproduce locally**
+              ```bash
+              uvx pre-commit run --all-files
+              ```
+
+              **Fix**
+              Most hooks auto-fix. Re-run the command above, review the changes it made, then commit them.
+              Run `uvx pre-commit install` once to catch this before pushing.
+          MD
           fi
 
       - name: 🐍 Run Python tests with uv
         if: ${{ !cancelled() && steps.detect.outputs.has_python_uv == 'true' && !inputs.skip-python-tests }}
         run: |
-          if ! uv run --frozen python -m pytest; then
-            {
-              echo '### ❌ Python tests failed'
-              echo ''
-              echo 'Tests failed, or `uv.lock` is out of date (`--frozen` forbids updating it during the run).'
-              echo ''
-              echo '**Reproduce locally**'
-              echo '```bash'
-              echo 'uv run --frozen python -m pytest'
-              echo '```'
-              echo ''
-              echo '**Fix**'
-              echo 'Fix the failing tests. If the failure is about the lockfile, run `uv lock` and commit the updated `uv.lock`.'
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+          source "$RUNNER_TEMP/pr-check-lib.sh"
+
+          if ! run_grouped "Python tests" uv run --frozen python -m pytest; then
+            report_failure "Python tests failed" <<'MD'
+              Tests failed, or `uv.lock` is out of date (`--frozen` forbids updating it during the run).
+
+              **Reproduce locally**
+              ```bash
+              uv run --frozen python -m pytest
+              ```
+
+              **Fix**
+              Fix the failing tests. If the failure is about the lockfile, run `uv lock` and commit the updated `uv.lock`.
+          MD
           fi
 
       - name: 📝 Check Bazel module name
@@ -220,25 +269,9 @@ jobs:
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
         run: |
           set -euo pipefail
+          source "$RUNNER_TEMP/pr-check-lib.sh"
 
           echo "Detected Bazel targets:"
-
-          # Runs a boolean-style check function, writes it to GITHUB_OUTPUT and
-          # echoes the result so the detection is visible in the step log.
-          emit_output() {
-            local name="$1"
-            shift
-
-            local value
-            if "$@"; then
-              value=true
-            else
-              value=false
-            fi
-
-            echo "$name=$value" >> "$GITHUB_OUTPUT"
-            echo "  $name=$value"
-          }
 
           # Returns success if the given Bazel label can be queried from the repo root.
           has_bazel_target() {
@@ -251,72 +284,80 @@ jobs:
       - name: 🖌️ Run bazel //:format.check
         if: ${{ !cancelled() && steps.bazel.outputs.has_format_check == 'true' && !inputs.skip-format }}
         run: |
-          if ! bazel test //:format.check; then
-            {
-              echo '### ❌ Formatting check failed'
-              echo ''
-              echo '`//:format.check` found files that are not formatted according to the project formatting rules.'
-              echo ''
-              echo '**Reproduce locally**'
-              echo '```bash'
-              echo 'bazel test //:format.check'
-              echo '```'
-              echo ''
-              echo '**Fix**'
-              echo 'Auto-format the sources, then commit:'
-              echo '```bash'
-              echo 'bazel run //:format'
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+          source "$RUNNER_TEMP/pr-check-lib.sh"
+
+          if ! run_grouped "bazel test //:format.check" bazel test //:format.check; then
+            report_failure "Formatting check failed" <<'MD'
+              `//:format.check` found files that are not formatted according to the project formatting rules.
+
+              **Reproduce locally**
+              ```bash
+              bazel test //:format.check
+              ```
+
+              **Fix**
+              Auto-format the sources, then commit:
+              ```bash
+              bazel run //:format
+              ```
+          MD
           fi
 
       - name: © Run bazel //:copyright.check
         if: ${{ !cancelled() && steps.bazel.outputs.has_copyright_check == 'true' && !inputs.skip-copyright }}
         run: |
-          if ! bazel run //:copyright.check; then
-            {
-              echo '### ❌ Copyright check failed'
-              echo ''
-              echo 'One or more source files are missing the required copyright/license header.'
-              echo ''
-              echo '**Reproduce locally**'
-              echo '```bash'
-              echo 'bazel run //:copyright.check'
-              echo '```'
-              echo ''
-              echo '**Fix**'
-              echo 'Add the missing headers automatically, then commit:'
-              echo '```bash'
-              echo 'bazel run //:copyright.fix'
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+          source "$RUNNER_TEMP/pr-check-lib.sh"
+
+          if ! run_grouped "bazel run //:copyright.check" bazel run //:copyright.check; then
+            report_failure "Copyright check failed" <<'MD'
+              One or more source files are missing the required copyright/license header.
+
+              **Reproduce locally**
+              ```bash
+              bazel run //:copyright.check
+              ```
+
+              **Fix**
+              Add the missing headers automatically, then commit:
+              ```bash
+              bazel run //:copyright.fix
+              ```
+          MD
           fi
 
       - name: 🔒 Check Bazel module is tidy
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
         run: |
-          if ! { bazel mod tidy && git diff --exit-code; }; then
-            {
-              echo '### ❌ Bazel module is not tidy'
-              echo ''
-              echo '`bazel mod tidy` would change `MODULE.bazel` or `MODULE.bazel.lock`, so they are not tidy.'
-              echo ''
-              echo '**Reproduce locally**'
-              echo '```bash'
-              echo 'bazel mod tidy && git diff'
-              echo '```'
-              echo ''
-              echo '**Fix**'
-              echo 'Run `bazel mod tidy` and commit the resulting changes to `MODULE.bazel` / `MODULE.bazel.lock`.'
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+          source "$RUNNER_TEMP/pr-check-lib.sh"
+
+          if ! (
+            echo "::group::bazel mod tidy and lockfile diff"
+            bazel mod tidy && git diff --exit-code
+            status=$?
+            echo "::endgroup::"
+            exit "$status"
+          ); then
+            # bazel mod tidy rewrites MODULE.bazel / MODULE.bazel.lock in place;
+            # restore them so the lockfile check below sees the original PR state.
+            git checkout -- . >/dev/null
+            report_failure "Bazel module is not tidy" <<'MD'
+              `bazel mod tidy` would change `MODULE.bazel` or `MODULE.bazel.lock`, so they are not tidy.
+
+              **Reproduce locally**
+              ```bash
+              bazel mod tidy && git diff
+              ```
+
+              **Fix**
+              Run `bazel mod tidy` and commit the resulting changes to `MODULE.bazel` / `MODULE.bazel.lock`.
+          MD
           fi
 
       - name: 🔒 Check Bazel lockfile is up to date
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
         run: |
+          source "$RUNNER_TEMP/pr-check-lib.sh"
+
           if [ ! -f "MODULE.bazel" ]; then
             echo "MODULE.bazel not found in $PWD"
             exit 1
@@ -327,19 +368,16 @@ jobs:
             exit 1
           fi
 
-          if ! bazel mod deps --lockfile_mode=error; then
-            {
-              echo '### ❌ Bazel lockfile is out of date'
-              echo ''
-              echo '`MODULE.bazel.lock` does not match the resolved dependency graph.'
-              echo ''
-              echo '**Reproduce locally**'
-              echo '```bash'
-              echo 'bazel mod deps --lockfile_mode=error'
-              echo '```'
-              echo ''
-              echo '**Fix**'
-              echo 'Regenerate the lockfile with `bazel mod tidy` and commit the updated `MODULE.bazel.lock`.'
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+          if ! run_grouped "bazel mod deps --lockfile_mode=error" bazel mod deps --lockfile_mode=error; then
+            report_failure "Bazel lockfile is out of date" <<'MD'
+              `MODULE.bazel.lock` does not match the resolved dependency graph.
+
+              **Reproduce locally**
+              ```bash
+              bazel mod deps --lockfile_mode=error
+              ```
+
+              **Fix**
+              Regenerate the lockfile with `bazel mod tidy` and commit the updated `MODULE.bazel.lock`.
+          MD
           fi

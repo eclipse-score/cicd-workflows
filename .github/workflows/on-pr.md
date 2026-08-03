@@ -87,9 +87,13 @@ jobs:
 - **All checks run, even if one fails.** A failing check does not stop the ones
   after it — each reports its own pass/fail, and the job as a whole fails if any
   check failed.
-- **Failures come with guidance.** When a check fails it writes a block to the
-  run's **Summary** page explaining what failed, how to reproduce it locally, and
-  how to fix it — so a red check is actionable without digging through logs.
+- **Failures come with guidance.** When a check fails, its own log explains what
+  failed, how to reproduce it locally, and how to fix it. No annotations, run
+  summaries, or PR comments are created.
+- **Shared checkout stays clean.** All checks share one checkout, so a check that
+  rewrites files (pre-commit, `bazel mod tidy`) restores the working tree
+  afterwards. Later git-diff-based checks therefore see the original PR state, not
+  the auto-fixed one.
 - **Sequential.** Checks run one after another in a single runner rather than in
   parallel across jobs. This trades a little wall-clock time for far less runner
   spin-up overhead and no skipped-job clutter in the PR checks UI.
@@ -102,8 +106,7 @@ jobs:
 
 ## Permissions
 
-No additional permissions required.
-Standard `contents: read` is sufficient for all checks.
+No additional permissions required. Standard `contents: read` is sufficient.
 
 ```yaml
 permissions:
