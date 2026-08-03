@@ -9,7 +9,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | Workflow                       | Description                                                       |
 | ------------------------------ | ----------------------------------------------------------------- |
 | **[PR Checks](.github/workflows/on-pr.md)** | Main PR entry point: auto-detects capabilities and runs pre-commit, tests, format, copyright and lockfile checks in one job |
-| **Documentation Build**        | Builds project documentation and deploys it to GitHub Pages       |
+| **[Documentation](.github/workflows/docs.md)** | Builds and securely publishes documentation to GitHub Pages |
 | **Documentation Cleanup**      | Cleans up old documentation versions from the `gh-pages` branch   |
 | **License Check**              | Verifies OSS licenses and compliance                              |
 | **Static Code Analysis**       | Runs Clang-Tidy, Clippy, Pylint, and other linters                |
@@ -32,35 +32,10 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 
 To use a reusable workflow, create a workflow file inside **your repository** (e.g., `.github/workflows/ci.yml`) and reference the appropriate workflow from this repository.
 
-### **1. Documentation Build Workflow**
-**Usage Example**
-```yaml 
-name: Documentation CI
+See the [Documentation workflows](.github/workflows/docs.md) guide for the
+separate build and publishing workflows.
 
-on:
-  pull_request:
-  push:
-    branches:
-      - main
-
-jobs:
-  docs:
-    uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
-    with:
-      retention-days: 3
-      # Optionally override:
-      # workflow-version: main
-      # bazel-target: "//docs:github-pages"
-```
-This workflow:
-
-✅ Builds project documentation  
-✅ Uploads it as an artifact  
-✅ Deploys it to **GitHub Pages** on push to `main`  
-
----
-
-### **2. Documentation Cleanup Workflow - DEPRECATED**
+### **1. Documentation Cleanup Workflow - DEPRECATED**
 *Deprecated: This workflow is now integrated into the `Daily Maintenance` workflow. Use that workflow instead.*
 
 **Usage Example**
@@ -95,7 +70,7 @@ This workflow:
 
 ---
 
-### **3. License Check Workflow**
+### **2. License Check Workflow**
 **Usage Example**
 ```yaml
 name: License Check CI
@@ -127,7 +102,7 @@ This workflow:
 
 ---
 
-### **4. Static Code Analysis Workflow**
+### **3. Static Code Analysis Workflow**
 **Usage Example**
 ```yaml
 name: Static Analysis CI
@@ -160,7 +135,7 @@ Inputs:
 
 ---
 
-### **5. Tests Workflow**
+### **4. Tests Workflow**
 **Usage Example**
 ```yaml
 name: Test CI
@@ -183,7 +158,7 @@ This workflow:
 
 ---
 
-### **6. Rust Coverage Workflow**
+### **5. Rust Coverage Workflow**
 **Usage Example**
 ```yaml
 name: Rust Coverage CI
@@ -212,7 +187,7 @@ This workflow:
 
 ---
 
-### **7. C++ Coverage Workflow**
+### **6. C++ Coverage Workflow**
 **Usage Example**
 ```yaml
 name: C++ Coverage CI
@@ -235,7 +210,7 @@ jobs:
 
 ---
 
-### **8. Copyright Check Workflow**
+### **7. Copyright Check Workflow**
 **Usage Example**
 ```yaml
 name: Copyright Check CI
@@ -262,7 +237,7 @@ This workflow:
 
 ---
 
-### **9. Formatting Check Workflow**
+### **8. Formatting Check Workflow**
 **Usage Example**
 ```yaml
 name: Formatting Check CI
@@ -288,7 +263,7 @@ This workflow:
 > **Default:** `test //:format.check`
 
 ---
-### **10. Required Approvals Workflow**
+### **9. Required Approvals Workflow**
 
 This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.  
 Normally, GitHub requires approval from *any one* codeowner when multiple are listed.  
@@ -331,7 +306,7 @@ jobs:
 ---
 
 
-### **11. QNX Build (Gated) Workflow**
+### **10. QNX Build (Gated) Workflow**
 
 Use this workflow when you need QNX secrets for forked PRs and want a manual approval gate via an environment.
 
@@ -369,7 +344,7 @@ jobs:
 
 ---
 
-### **12. Documentation Verification Workflow**
+### **11. Documentation Verification Workflow**
 
 This workflow verifies that documentation builds correctly and can be used to validate documentation changes in pull requests.
 
@@ -400,7 +375,7 @@ jobs:
 
 ---
 
-### **13. CodeQL Security Scan Workflow**
+### **12. CodeQL Security Scan Workflow**
 
 This workflow performs security and quality analysis using GitHub's CodeQL with MISRA C++ coding standards.
 
@@ -436,7 +411,7 @@ jobs:
 
 ---
 
-### **14. SCORE PR Checks Workflow**
+### **13. SCORE PR Checks Workflow**
 
 This workflow enforces SCORE-specific standards, particularly Bazel module naming conventions.
 
@@ -469,7 +444,7 @@ jobs:
 
 ---
 
-### **15. Template Sync Workflow**
+### **14. Template Sync Workflow**
 
 This workflow automatically synchronizes your repository with the latest changes from `eclipse-score/module_template`.
 
@@ -510,7 +485,7 @@ jobs:
 
 ---
 
-### **16. Bzlmod Lockfile Check Workflow**
+### **15. Bzlmod Lockfile Check Workflow**
 
 This workflow keeps `MODULE.bazel` and `MODULE.bazel.lock` consistent and reproducible. Two checks run in parallel:
 
@@ -565,7 +540,7 @@ This workflow:
 
 ---
 
-### **17. Daily Maintenance Workflow**
+### **16. Daily Maintenance Workflow**
 
 This workflow groups the repository's daily maintenance tasks. It always handles stale pull requests and also runs documentation cleanup when GitHub Pages is enabled for the repository.
 
