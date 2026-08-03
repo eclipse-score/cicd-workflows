@@ -77,36 +77,36 @@ jobs:
           CHECK_SUITE_ID: ${{ github.event.workflow_run.check_suite_id || '' }}
         run: |
           if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
-          # Some fork-origin workflow_run payloads do not include pull_requests[];
-          # resolve the PR from the run's HEAD commit as a fallback.
-          # If the workflow_run references a check suite, use it to recover the PR number.
-          if [[ -z "$PR_NUMBER" && -n "$CHECK_SUITE_ID" ]]; then
-            PR_NUMBER="$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/check-suites/${CHECK_SUITE_ID}" \
-              | jq -r '.pull_requests[]? | select(.number != null) | .number' \
-              | head -n1 || true)"
-          fi
+            # Some fork-origin workflow_run payloads do not include pull_requests[];
+            # resolve the PR from the run's HEAD commit as a fallback.
+            # If the workflow_run references a check suite, use it to recover the PR number.
+            if [[ -z "$PR_NUMBER" && -n "$CHECK_SUITE_ID" ]]; then
+              PR_NUMBER="$(curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${REPO}/check-suites/${CHECK_SUITE_ID}" \
+                | jq -r '.pull_requests[]? | select(.number != null) | .number' \
+                | head -n1 || true)"
+            fi
 
-          if [[ -z "$PR_NUMBER" && -n "$HEAD_SHA" ]]; then
-            PR_NUMBER="$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/commits/${HEAD_SHA}/pulls" \
-              | jq -r '.[] | select(.state == "open") | .number' \
-              | head -n1 || true)"
-          fi
+            if [[ -z "$PR_NUMBER" && -n "$HEAD_SHA" ]]; then
+              PR_NUMBER="$(curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${REPO}/commits/${HEAD_SHA}/pulls" \
+                | jq -r '.[] | select(.state == "open") | .number' \
+                | head -n1 || true)"
+            fi
 
-          # pull_request_target runs may not expose pull_requests[] in workflow_run payload.
-          # Fallback to searching by head owner + branch to find the matching open PR.
-          if [[ "$EVENT_NAME" == "pull_request_target" && -z "$PR_NUMBER" && -n "$HEAD_REPO_OWNER" && -n "$REF_NAME" ]]; then
-            PR_NUMBER="$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/pulls?state=open&head=${HEAD_REPO_OWNER}:${REF_NAME}" \
-              | jq -r '.[0].number // empty' || true)"
-          fi
+            # pull_request_target runs may not expose pull_requests[] in workflow_run payload.
+            # Fallback to searching by head owner + branch to find the matching open PR.
+            if [[ "$EVENT_NAME" == "pull_request_target" && -z "$PR_NUMBER" && -n "$HEAD_REPO_OWNER" && -n "$REF_NAME" ]]; then
+              PR_NUMBER="$(curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${REPO}/pulls?state=open&head=${HEAD_REPO_OWNER}:${REF_NAME}" \
+                | jq -r '.[0].number // empty' || true)"
+            fi
           fi
 
           if [[ "$PR_NUMBER" == "null" ]]; then
