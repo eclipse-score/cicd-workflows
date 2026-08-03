@@ -73,7 +73,6 @@ jobs:
           EVENT_NAME: ${{ github.event.workflow_run.event }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
           REF_NAME: ${{ github.event.workflow_run.head_branch }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
             # fork-origin workflow_run payloads do not include pull_requests[];
