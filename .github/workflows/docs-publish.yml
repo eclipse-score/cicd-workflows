@@ -73,40 +73,21 @@ jobs:
           EVENT_NAME: ${{ github.event.workflow_run.event }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
           REF_NAME: ${{ github.event.workflow_run.head_branch }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          CHECK_SUITE_ID: ${{ github.event.workflow_run.check_suite_id || '' }}
         run: |
           if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
-          # Some fork-origin workflow_run payloads do not include pull_requests[];
-          # resolve the PR from the run's HEAD commit as a fallback.
-          # If the workflow_run references a check suite, use it to recover the PR number.
-          if [[ -z "$PR_NUMBER" && -n "$CHECK_SUITE_ID" ]]; then
-            PR_NUMBER="$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/check-suites/${CHECK_SUITE_ID}" \
-              | jq -r '.pull_requests[]? | select(.number != null) | .number' \
-              | head -n1 || true)"
-          fi
+            # fork-origin workflow_run payloads do not include pull_requests[];
+            if [[ -z "$PR_NUMBER" && -n "$HEAD_REPO_OWNER" && -n "$REF_NAME" ]]; then
+              PR_NUMBER="$(curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${REPO}/pulls?state=open&head=${HEAD_REPO_OWNER}:${REF_NAME}" \
+                | jq -r '.[0].number // empty' || true)"
+            fi
 
-          if [[ -z "$PR_NUMBER" && -n "$HEAD_SHA" ]]; then
-            PR_NUMBER="$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/commits/${HEAD_SHA}/pulls" \
-              | jq -r '.[] | select(.state == "open") | .number' \
-              | head -n1 || true)"
-          fi
-
-          # pull_request_target runs may not expose pull_requests[] in workflow_run payload.
-          # Fallback to searching by head owner + branch to find the matching open PR.
-          if [[ "$EVENT_NAME" == "pull_request_target" && -z "$PR_NUMBER" && -n "$HEAD_REPO_OWNER" && -n "$REF_NAME" ]]; then
-            PR_NUMBER="$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/pulls?state=open&head=${HEAD_REPO_OWNER}:${REF_NAME}" \
-              | jq -r '.[0].number // empty' || true)"
-          fi
+            if [[ -z "$PR_NUMBER" ]]; then
+              echo "Could not determine PR number for pull_request event." >&2
+              exit 1
+            fi
           fi
 
           if [[ "$PR_NUMBER" == "null" ]]; then
@@ -280,7 +261,7 @@ jobs:
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
 
       - name: Find existing PR comment
-        if: always() && steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != ''
+        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != ''
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
         id: fc
         with:
@@ -289,7 +270,7 @@ jobs:
           body-includes: Documentation preview for this pull request
 
       - name: Comment on PR with preview link
-        if: always() && steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != '' && steps.fc.outputs.comment-id == ''
+        if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != '' && steps.fc.outputs.comment-id == ''
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
           issue-number: ${{ steps.metadata.outputs.pr_number }}
