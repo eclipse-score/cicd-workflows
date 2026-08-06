@@ -5,9 +5,7 @@ uses `MODULE.bazel.lock`.
 
 ## Quick start
 
-Before starting, commit an up-to-date `MODULE.bazel.lock`, ensure that every
-configured variant can fetch its dependencies, and grant cache-writing jobs
-`actions: write` and `contents: read`.
+Before starting, commit an up-to-date `MODULE.bazel.lock`.
 
 ### 1. Cache each Bazel job
 
@@ -155,10 +153,10 @@ it.
 
 The workflow manages two cache types:
 
-| Cache | Purpose | Refresh rule |
-| --- | --- | --- |
-| Repository cache | Downloaded external repositories and archives | Rebuild when `MODULE.bazel.lock` changes |
-| Disk cache | Local Bazel action outputs | Add outputs on normal `main` builds; delete it after a lockfile-driven repository-cache refresh |
+| Cache            | Purpose                                       | Refresh rule                                                                                    |
+| ---------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Repository cache | Downloaded external repositories and archives | Rebuild when `MODULE.bazel.lock` changes                                                        |
+| Disk cache       | Local Bazel action outputs                    | Add outputs on normal `main` builds; delete it after a lockfile-driven repository-cache refresh |
 
 All Bazel jobs restore these caches through
 `eclipse-score/cicd-actions/setup-bazel-cache`. Each job or target configuration

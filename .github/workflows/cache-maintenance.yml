@@ -34,8 +34,8 @@ on:
           Examples: `--config=x86_64-linux //...`, `//...`, `//test //quality`.
         required: true
         type: string
-      gh_app_client_id:
-        description: GitHub App client ID used with `gh_app_private_key` to access private Bazel dependencies; omit when using `token`
+      github-app-client-id:
+        description: GitHub App client ID used with `github-app-private-key` to access private Bazel dependencies; omit when using `token`
         required: false
         default: ""
         type: string
@@ -58,8 +58,8 @@ on:
       qnx-password:
         description: QNX account password
         required: false
-      gh_app_private_key:
-        description: GitHub App private key used with `gh_app_client_id` to access private Bazel dependencies
+      github-app-private-key:
+        description: GitHub App private key used with `github-app-client-id` to access private Bazel dependencies
         required: false
       token:
         description: Token for private Bazel dependencies; an alternative to GitHub App credentials
@@ -147,13 +147,13 @@ jobs:
       - name: Configure access to private Bazel dependencies
         uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
         env:
-          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.gh_app_private_key != '' }}
+          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
           HAS_TOKEN: ${{ secrets.token != '' }}
         if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' }}
         with:
           token: ${{ secrets.token }}
-          github-app-client-id: ${{ inputs.gh_app_client_id }}
-          github-app-private-key: ${{ secrets.gh_app_private_key }}
+          github-app-client-id: ${{ inputs.github-app-client-id }}
+          github-app-private-key: ${{ secrets.github-app-private-key }}
 
       # The action performs one fetch per `variants` line. On non-push events
       # it must not upload a cache.
