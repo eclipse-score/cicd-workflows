@@ -23,19 +23,14 @@ action) in every Bazel job with the S-CORE cache action:
 Use a stable suffix such as `-build-qnx-x86_64` to keep cache names unique per
 workflow and target configuration.
 
-### 2. Make main-branch build workflows callable
+### 2. Make cache-warming workflows callable
 
-Every workflow that should warm a Bazel cache on `main` must meet both of these
-conditions:
+For every workflow that should warm a Bazel cache after a push, remove its
+`push` trigger and add `workflow_call`. Retain any pull-request or manual
+triggers that are useful for the workflow. The cache-maintenance workflow then
+invokes it after repository-cache maintenance has finished.
 
-- It must not run directly on pushes to `main`.
-- It must declare `workflow_call` so the maintenance workflow can invoke it
-  after repository-cache maintenance has finished.
-
-Remove the existing `push` trigger, add `workflow_call`, and retain any
-pull-request or manual triggers that are useful for the workflow.
-
-Workflow triggered only by pushes to `main` — before:
+Workflow triggered only by the cache-writing push — before:
 
 ```yaml
 on:
@@ -43,7 +38,7 @@ on:
     branches: [main]
 ```
 
-Workflow triggered only by pushes to `main` — after:
+Workflow triggered only by the cache-writing push — after:
 
 ```yaml
 on:
@@ -86,7 +81,7 @@ on:
     types: [checks_requested]
   # Useful for troubleshooting; also read-only.
   workflow_dispatch:
-  # Only this event can warm or prune shared caches.
+  # Select the branch whose pushes may warm and prune shared caches.
   push:
     branches: [main]
 
@@ -159,11 +154,20 @@ final prune job must list all warmup jobs in `needs`.
 
 ### Pull requests, merge queues, and manual runs
 
-The reusable workflow treats these events as dry runs: it validates and fetches
-the configured variants, but does not write shared caches. The example's warmup
-and final-prune jobs intentionally run only for a `push`. Do not invoke
-credentialed build workflows for untrusted PR code unless their own security
-model permits it.
+The reusable workflow treats pull requests, merge queues, and manual runs as dry
+runs: it validates and fetches the configured variants, but does not write
+shared caches. The caller's `push` trigger selects the branch whose push events
+warm and prune caches.
+
+GitHub's secret handling depends on the PR model: public repositories do not
+receive repository secrets for PRs from forks, whereas private repositories and
+same-repository branch PRs can make secrets available. This workflow
+nevertheless deliberately does not configure GitHub App credentials or tokens
+for `pull_request` runs, because they execute code from the proposed change.
+
+Repositories that use a trusted, branch-based PR model may choose a different
+credential policy. With the default policy, validate private dependencies in a
+trusted event such as a merge-queue run or a manually dispatched run.
 
 ### Operational checklist
 
@@ -183,17 +187,17 @@ The workflow manages two cache types:
 | Cache            | Purpose                                       | Refresh rule                                                                                    |
 | ---------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Repository cache | Downloaded external repositories and archives | Rebuild when `MODULE.bazel.lock` changes                                                        |
-| Disk cache       | Local Bazel action outputs                    | Add outputs on normal `main` builds; delete it after a lockfile-driven repository-cache refresh |
+| Disk cache       | Local Bazel action outputs                    | Add outputs on cache-writing pushes; delete it after a lockfile-driven repository-cache refresh |
 
 All Bazel jobs restore these caches through
 `eclipse-score/cicd-actions/setup-bazel-cache`. Each job or target configuration
 needs a stable, unique cache name so disk caches do not collide.
 
-On a push to `main`, the reusable workflow compares `MODULE.bazel.lock` with the
-previous commit. If it changed, it constructs and uploads a fresh repository
-cache, then deletes stale disk caches only after that upload is complete. The
-subsequent warmup jobs repopulate their disk caches, and the final prune job
-removes obsolete cache entries.
+On a push selected by the caller, the reusable workflow compares
+`MODULE.bazel.lock` with the previous commit. If it changed, it constructs and
+uploads a fresh repository cache, then deletes stale disk caches only after that
+upload is complete. The subsequent warmup jobs repopulate their disk caches,
+and the final prune job removes obsolete cache entries.
 
 If the lockfile did not change, the repository cache is left intact and warmup
 jobs can add new action outputs to their own disk caches. This avoids a cache

@@ -19,8 +19,8 @@ name: Repository cache maintenance
 #   creates a replacement cache; an unchanged lockfile leaves it untouched.
 # - Disk caches accumulate action outputs until a lockfile change, when they
 #   are deleted to prevent stale output and unbounded growth.
-# - Only a main-branch push writes or removes caches. Other events are dry
-#   runs, so they can validate variants concurrently without mutating caches.
+# - Push events write or remove caches; the caller selects the allowed branch
+#   through its workflow trigger. Other events are dry runs.
 # - Cache construction is serialized per branch. Read-only validation runs use
 #   their run ID and may proceed concurrently.
 
@@ -110,11 +110,15 @@ jobs:
         uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           unique-cache-name: ${{ github.job }}
+          # setup-bazel-cache saves whenever its `main-branch` matches the
+          # current ref. Manual runs on the cache branch would otherwise save
+          # despite being dry runs, so non-push events must never match.
+          main-branch: ${{ github.event_name == 'push' && github.ref_name || '__cache_maintenance_read_only' }}
           # The post-step uploads the newly warmed cache; restoring the old
           # cache first would defeat a lockfile-driven refresh.
           skip-cache-restore: true
 
-      # Required only while constructing a cache on main.
+      # Required only while constructing a cache after a push.
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
         if: ${{ steps.check.outputs.any_changed == 'true' && github.event_name == 'push' }}
 
@@ -149,7 +153,9 @@ jobs:
         env:
           HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
           HAS_TOKEN: ${{ secrets.token != '' }}
-        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' }}
+        # Pull-request workflows execute code from the proposed change. Do not
+        # expose private-dependency credentials to that code.
+        if: ${{ github.event_name != 'pull_request' && (env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true') }}
         with:
           token: ${{ secrets.token }}
           github-app-client-id: ${{ inputs.github-app-client-id }}
