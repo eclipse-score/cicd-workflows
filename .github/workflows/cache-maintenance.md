@@ -1,7 +1,8 @@
 # Bazel cache maintenance
 
 `cache-maintenance.yml` maintains the shared Bazel caches of a repository that
-uses `MODULE.bazel.lock`.
+uses `MODULE.bazel.lock`. Follow the steps below to integrate it into an
+existing repository.
 
 ## Quick start
 
@@ -16,39 +17,62 @@ action) in every Bazel job with the S-CORE cache action:
 - name: Setup Bazel with shared caching
   uses: eclipse-score/cicd-actions/setup-bazel-cache@<actions-sha>
   with:
-    unique-cache-name: ${{ github.job }}-<variant>
+    unique-cache-name: ${{ github.job }}-<workflow_name>
 ```
 
-Use a suffix such as `-qnx-x86_64` when one workflow can build more than one
-configuration. Keep the name stable between runs.
+Use a stable suffix such as `-build-qnx-x86_64` to keep cache names unique per
+workflow and target configuration.
 
 ### 2. Make main-branch build workflows callable
 
-The maintenance workflow must complete before a main-branch build populates its
-disk cache. Replace that build workflow's `push` trigger with `workflow_call`;
-retain PR and manual triggers if they are still wanted.
+Every workflow that should warm a Bazel cache on `main` must meet both of these
+conditions:
+
+- It must not run directly on pushes to `main`.
+- It must declare `workflow_call` so the maintenance workflow can invoke it
+  after repository-cache maintenance has finished.
+
+Remove the existing `push` trigger, add `workflow_call`, and retain any
+pull-request or manual triggers that are useful for the workflow.
+
+Workflow triggered only by pushes to `main` — before:
+
+```yaml
+on:
+  push:
+    branches: [main]
+```
+
+Workflow triggered only by pushes to `main` — after:
+
+```yaml
+on:
+  workflow_call:
+```
+
+Workflow with pull-request checks — before:
 
 ```yaml
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  workflow_dispatch:
-  workflow_call:
 ```
 
-Called workflows that need secrets should inherit them:
+Workflow with pull-request checks — after:
 
 ```yaml
-jobs:
-  build:
-    secrets: inherit
-    uses: ./.github/workflows/build.yml
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_call:
 ```
 
 ### 3. Add the orchestration workflow
 
 Create `.github/workflows/cache-maintenance.yml` in the consuming repository.
-Pin reusable workflows and actions to reviewed commit SHAs.
+It validates repository dependencies first, warms the selected build caches
+afterward, and prunes obsolete caches last. Pin reusable workflows and actions
+to reviewed commit SHAs.
 
 ```yaml
 name: Cache maintenance
@@ -78,10 +102,10 @@ jobs:
       qnx-user: ${{ secrets.SCORE_QNX_USER }}
       qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
       # Optional unless variants fetch private GitHub repositories.
-      gh_app_private_key: ${{ secrets.ETAS_ENG_SCORE_BOT_PRIVATE_KEY }}
+      github-app-private-key: ${{ secrets.ETAS_ENG_SCORE_BOT_PRIVATE_KEY }}
     uses: eclipse-score/cicd-workflows/.github/workflows/cache-maintenance.yml@<workflows-sha>
     with:
-      gh_app_client_id: ${{ vars.ETAS_ENG_SCORE_BOT_APP_ID }}
+      github-app-client-id: ${{ vars.ETAS_ENG_SCORE_BOT_APP_ID }}
       # Each line becomes one `bazel fetch` invocation.
       variants: |
         //...
@@ -96,7 +120,7 @@ jobs:
     uses: ./.github/workflows/build_qnx_x86_64.yml
 
   delete_old_caches:
-    needs: warmup-qnx-x86-64
+    needs: warmup-qnx-x86_64
     if: ${{ !cancelled() && github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     permissions:
@@ -112,12 +136,15 @@ jobs:
 
 ### Credentials and private dependencies
 
-The QNX and GitHub App values in the example are optional, but must be supplied
-when a configured variant needs them. To use a token instead of a GitHub App,
-pass it as the `token` secret and omit `gh_app_client_id` and
-`gh_app_private_key`. The older `score-qnx-license`, `score-qnx-user`, and
-`score-qnx-password` secret names remain supported for compatibility, but new
-callers should use the `qnx-*` names.
+The QNX credentials are optional, but all three must be supplied when a
+configured variant requires QNX. Likewise, provide GitHub App credentials only
+when a variant fetches dependencies from private GitHub repositories. To use a
+token instead, pass it as the `token` secret and omit
+`github-app-client-id` and `github-app-private-key`.
+
+The older `score-qnx-license`, `score-qnx-user`, and `score-qnx-password`
+secret names remain supported for compatibility. New callers should use the
+`qnx-*` names.
 
 ### Variants and multiple warmup jobs
 
@@ -126,17 +153,17 @@ fetch`. Include every platform or configuration whose external repositories must
 be available. A line containing only `//...` is valid. Do not place a shell
 command in this input.
 
-Add one `warmup-*` job for each build configuration that should populate a disk
-cache. Each must depend on `repository_cache_maintenance`; add each one to the
-final prune job's `needs` list.
+Add one `warmup-*` job for every build configuration that should populate a disk
+cache. Each warmup job must depend on `repository_cache_maintenance`, and the
+final prune job must list all warmup jobs in `needs`.
 
 ### Pull requests, merge queues, and manual runs
 
-The reusable workflow treats these events as dry runs: it validates/fetches the
-configured variants but does not write shared caches. The example's warmup and
-final-prune jobs intentionally run only for a `push`. Do not call credentialed
-build workflows from untrusted PR code unless their own security model permits
-it.
+The reusable workflow treats these events as dry runs: it validates and fetches
+the configured variants, but does not write shared caches. The example's warmup
+and final-prune jobs intentionally run only for a `push`. Do not invoke
+credentialed build workflows for untrusted PR code unless their own security
+model permits it.
 
 ### Operational checklist
 
