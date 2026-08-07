@@ -17,11 +17,11 @@ action) in every Bazel job with the S-CORE cache action:
 - name: Setup Bazel with shared caching
   uses: eclipse-score/cicd-actions/setup-bazel-cache@<actions-sha>
   with:
-    unique-cache-name: ${{ github.job }}-<workflow_name>
+    unique-cache-name: ${{ github.job }}[-matrix-job-name]
 ```
 
-Use a stable suffix such as `-build-qnx-x86_64` to keep cache names unique per
-workflow and target configuration.
+Add an optional stable suffix for matrix values or target configurations when a
+job name alone is not unique.
 
 ### 2. Make cache-warming workflows callable
 
@@ -79,7 +79,7 @@ on:
   # The same self-test for the merge-queue commit.
   merge_group:
     types: [checks_requested]
-  # Useful for troubleshooting; also read-only.
+  # Rebuild caches manually, for example after a transient download failure or for workflow testing.
   workflow_dispatch:
   # Select the branch whose pushes may warm and prune shared caches.
   push:
@@ -96,11 +96,8 @@ jobs:
       qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
       qnx-user: ${{ secrets.SCORE_QNX_USER }}
       qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
-      # Optional unless variants fetch private GitHub repositories.
-      github-app-private-key: ${{ secrets.ETAS_ENG_SCORE_BOT_PRIVATE_KEY }}
     uses: eclipse-score/cicd-workflows/.github/workflows/cache-maintenance.yml@<workflows-sha>
     with:
-      github-app-client-id: ${{ vars.ETAS_ENG_SCORE_BOT_APP_ID }}
       # Each line becomes one `bazel fetch` invocation.
       variants: |
         //...
@@ -108,15 +105,15 @@ jobs:
 
   warmup-qnx-x86_64:
     needs: repository_cache_maintenance
-    # PR, merge-queue, and manual runs validate variants above but never warm
-    # or write shared caches.
-    if: ${{ github.event_name == 'push' }}
+    # PR and merge-queue runs validate variants above but never warm or write
+    # shared caches.
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     secrets: inherit
     uses: ./.github/workflows/build_qnx_x86_64.yml
 
   delete_old_caches:
     needs: warmup-qnx-x86_64
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+    if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-24.04
     permissions:
       # Prune after every warmup job has completed its cache-save post-step.
@@ -137,6 +134,16 @@ when a variant fetches dependencies from private GitHub repositories. To use a
 token instead, pass it as the `token` secret and omit
 `github-app-client-id` and `github-app-private-key`.
 
+For a private S-CORE derivative that needs private GitHub dependencies, add the
+GitHub App credentials to its calling job:
+
+```yaml
+    secrets:
+      github-app-private-key: ${{ secrets.PRIVATE_DEPENDENCY_APP_PRIVATE_KEY }}
+    with:
+      github-app-client-id: ${{ vars.PRIVATE_DEPENDENCY_APP_ID }}
+```
+
 The older `score-qnx-license`, `score-qnx-user`, and `score-qnx-password`
 secret names remain supported for compatibility. New callers should use the
 `qnx-*` names.
@@ -152,18 +159,20 @@ Add one `warmup-*` job for every build configuration that should populate a disk
 cache. Each warmup job must depend on `repository_cache_maintenance`, and the
 final prune job must list all warmup jobs in `needs`.
 
-### Pull requests, merge queues, and manual runs
+### Pull requests and merge queues
 
-The reusable workflow treats pull requests, merge queues, and manual runs as dry
-runs: it validates and fetches the configured variants, but does not write
-shared caches. The caller's `push` trigger selects the branch whose push events
-warm and prune caches.
+The reusable workflow treats pull requests and merge queues as dry runs: it
+validates and fetches the configured variants, but does not write shared caches.
+Pushes and manual dispatches rebuild and prune caches when `MODULE.bazel.lock`
+has changed. The caller's push trigger and the ref selected for a manual
+dispatch determine the cache-writing branch.
 
 GitHub's secret handling depends on the PR model: public repositories do not
 receive repository secrets for PRs from forks, whereas private repositories and
 same-repository branch PRs can make secrets available. This workflow
 nevertheless deliberately does not configure GitHub App credentials or tokens
-for `pull_request` runs, because they execute code from the proposed change.
+for `pull_request` or `pull_request_target` runs, because they execute code
+from the proposed change.
 
 Repositories that use a trusted, branch-based PR model may choose a different
 credential policy. With the default policy, validate private dependencies in a
@@ -173,7 +182,9 @@ trusted event such as a merge-queue run or a manually dispatched run.
 
 - Run `bazel mod tidy` when changing module dependencies, and commit the
   resulting `MODULE.bazel.lock`.
-- Include every required Bazel configuration in `variants`.
+- Include the Bazel configurations needed for the desired cache coverage in
+  `variants`; omitting rarely used configurations keeps the repository cache
+  smaller and faster to restore.
 - Use stable, distinct `unique-cache-name` values for each cache-producing job.
 - Do not run an independent cache-pruning job in parallel with maintenance.
 - Keep the final prune job after all warmup jobs; it needs `actions: write`.
@@ -184,16 +195,16 @@ trusted event such as a merge-queue run or a manually dispatched run.
 
 The workflow manages two cache types:
 
-| Cache            | Purpose                                       | Refresh rule                                                                                    |
-| ---------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Repository cache | Downloaded external repositories and archives | Rebuild when `MODULE.bazel.lock` changes                                                        |
-| Disk cache       | Local Bazel action outputs                    | Add outputs on cache-writing pushes; delete it after a lockfile-driven repository-cache refresh |
+| Cache            | Purpose                                       | Refresh rule                                                                                                   |
+| ---------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Repository cache | Downloaded external repositories and archives | Rebuild when `MODULE.bazel.lock` changes                                                                       |
+| Disk cache       | Local Bazel action outputs                    | Add outputs on cache-writing pushes or manual runs; delete it after a lockfile-driven repository-cache refresh |
 
 All Bazel jobs restore these caches through
 `eclipse-score/cicd-actions/setup-bazel-cache`. Each job or target configuration
 needs a stable, unique cache name so disk caches do not collide.
 
-On a push selected by the caller, the reusable workflow compares
+On a cache-writing push or manual dispatch, the reusable workflow compares
 `MODULE.bazel.lock` with the previous commit. If it changed, it constructs and
 uploads a fresh repository cache, then deletes stale disk caches only after that
 upload is complete. The subsequent warmup jobs repopulate their disk caches,
