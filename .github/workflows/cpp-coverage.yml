@@ -177,7 +177,7 @@ jobs:
 
       - name: Upload coverage artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ format('{0}_cpp_coverage{1}', github.event.repository.name, inputs.artifact-name-suffix) }}
           path: |

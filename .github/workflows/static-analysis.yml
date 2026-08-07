@@ -90,7 +90,7 @@ jobs:
 
       - name: Upload Clippy reports
         if: always()
-        uses: actions/upload-artifact@v4.4.0
+        uses: actions/upload-artifact@v7
         with:
           name: clippy-reports
           path: |
