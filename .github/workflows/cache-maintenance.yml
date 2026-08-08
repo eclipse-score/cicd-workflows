@@ -65,6 +65,10 @@ on:
         description: Token for private Bazel dependencies; an alternative to GitHub App credentials
         required: false
 
+env:
+  # Only push and manual-dispatch runs may create or delete shared caches.
+  DRY_RUN: ${{ github.event_name != 'push' && github.event_name != 'workflow_dispatch' }}
+
 concurrency:
   # Serialize cache writers, but do not serialize independent dry runs.
   group: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && format('{0}-{1}', github.workflow, github.ref_name) || format('{0}-{1}', github.workflow, github.run_id) }}
@@ -95,10 +99,10 @@ jobs:
 
       # A replacement cache can redownload all dependencies.
       - uses: eclipse-score/more-disk-space@3fac5780033e636b114cf69e891dc19d640855c2 # v1.1
-        if: ${{ steps.check.outputs.any_changed == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && env.DRY_RUN == 'false' }}
 
       - name: Create Bazel output base directory
-        if: ${{ steps.check.outputs.any_changed == 'true' || (github.event_name != 'push' && github.event_name != 'workflow_dispatch') }}
+        if: ${{ steps.check.outputs.any_changed == 'true' || env.DRY_RUN == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -106,24 +110,24 @@ jobs:
           sudo chown -R $USER:$USER /mnt/.bazel
 
       - name: Setup Bazel
-        if: ${{ steps.check.outputs.any_changed == 'true' || (github.event_name != 'push' && github.event_name != 'workflow_dispatch') }}
+        if: ${{ steps.check.outputs.any_changed == 'true' || env.DRY_RUN == 'true' }}
         uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           unique-cache-name: ${{ github.job }}
           # setup-bazel-cache saves whenever its `main-branch` matches the
           # current ref. Only cache-writing events may match that ref.
-          main-branch: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name || '__cache_maintenance_read_only' }}
+          main-branch: ${{ env.DRY_RUN == 'false' && github.ref_name || '__cache_maintenance_read_only' }}
           # The post-step uploads the newly warmed cache; restoring the old
           # cache first would defeat a lockfile-driven refresh.
           skip-cache-restore: true
 
       # Required only while constructing a cache after a cache-writing event.
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
-        if: ${{ steps.check.outputs.any_changed == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && env.DRY_RUN == 'false' }}
 
       - name: Check QNX secret availability
         id: qnx_secrets
-        if: ${{ steps.check.outputs.any_changed == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && env.DRY_RUN == 'false' }}
         shell: bash
         env:
           # Prefer the current interface; retain legacy names for migration.
@@ -139,7 +143,7 @@ jobs:
           fi
 
       - name: Setup QNX SDP usage
-        if: ${{ steps.check.outputs.any_changed == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && steps.qnx_secrets.outputs.has_all == 'true' }}
+        if: ${{ steps.check.outputs.any_changed == 'true' && env.DRY_RUN == 'false' && steps.qnx_secrets.outputs.has_all == 'true' }}
         uses: eclipse-score/cicd-actions/setup-qnx-sdp@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           qnx-license: ${{ secrets.qnx-license || secrets.score-qnx-license }}
@@ -163,11 +167,11 @@ jobs:
       # The action performs one fetch per `variants` line. Read-only events
       # must not upload a cache.
       - name: Validate variants and warm Bazel repository cache artifacts
-        if: ${{ steps.check.outputs.any_changed == 'true' || (github.event_name != 'push' && github.event_name != 'workflow_dispatch') }}
+        if: ${{ steps.check.outputs.any_changed == 'true' || env.DRY_RUN == 'true' }}
         uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           variants: ${{ inputs.variants }}
-          dry-run: ${{ github.event_name != 'push' && github.event_name != 'workflow_dispatch' }}
+          dry-run: ${{ env.DRY_RUN }}
 
   prune_old_caches:
     # This must be a separate job: setup-bazel-cache uploads in a post-step;
@@ -177,9 +181,14 @@ jobs:
       actions: write # Required to delete GitHub Actions caches.
       contents: read
     needs: repository_cache_maintenance
-    if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+
+    # Cache pruning mutates shared Actions caches; keep PR and merge-queue runs read-only.
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+
     steps:
       - name: Delete all disk caches
+        # A changed lockfile invalidates Bazel action outputs; otherwise retain warm disk caches.
+        if: ${{ needs.repository_cache_maintenance.outputs.should_refresh_cache == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -189,5 +198,6 @@ jobs:
           gh cache list --repo ${{ github.repository }} --limit 1000 --json id,key \
           | jq -r '.[] | select(.key | contains("-disk-")) | .id' \
           | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
-      - name: Prune repository cache
+
+      - name: Prune obsolete cache generations
         uses: eclipse-score/cicd-actions/prune-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
