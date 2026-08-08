@@ -112,7 +112,7 @@ jobs:
           echo "coverage_path=${coverage_path}" >> "$GITHUB_OUTPUT"
 
       - name: Upload coverage HTML
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.coverage-artifact-name }}
           path: ${{ steps.coverage.outputs.coverage_path }}
