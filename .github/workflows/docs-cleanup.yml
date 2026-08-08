@@ -41,14 +41,14 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository root for deploy context
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
           ref: gh-pages
           fetch-depth: 0
 
       - name: Checkout gh-pages branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
           ref: gh-pages
