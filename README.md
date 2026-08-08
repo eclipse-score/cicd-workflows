@@ -6,25 +6,26 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 
 ## Available Workflows
 
-| Workflow                       | Description                                                       |
-| ------------------------------ | ----------------------------------------------------------------- |
-| **[PR Checks](.github/workflows/on-pr.md)** | Main PR entry point: auto-detects capabilities and runs pre-commit, tests, format, copyright and lockfile checks in one job |
-| **[Documentation](.github/workflows/docs.md)** | Builds and securely publishes documentation to GitHub Pages |
-| **Documentation Cleanup**      | Cleans up old documentation versions from the `gh-pages` branch   |
-| **License Check**              | Verifies OSS licenses and compliance                              |
-| **Static Code Analysis**       | Runs Clang-Tidy, Clippy, Pylint, and other linters                |
-| **Tests**                      | Executes tests using GoogleTest, Rust test, or pytest             |
-| **Rust Coverage**              | Computes Rust code coverage and uploads HTML reports              |
-| **C++ Coverage**               | Computes C++ code coverage using LCOV and uploads HTML reports    |
-| **Formatting Check**           | Verifies code formatting using Bazel-based tools                  |
-| **Copyright Check**            | Ensures all source files have the required copyright headers      |
-| **Required Approvals**         | Enforces stricter CODEOWNERS rules for multi-team approvals       |
-| **QNX Build (Gated)**          | Builds QNX Bazel targets with environment-gated secrets for forks |
-| **Documentation Verification** | Verifies documentation builds correctly and uploads results       |
-| **CodeQL Scan**                | Performs security and quality analysis using GitHub CodeQL        |
-| **SCORE PR Checks**            | Validates Bazel module naming conventions in pull requests        |
-| **Bzlmod Lockfile Check**      | Enforces `MODULE.bazel.lock` consistency via `bazel mod tidy`     |
-| **Template Sync**              | Synchronizes repository with eclipse-score/module_template        |
+| Workflow                                       | Description                                                                                                                 |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **[PR Checks](.github/workflows/on-pr.md)**    | Main PR entry point: auto-detects capabilities and runs pre-commit, tests, format, copyright and lockfile checks in one job |
+| **[Bazel Cache Maintenance](.github/workflows/cache-maintenance.md)** | Maintains lockfile-keyed repository and job-specific Bazel caches                                                           |
+| **[Documentation](.github/workflows/docs.md)** | Builds and securely publishes documentation to GitHub Pages                                                                 |
+| **Documentation Cleanup**                      | Cleans up old documentation versions from the `gh-pages` branch                                                             |
+| **License Check**                              | Verifies OSS licenses and compliance                                                                                        |
+| **Static Code Analysis**                       | Runs Clang-Tidy, Clippy, Pylint, and other linters                                                                          |
+| **Tests**                                      | Executes tests using GoogleTest, Rust test, or pytest                                                                       |
+| **Rust Coverage**                              | Computes Rust code coverage and uploads HTML reports                                                                        |
+| **C++ Coverage**                               | Computes C++ code coverage using LCOV and uploads HTML reports                                                              |
+| **Formatting Check**                           | Verifies code formatting using Bazel-based tools                                                                            |
+| **Copyright Check**                            | Ensures all source files have the required copyright headers                                                                |
+| **Required Approvals**                         | Enforces stricter CODEOWNERS rules for multi-team approvals                                                                 |
+| **QNX Build (Gated)**                          | Builds QNX Bazel targets with environment-gated secrets for forks                                                           |
+| **Documentation Verification**                 | Verifies documentation builds correctly and uploads results                                                                 |
+| **CodeQL Scan**                                | Performs security and quality analysis using GitHub CodeQL                                                                  |
+| **SCORE PR Checks**                            | Validates Bazel module naming conventions in pull requests                                                                  |
+| **Bzlmod Lockfile Check**                      | Enforces `MODULE.bazel.lock` consistency via `bazel mod tidy`                                                               |
+| **Template Sync**                              | Synchronizes repository with eclipse-score/module_template                                                                  |
 
 ---
 
