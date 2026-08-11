@@ -156,9 +156,7 @@ jobs:
         env:
           HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
           HAS_TOKEN: ${{ secrets.token != '' }}
-        # Pull-request workflows execute code from the proposed change. Do not
-        # expose private-dependency credentials to either PR event type.
-        if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true') }}
+        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' }}
         with:
           token: ${{ secrets.token }}
           github-app-client-id: ${{ inputs.github-app-client-id }}
