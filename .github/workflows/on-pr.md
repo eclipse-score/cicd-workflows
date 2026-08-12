@@ -28,6 +28,38 @@ jobs:
 That is all that is required. The workflow detects your repository's capabilities
 and runs only the applicable checks — no per-repo configuration needed.
 
+## Private Bazel dependencies
+
+`on-pr` supports the common, optional **inter-repo access** interface used by
+newer workflows that need to fetch private Bazel dependencies:
+
+| Caller field                     | Purpose                                              |
+| -------------------------------- | ---------------------------------------------------- |
+| `with.github-app-client-id`      | GitHub App client ID                                 |
+| `secrets.github-app-private-key` | Corresponding GitHub App private key                 |
+| `secrets.token`                  | Alternative token; omit the App fields when using it |
+
+This interface is deliberately opt-in: workflows that do not need private
+dependencies should not declare these fields. Existing/legacy workflow APIs are
+not retrofitted to it.
+
+Example with a GitHub App:
+
+```yaml
+jobs:
+  common:
+    uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@main
+    with:
+      github-app-client-id: ${{ vars.PRIVATE_DEPENDENCY_APP_ID }}
+    secrets:
+      github-app-private-key: ${{ secrets.PRIVATE_DEPENDENCY_APP_PRIVATE_KEY }}
+    permissions:
+      contents: read
+```
+
+The credentials are configured only for Bazel-capable repositories and only
+when one of the optional credential values is supplied.
+
 ## What it runs
 
 Every check runs in **one job**, and only if its capability is detected (and it is

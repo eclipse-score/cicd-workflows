@@ -66,6 +66,18 @@ on:
         required: false
         default: false
         type: boolean
+      github-app-client-id:
+        description: GitHub App client ID used with `github-app-private-key` to access private Bazel dependencies; omit when using `token`
+        required: false
+        default: ""
+        type: string
+    secrets:
+      github-app-private-key:
+        description: GitHub App private key used with `github-app-client-id` to access private Bazel dependencies
+        required: false
+      token:
+        description: Token for private Bazel dependencies; an alternative to GitHub App credentials
+        required: false
 
 jobs:
   pr-checks:
@@ -263,6 +275,21 @@ jobs:
         uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           unique-cache-name: ${{ github.job }}
+
+      # This is the common, opt-in credential handoff used by workflows that
+      # need private Bazel dependencies. Do not add its inputs or secrets to
+      # workflows that do not need inter-repository access.
+      - name: Configure access to private Bazel dependencies
+        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
+        # An `if` condition cannot access secrets, so expose only their presence.
+        env:
+          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
+          HAS_TOKEN: ${{ secrets.token != '' }}
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' && (env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true') }}
+        with:
+          token: ${{ secrets.token }}
+          github-app-client-id: ${{ inputs.github-app-client-id }}
+          github-app-private-key: ${{ secrets.github-app-private-key }}
 
       - name: 🕵️ Detect Bazel targets
         id: bazel
