@@ -111,7 +111,7 @@ jobs:
 
       - name: Setup Bazel
         if: ${{ steps.check.outputs.any_changed == 'true' || env.DRY_RUN == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@155d992f5003b8ecbd1750d3c18f90f78b432e13
         with:
           unique-cache-name: ${{ github.job }}
           # setup-bazel-cache saves whenever its `main-branch` matches the
