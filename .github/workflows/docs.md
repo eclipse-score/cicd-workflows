@@ -5,7 +5,7 @@ The documentation workflow is split into two stages:
 1. `docs.yml` builds documentation in the unprivileged pull request or push
    workflow and uploads a `github-pages` artifact.
 2. `docs-publish.yml` runs after a successful build, retrieves that artifact,
-   and publishes it to GitHub Pages with the required write permissions.
+  and publishes it to GitHub Pages with the required write permissions.
 
 Keeping the build and publishing stages separate prevents untrusted pull request
 code from running with repository write permissions.
@@ -48,7 +48,7 @@ on:
     types: [completed]
 
 jobs:
-  docs-deploy:
+  docs-publish:
     if: github.event.workflow_run.conclusion == 'success'
     uses: eclipse-score/cicd-workflows/.github/workflows/docs-publish.yml@main
     with:
@@ -65,6 +65,32 @@ jobs:
 
 The value in `workflows` must exactly match the build workflow's `name`.
 Merge-queue builds are validated but not published.
+
+## Trusted internal repositories
+
+Repositories that do not accept fork-origin pull requests may run build and
+publish as dependent jobs in the same workflow. This direct configuration is
+not permitted for repositories owned by `eclipse-score`.
+
+```yaml
+jobs:
+  docs:
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
+  docs-publish:
+    needs: docs
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-publish.yml@main
+    with:
+      # Omit for GitHub Actions Pages deployments. Set to "legacy" when
+      # GitHub Pages is configured to publish from the gh-pages branch.
+      deployment_type: workflow
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      pages: write
+      pull-requests: write
+```
+
 For repositories using the legacy "Deploy from a branch" Pages source, set
 `deployment_type: legacy`; the workflow updates `gh-pages` but does not run the
 GitHub Actions Pages deployment.
