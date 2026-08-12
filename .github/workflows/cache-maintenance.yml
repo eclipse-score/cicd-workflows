@@ -122,7 +122,7 @@ jobs:
           skip-cache-restore: true
 
       # Required only while constructing a cache after a cache-writing event.
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@155d992f5003b8ecbd1750d3c18f90f78b432e13
         if: ${{ steps.check.outputs.any_changed == 'true' && env.DRY_RUN == 'false' }}
 
       - name: Check QNX secret availability
