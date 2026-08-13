@@ -195,6 +195,21 @@ jobs:
           emit_output has_precommit any_file_exists \
             ".pre-commit-config.yaml"
 
+      # This is the common, opt-in credential handoff used by workflows that
+      # need private Bazel dependencies. It must run before pre-commit because
+      # pre-commit hooks may invoke Bazel.
+      - name: Configure access to private Bazel dependencies
+        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
+        # An `if` condition cannot access secrets, so expose only their presence.
+        env:
+          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
+          HAS_TOKEN: ${{ secrets.token != '' }}
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' && (env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true') }}
+        with:
+          token: ${{ secrets.token }}
+          github-app-client-id: ${{ inputs.github-app-client-id }}
+          github-app-private-key: ${{ secrets.github-app-private-key }}
+
       - name: ⚙️ Setup uv
         if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true') }}
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -275,21 +290,6 @@ jobs:
         uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           unique-cache-name: ${{ github.job }}
-
-      # This is the common, opt-in credential handoff used by workflows that
-      # need private Bazel dependencies. Do not add its inputs or secrets to
-      # workflows that do not need inter-repository access.
-      - name: Configure access to private Bazel dependencies
-        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
-        # An `if` condition cannot access secrets, so expose only their presence.
-        env:
-          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
-          HAS_TOKEN: ${{ secrets.token != '' }}
-        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' && (env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true') }}
-        with:
-          token: ${{ secrets.token }}
-          github-app-client-id: ${{ inputs.github-app-client-id }}
-          github-app-private-key: ${{ secrets.github-app-private-key }}
 
       - name: 🕵️ Detect Bazel targets
         id: bazel
