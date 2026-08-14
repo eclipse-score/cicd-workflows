@@ -105,7 +105,11 @@ jobs:
     steps:
       - uses: eclipse-score/more-disk-space@3fac5780033e636b114cf69e891dc19d640855c2 # v1.1
         with:
-          level: 2
+          level: 4
+
+      # Level 4 removes the Android SDK, but leaves ANDROID_HOME set to its old path.
+      - name: Reset Android SDK environment after disk cleanup
+        run: echo "ANDROID_HOME=" >> "$GITHUB_ENV"
 
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
