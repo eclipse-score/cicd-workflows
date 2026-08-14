@@ -49,6 +49,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
   pages: write
   id-token: write
 
