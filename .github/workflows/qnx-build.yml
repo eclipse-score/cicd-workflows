@@ -103,7 +103,7 @@ jobs:
       pull-requests: read
 
     steps:
-      - uses: eclipse-score/more-disk-space@3fac5780033e636b114cf69e891dc19d640855c2 # v1.1
+      - uses: eclipse-score/more-disk-space@5ca49359776dab58ce3f7e06f7ac9491bc696aa6 # 2026-08-14
         with:
           level: 4
 
