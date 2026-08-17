@@ -85,7 +85,7 @@ jobs:
               PR_NUMBER="$(curl -fsSL \
                 -H "Authorization: Bearer ${GH_TOKEN}" \
                 -H "Accept: application/vnd.github+json" \
-                "https://api.github.com/repos/${REPO}/pulls?head=${HEAD_REPO_OWNER}:${REF_NAME}" \
+                "https://api.github.com/repos/${REPO}/pulls?state=all&head=${HEAD_REPO_OWNER}:${REF_NAME}" \
                 | jq -r '.[0].number // empty' || true)"
             fi
 
