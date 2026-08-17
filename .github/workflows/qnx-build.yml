@@ -62,9 +62,17 @@ on:
         default: ''
         type: string
       score-qnx-license-server:
-        description: Address of the QNX license server (e.g. '6287@license-server-hostname'). Configures user.bazelrc with related action env vars.
+        description: >-
+          Address of the QNX license server (e.g. '6287@license-server-hostname'). Configures user.bazelrc with related action env vars.
         required: false
         type: string
+      disk-space-level:
+        description: >-
+          Level passed to eclipse-score/more-disk-space (0-4, higher frees more space). Use 0 for builds with a small codebase to only
+          report available space without freeing any.
+        required: false
+        default: 4
+        type: number
     secrets:
       score-qnx-license:
         description: Base64-encoded QNX license content
@@ -81,9 +89,13 @@ jobs:
     # Require approvals for PRs from forks, but not for same-repository PRs, merge queues or push events.
     # If the job is already in the merge queue, the changes have already been reviewed and approved.
     # Thus the approval is already implicit by the review approval.
-    if: github.event_name == 'pull_request_target' && (github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name)
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      (github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name)
     environment: ${{ inputs.environment-name }}
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: >-
+      ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
+      vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
       contents: read
       pull-requests: read
@@ -97,15 +109,18 @@ jobs:
     # Do not use always(), see https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#always
     if: ${{ !cancelled() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') }}
     needs: approval
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: >-
+      ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
+      vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
       contents: read
       pull-requests: read
 
     steps:
-      - uses: eclipse-score/more-disk-space@5ca49359776dab58ce3f7e06f7ac9491bc696aa6 # 2026-08-14
+      - name: Free up disk space
+        uses: eclipse-score/more-disk-space@32ef7dfde97646a458be94d75bbed23f5c887aeb # v1.1.0-2-g32ef7df
         with:
-          level: 4
+          level: ${{ inputs.disk-space-level }}
 
       - name: Checkout repository (Handle all events)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
