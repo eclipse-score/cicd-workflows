@@ -118,7 +118,7 @@ jobs:
 
     steps:
       - name: Free up disk space
-        uses: eclipse-score/more-disk-space@32ef7dfde97646a458be94d75bbed23f5c887aeb # v1.1.0-2-g32ef7df
+        uses: eclipse-score/more-disk-space@32ef7dfde97646a458be94d75bbed23f5c887aeb # v1.2.0
         with:
           level: ${{ inputs.disk-space-level }}
 
