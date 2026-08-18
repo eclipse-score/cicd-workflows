@@ -66,6 +66,9 @@ jobs:
         with:
           unique-cache-name: ${{ github.job }}
 
+      # Needs bazel on PATH: the action resolves `bazel info install_base`.
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
+
       - name: Run Tests via Bazel
         run: |
           set -euo pipefail

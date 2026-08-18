@@ -51,11 +51,6 @@ on:
         required: false
         default: 0
         type: number
-      linux-sandbox:
-        description: "Configure AppArmor so Bazel's linux-sandbox may create user namespaces (Ubuntu runners only)"
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -82,7 +77,6 @@ jobs:
 
       # Needs bazel on PATH: the action resolves `bazel info install_base`.
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
-        if: ${{ inputs.linux-sandbox }}
 
       - name: Install lcov (+ bc for threshold check)
         run: |
