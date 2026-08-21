@@ -85,3 +85,13 @@ jobs:
       pull-requests: read
       pages: write
       id-token: write
+
+  cache-cleanup:
+    name: Cleanup old caches
+    permissions:
+      actions: write # Required to delete GitHub Actions caches.
+      contents: read
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || 'ubuntu-latest' }}
+    steps:
+      - name: Prune obsolete cache generations
+        uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7 # prune-cache/v0.0.0

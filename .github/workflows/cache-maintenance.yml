@@ -174,7 +174,7 @@ jobs:
   prune_old_caches:
     # This must be a separate job: setup-bazel-cache uploads in a post-step;
     # pruning earlier could leave consumers without a repository cache.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || 'ubuntu-latest' }}
     permissions:
       actions: write # Required to delete GitHub Actions caches.
       contents: read
@@ -198,4 +198,4 @@ jobs:
           | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
 
       - name: Prune obsolete cache generations
-        uses: eclipse-score/cicd-actions/prune-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
+        uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7 # prune-cache/v0.0.0
