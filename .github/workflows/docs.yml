@@ -70,7 +70,7 @@ jobs:
           github-app-client-id: ${{ inputs.gh_app_client_id }}
           github-app-private-key: ${{ secrets.gh_app_private_key }}
 
-      - uses: eclipse-score/more-disk-space@3fac5780033e636b114cf69e891dc19d640855c2 # v1.1.0
+      - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
