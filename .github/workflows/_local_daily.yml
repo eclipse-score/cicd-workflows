@@ -32,9 +32,11 @@ jobs:
     permissions:
       contents: write
       issues: write
-      pull-requests: write
-      pages: write
+      pull-requests: write # Required to mark and close stale pull requests.
+      pages: write # Required to delete obsolete GitHub Pages artifacts and caches.
       id-token: write
+      actions: write # Required to delete obsolete GitHub Actions caches.
+
   renovate:
     runs-on: ubuntu-latest
     permissions:
