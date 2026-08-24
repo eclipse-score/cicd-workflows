@@ -148,5 +148,5 @@ permissions:
 ## Runner selection
 
 `on-pr` uses the standard S-CORE runner-label resolution:
-`runner_labels_ghub24_standard_x64` → `REPO_RUNNER_LABELS` → `ubuntu-24.04`. See
+`runner-labels` input → `runner_labels_ghub24_standard_x64` → `REPO_RUNNER_LABELS` → `ubuntu-24.04`. See
 [Runner Selection Logic](../../README.md#️-runner-selection-logic) for details.

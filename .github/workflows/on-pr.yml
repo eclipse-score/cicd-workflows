@@ -71,6 +71,14 @@ on:
         required: false
         default: ""
         type: string
+      runner-labels:
+        description: >-
+          Runner label(s) for this workflow's jobs, overriding the repository/organization runner
+          variables. Accepts a single label (e.g. 'self-hosted') or a JSON array of labels (e.g.
+          '["self-hosted", "linux", "x64"]').
+        required: false
+        default: ""
+        type: string
     secrets:
       github-app-private-key:
         description: GitHub App private key used with `github-app-client-id` to access private Bazel dependencies
@@ -82,7 +90,7 @@ on:
 jobs:
   pr-checks:
     name: 🔁 Common PR checks
-    runs-on: ${{ vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
 
     permissions:
       contents: read

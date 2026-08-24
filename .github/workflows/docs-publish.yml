@@ -46,6 +46,14 @@ on:
         required: false
         default: "workflow"
         type: string
+      runner-labels:
+        description: >-
+          Runner label(s) for this workflow's jobs, overriding the repository/organization runner
+          variables. Accepts a single label (e.g. 'self-hosted') or a JSON array of labels (e.g.
+          '["self-hosted", "linux", "x64"]').
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: cicd-pages-deploy
@@ -67,7 +75,7 @@ jobs:
       id-token: write # to verify the deployment originates from an appropriate source
       contents: write # to update versions.json and commit to gh-pages
       pull-requests: write # to comment on PRs with preview link
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     steps:
       - name: Resolve build metadata
         id: metadata

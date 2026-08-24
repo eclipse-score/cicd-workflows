@@ -19,10 +19,18 @@ on:
       approval_mode: {type: string, default: ALL, required: false}
       org_name: {type: string, default: score, required: false}
       pat_secret: {type: string, required: false, description: "Override secret name"}
+      runner-labels:
+        description: >-
+          Runner label(s) for this workflow's jobs, overriding the repository/organization runner
+          variables. Accepts a single label (e.g. 'self-hosted') or a JSON array of labels (e.g.
+          '["self-hosted", "linux", "x64"]').
+        required: false
+        default: ""
+        type: string
 
 jobs:
   check-approvals:
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
       id-token: write
       contents: read

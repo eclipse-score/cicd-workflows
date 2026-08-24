@@ -73,6 +73,14 @@ on:
         required: false
         default: 4
         type: number
+      runner-labels:
+        description: >-
+          Runner label(s) for this workflow's jobs, overriding the repository/organization runner
+          variables. Accepts a single label (e.g. 'self-hosted') or a JSON array of labels (e.g.
+          '["self-hosted", "linux", "x64"]').
+        required: false
+        default: ""
+        type: string
     secrets:
       score-qnx-license:
         description: Base64-encoded QNX license content
@@ -94,7 +102,8 @@ jobs:
       (github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name)
     environment: ${{ inputs.environment-name }}
     runs-on: >-
-      ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
+      ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) ||
+      vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
       vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
       contents: read
@@ -110,7 +119,8 @@ jobs:
     if: ${{ !cancelled() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') }}
     needs: approval
     runs-on: >-
-      ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
+      ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) ||
+      vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
       vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
       contents: read

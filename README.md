@@ -610,19 +610,20 @@ uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@v1.0.0
 All workflows in this repository use the following logic for selecting the runner:
 
 ```yaml
-runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
 ```
 
 This means:
 
-- If your repository defines a variable named `runner_labels_ghub_standard_x64` (or any of the other supported ones) or `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).  
+- If the caller workflow passes a `runner-labels` input when invoking the reusable workflow (`with: runner-labels: ...`), that value is used as the runner label(s).
+- Otherwise, if your repository defines a variable named `runner_labels_ghub_standard_x64` (or any of the other supported ones) or `REPO_RUNNER_LABELS` (e.g., in repository or organization settings), its value will be used as the runner label(s).  
   This allows you to use **self-hosted runners** or any custom runner configuration.
-- If `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` is **not set**, the workflow will default to GitHub-hosted `ubuntu-latest`.
+- If none of the above are set, the workflow will default to GitHub-hosted `ubuntu-latest`.
 
 **Why?**  
-This approach allows forked repositories or projects with special requirements to use their own runners, while everyone else gets a reliable default.
+This approach allows forked repositories or projects with special requirements to use their own runners, while everyone else gets a reliable default. The `runner-labels` input additionally lets an individual caller override the runner for a single workflow invocation without changing repository/organization-wide variables.
 
-> ℹ️ **Tip:** To use a self-hosted runner, set the `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` variable in your repository or organization settings to the label(s) of your runner.
+> ℹ️ **Tip:** To use a self-hosted runner, either pass the `runner-labels` input to the workflow call, or set the `runner_labels_ghub_standard_x64` or `REPO_RUNNER_LABELS` variable in your repository or organization settings to the label(s) of your runner.
 
 ### Runner labels variable naming convention
 
@@ -661,3 +662,5 @@ following JSON array:
 ```
 
 This allows you to specify multiple labels for your runner, which can be used to match it in the workflow. For example, if you have a self-hosted runner with the labels `self-hosted`, `linux`, `x64`, and `custom-label`, you can set the variable to the above JSON array, and the workflow will use that runner when it runs.
+
+The `runner-labels` workflow input accepts the same syntax (a single string or a JSON array string) and is available on every reusable workflow in this repository that selects its runner via this logic.
