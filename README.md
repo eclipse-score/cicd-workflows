@@ -664,3 +664,13 @@ following JSON array:
 This allows you to specify multiple labels for your runner, which can be used to match it in the workflow. For example, if you have a self-hosted runner with the labels `self-hosted`, `linux`, `x64`, and `custom-label`, you can set the variable to the above JSON array, and the workflow will use that runner when it runs.
 
 The `runner-labels` workflow input accepts the same syntax (a single string or a JSON array string) and is available on every reusable workflow in this repository that selects its runner via this logic.
+
+> ⚠️ **Caller syntax:** `runner-labels` is a `string` input, and `with:` values for a reusable workflow call only accept scalars — a bare YAML sequence is rejected. Quote the JSON value as a string in the caller:
+>
+> ```yaml
+> with:
+>   runner-labels: '["self-hosted", "linux", "x64"]'   # correct: quoted JSON array
+>   # runner-labels: ["self-hosted", "linux", "x64"]   # WRONG: real YAML sequence, fails schema validation
+> ```
+>
+> For a single label, quote it as a JSON string too: `runner-labels: '"self-hosted"'`.

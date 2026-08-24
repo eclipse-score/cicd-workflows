@@ -49,8 +49,8 @@ on:
       runner-labels:
         description: >-
           Runner label(s) for this workflow's jobs, overriding the repository/organization runner
-          variables. Accepts a single label (e.g. 'self-hosted') or a JSON array of labels (e.g.
-          '["self-hosted", "linux", "x64"]').
+          variables. Must be a JSON-encoded string: a single label as a JSON string (e.g.
+          '"self-hosted"') or a JSON array of labels (e.g. '["self-hosted", "linux", "x64"]').
         required: false
         default: ""
         type: string
