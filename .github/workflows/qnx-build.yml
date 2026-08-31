@@ -81,7 +81,18 @@ on:
         required: false
         default: ""
         type: string
+      github-app-client-id:
+        description: GitHub App client ID used with `github-app-private-key` to access private dependencies; omit when using `token`
+        required: false
+        default: ""
+        type: string
     secrets:
+      github-app-private-key:
+        description: GitHub App private key used with `github-app-client-id` to access private dependencies
+        required: false
+      token:
+        description: Token for private dependencies; an alternative to GitHub App credentials
+        required: false
       score-qnx-license:
         description: Base64-encoded QNX license content
         required: true
@@ -141,6 +152,18 @@ jobs:
           # This job is gated by the approval job.
           # A reviewer must validate the content before approving the workflow.
           allow-unsafe-pr-checkout: true
+
+      - name: Configure access to private dependencies
+        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
+        # An `if` condition cannot access secrets, so expose only their presence.
+        env:
+          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
+          HAS_TOKEN: ${{ secrets.token != '' }}
+        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' }}
+        with:
+          token: ${{ secrets.token }}
+          github-app-client-id: ${{ inputs.github-app-client-id }}
+          github-app-private-key: ${{ secrets.github-app-private-key }}
 
       - name: Setup Bazel with shared caching
         uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90

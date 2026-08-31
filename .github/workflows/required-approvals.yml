@@ -27,6 +27,21 @@ on:
         required: false
         default: ""
         type: string
+      github-app-client-id:
+        description: GitHub App client ID used with `github-app-private-key` to access private dependencies; omit when using `token`
+        required: false
+        default: ""
+        type: string
+    secrets:
+      github-app-private-key:
+        description: GitHub App private key used with `github-app-client-id` to access private dependencies
+        required: false
+      token:
+        description: Token for private dependencies; an alternative to GitHub App credentials
+        required: false
+      SCORE_APPROVALS_PAT:
+        description: Org-scoped PAT used to read approvals across the organization
+        required: false
 
 jobs:
   check-approvals:

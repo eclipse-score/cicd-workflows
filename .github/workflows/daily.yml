@@ -28,6 +28,18 @@ on:
         required: false
         default: ""
         type: string
+      github-app-client-id:
+        description: GitHub App client ID used with `github-app-private-key` to access private dependencies; omit when using `token`
+        required: false
+        default: ""
+        type: string
+    secrets:
+      github-app-private-key:
+        description: GitHub App private key used with `github-app-client-id` to access private dependencies
+        required: false
+      token:
+        description: Token for private dependencies; an alternative to GitHub App credentials
+        required: false
 
 jobs:
   stale-prs:
@@ -89,6 +101,13 @@ jobs:
     needs: detect-repo-capabilities
     if: needs.detect-repo-capabilities.outputs.should_run_docs_cleanup == 'true'
     uses: ./.github/workflows/docs-cleanup.yml
+    # Forward the private-dependency credentials so the called workflow can
+    # configure inter-repo access too.
+    with:
+      github-app-client-id: ${{ inputs.github-app-client-id }}
+    secrets:
+      github-app-private-key: ${{ secrets.github-app-private-key }}
+      token: ${{ secrets.token }}
     permissions:
       contents: write
       pull-requests: read

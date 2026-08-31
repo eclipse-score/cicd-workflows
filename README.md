@@ -544,6 +544,49 @@ This workflow:
 ---
 
 
+## 🔑 Private Dependencies
+
+Every job that checks out code calls
+[`inter-repo-access`](https://github.com/eclipse-score/cicd-actions/tree/main/inter-repo-access),
+which configures git globally so later checkouts and fetches reach private
+repositories in the organization without threading a token through each step.
+
+Pass either GitHub App credentials or a token from the caller:
+
+```yaml
+jobs:
+  tests:
+    uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@main
+    with:
+      github-app-client-id: ${{ vars.INTER_REPO_APP_CLIENT_ID }}
+    secrets:
+      github-app-private-key: ${{ secrets.PRIVATE_DEPENDENCY_APP_PRIVATE_KEY }}
+```
+
+```yaml
+    secrets:
+      token: ${{ secrets.INTER_REPO_TOKEN }}
+```
+
+GitHub App credentials are preferred: the action mints a short-lived
+installation token scoped to the organization.
+
+Both are optional. When neither is passed the step is skipped entirely and the
+job behaves exactly as before, so no existing caller needs to change.
+
+### What it does
+
+The action rewrites GitHub remote URLs to use the selected credential, covering
+`https://`, `git@github.com:` and `ssh://git@github.com/` styles alike. A
+Bazel `MODULE.bazel` referencing private dependencies over `git@github.com:`
+therefore resolves without any SSH key, deploy key or agent on the runner.
+
+For a checkout that follows the step, pass `persist-credentials: false` so
+`actions/checkout` does not install a local credential that shadows the global
+rewrite.
+
+---
+
 ##  How to Update Workflows
 Since these workflows are centralized, updates in the `cicd-workflows` repository will **automatically apply to all repositories using them**. If you need a specific version, reference a **tagged release** instead of `main`:
 ```yaml
