@@ -214,7 +214,7 @@ jobs:
         env:
           HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
           HAS_TOKEN: ${{ secrets.token != '' }}
-        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' && (env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true') }}
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' && (env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.github-app-client-id != '') }}
         with:
           token: ${{ secrets.token }}
           github-app-client-id: ${{ inputs.github-app-client-id }}
