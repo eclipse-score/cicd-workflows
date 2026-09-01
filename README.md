@@ -12,21 +12,32 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **[Bazel Cache Maintenance](.github/workflows/cache-maintenance.md)** | Maintains lockfile-keyed repository and job-specific Bazel caches                                                           |
 | **[Documentation](.github/workflows/docs.md)** | Builds and securely publishes documentation to GitHub Pages                                                                 |
 | **[Daily Maintenance](.github/workflows/daily.md)** | Handles stale pull requests, cleans old documentation, and prunes obsolete caches                                  |
-| **Documentation Cleanup**                      | Cleans up old documentation versions from the `gh-pages` branch                                                             |
 | **License Check**                              | Verifies OSS licenses and compliance                                                                                        |
 | **Static Code Analysis**                       | Runs Clang-Tidy, Clippy, Pylint, and other linters                                                                          |
 | **Tests**                                      | Executes tests using GoogleTest, Rust test, or pytest                                                                       |
 | **Rust Coverage**                              | Computes Rust code coverage and uploads HTML reports                                                                        |
 | **C++ Coverage**                               | Computes C++ code coverage using LCOV and uploads HTML reports                                                              |
-| **Formatting Check**                           | Verifies code formatting using Bazel-based tools                                                                            |
-| **Copyright Check**                            | Ensures all source files have the required copyright headers                                                                |
 | **Required Approvals**                         | Enforces stricter CODEOWNERS rules for multi-team approvals                                                                 |
 | **QNX Build (Gated)**                          | Builds QNX Bazel targets with environment-gated secrets for forks                                                           |
-| **Documentation Verification**                 | Verifies documentation builds correctly and uploads results                                                                 |
 | **CodeQL Scan**                                | Performs security and quality analysis using GitHub CodeQL                                                                  |
-| **SCORE PR Checks**                            | Validates Bazel module naming conventions in pull requests                                                                  |
-| **Bzlmod Lockfile Check**                      | Enforces `MODULE.bazel.lock` consistency via `bazel mod tidy`                                                               |
-| **Template Sync**                              | Synchronizes repository with eclipse-score/module_template                                                                  |
+
+---
+
+## Removed Workflows
+
+The following standalone workflows were removed because their functionality is now
+covered by `on-pr.yml` or `daily.yml`. Existing callers must migrate to the
+replacement workflow.
+
+| Removed workflow        | Covered by                    | Notes                                                                                                   |
+| ------------------------ | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `bzlmod-lock-check.yml`  | `on-pr.yml`                    | Runs the same `bazel mod tidy` + `bazel mod deps --lockfile_mode=error` checks whenever `MODULE.bazel.lock` exists. |
+| `copyright.yml`          | `on-pr.yml`                    | Runs `bazel run //:copyright.check` whenever that target exists.                                          |
+| `docs-cleanup.yml`       | `daily.yml`                    | Already deprecated; `daily.yml` performs the cleanup itself when GitHub Pages is enabled.                 |
+| `docs-verify.yml`        | `docs.yml`                     | `docs.yml`'s build step (`bazel run //:docs`) already fails the job if the documentation does not build. |
+| `format.yml`             | `on-pr.yml`                    | Runs `bazel test //:format.check` whenever that target exists.                                            |
+| `score-pr-checks.yml`    | `on-pr.yml`                    | Same module-name validation logic; currently disabled in `on-pr.yml` pending a fix to the detection script. |
+| `template-sync.yml`      | _none_                         | No longer needed; removed without replacement.                                                            |
 
 ---
 
@@ -37,43 +48,7 @@ To use a reusable workflow, create a workflow file inside **your repository** (e
 See the [Documentation workflows](.github/workflows/docs.md) guide for the
 separate build and publishing workflows.
 
-### **1. Documentation Cleanup Workflow - DEPRECATED**
-*Deprecated: This workflow is now integrated into the `Daily Maintenance` workflow. Use that workflow instead.*
-
-**Usage Example**
-```yaml
-name: Documentation Cleanup
-
-on:
-  schedule:
-    - cron: '0 2 * * *' # every day at 2am UTC
-
-permissions:
-  contents: write
-  pull-requests: read
-  pages: write
-  id-token: write
-
-jobs:
-  docs-cleanup:
-    # Pin a version via vX.Y.Z tag or even better via a commit SHA for immutability.
-    # Treat @main as experimental!
-    uses: eclipse-score/cicd-workflows/.github/workflows/docs-cleanup.yml@vX.Y.Z
-    with:
-      workflow-version: main
-    secrets:
-      token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-This workflow:
-
-✅ Cleans up old documentation versions from the `gh-pages` branch  
-✅ Runs daily at 2am UTC  
-✅ Is intended for repositories with GitHub Pages enabled  
-
----
-
-### **2. License Check Workflow**
+### **1. License Check Workflow**
 **Usage Example**
 ```yaml
 name: License Check CI
@@ -105,7 +80,7 @@ This workflow:
 
 ---
 
-### **3. Static Code Analysis Workflow**
+### **2. Static Code Analysis Workflow**
 **Usage Example**
 ```yaml
 name: Static Analysis CI
@@ -138,7 +113,7 @@ Inputs:
 
 ---
 
-### **4. Tests Workflow**
+### **3. Tests Workflow**
 **Usage Example**
 ```yaml
 name: Test CI
@@ -161,7 +136,7 @@ This workflow:
 
 ---
 
-### **5. Rust Coverage Workflow**
+### **4. Rust Coverage Workflow**
 **Usage Example**
 ```yaml
 name: Rust Coverage CI
@@ -190,7 +165,7 @@ This workflow:
 
 ---
 
-### **6. C++ Coverage Workflow**
+### **5. C++ Coverage Workflow**
 **Usage Example**
 ```yaml
 name: C++ Coverage CI
@@ -213,60 +188,7 @@ jobs:
 
 ---
 
-### **7. Copyright Check Workflow**
-**Usage Example**
-```yaml
-name: Copyright Check CI
-
-on:
-  pull_request:
-  push:
-    branches:
-      - main
-
-jobs:
-  copyright-check:
-    uses: eclipse-score/cicd-workflows/.github/workflows/copyright.yml@main
-    with:
-      bazel-target: "run //:copyright-check" # optional, this is the default
-```
-
-This workflow:  
-✅ Runs a **Bazel-based copyright**
-✅ Ensures all source files have **Eclipse Foundation** headers
-
-> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  
-> **Default:** `run //:copyright-check`
-
----
-
-### **8. Formatting Check Workflow**
-**Usage Example**
-```yaml
-name: Formatting Check CI
-
-on:
-  pull_request:
-  merge_group:
-    types: [checks_requested]
-
-jobs:
-  formatting-check:
-    uses: eclipse-score/cicd-workflows/.github/workflows/format-check.yml@main
-    with:
-      bazel-target: "test //:format.check" # optional, this is the default
-```
-
-This workflow:  
-✅ Runs a **Bazel-based formatting check** (e.g., `buildifier`, `clang-format`, etc.)  
-✅ Can be integrated into Pull Requests and Merge Queues  
-✅ Ensures code adheres to formatting rules before merge
-
-> ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  
-> **Default:** `test //:format.check`
-
----
-### **9. Required Approvals Workflow**
+### **6. Required Approvals Workflow**
 
 This workflow enforces **stricter CODEOWNERS checks** than GitHub’s defaults.  
 Normally, GitHub requires approval from *any one* codeowner when multiple are listed.  
@@ -309,7 +231,7 @@ jobs:
 ---
 
 
-### **10. QNX Build (Gated) Workflow**
+### **7. QNX Build (Gated) Workflow**
 
 Use this workflow when you need QNX secrets for forked PRs and want a manual approval gate via an environment.
 
@@ -347,38 +269,7 @@ jobs:
 
 ---
 
-### **11. Documentation Verification Workflow**
-
-This workflow verifies that documentation builds correctly and can be used to validate documentation changes in pull requests.
-
-**Usage Example**
-
-```yaml
-name: Documentation Verification
-
-on:
-  pull_request:
-    types: [opened, reopened, synchronize]
-
-jobs:
-  docs-verify:
-    uses: eclipse-score/cicd-workflows/.github/workflows/docs-verify.yml@main
-    with:
-      bazel-docs-verify-target: "//:docs_check" # optional, default shown
-```
-
-**Defaults**  
-- `bazel-docs-verify-target`: `//:docs_check`  
-
-**Key Features**  
-✅ Verifies documentation builds successfully  
-✅ Uses Bazel-based documentation checks  
-✅ Provides verification result as output  
-✅ Integrates with Bazel shared caching for performance  
-
----
-
-### **12. CodeQL Security Scan Workflow**
+### **8. CodeQL Security Scan Workflow**
 
 This workflow performs security and quality analysis using GitHub's CodeQL with MISRA C++ coding standards.
 
@@ -413,136 +304,6 @@ jobs:
 ✅ Supports custom Bazel build commands  
 
 ---
-
-### **13. SCORE PR Checks Workflow**
-
-This workflow enforces SCORE-specific standards, particularly Bazel module naming conventions.
-
-**Usage Example**
-
-```yaml
-name: PR Checks
-
-on:
-  pull_request:
-    branches: [main]
-
-jobs:
-  score-checks:
-    uses: eclipse-score/cicd-workflows/.github/workflows/score-pr-checks.yml@main
-```
-
-**No inputs required**
-
-**Key Features**  
-✅ Validates Bazel module names follow the pattern `^score_[[:lower:]_]+$`  
-✅ Ensures module names start with `score_`  
-✅ Allows only lowercase letters and underscores  
-✅ Skips validation if no `MODULE.bazel` file exists  
-
-**Examples of valid module names:**  
-- `score_cli`  
-- `score_compose`  
-- `score_web_api`  
-
----
-
-### **14. Template Sync Workflow**
-
-This workflow automatically synchronizes your repository with the latest changes from `eclipse-score/module_template`.
-
-**Usage Example**
-
-```yaml
-name: Template Sync
-
-on:
-  schedule:
-    - cron: '0 0 * * 0' # Weekly on Sunday
-  workflow_dispatch:
-
-jobs:
-  template-sync:
-    uses: eclipse-score/cicd-workflows/.github/workflows/template-sync.yml@main
-    with:
-      pr_title: "[Template Sync] Upstream template update" # optional, default shown
-      pr_commit_msg: "chore(template): upstream template update" # optional, default shown
-      template_sync_ignore_file_path: ".github/.templatesyncignore" # optional, default shown
-    secrets:
-      SCORE_APPROVALS_PAT: ${{ secrets.SCORE_APPROVALS_PAT }}
-```
-
-**Defaults**  
-- `pr_title`: `[Template Sync] Upstream template update`  
-- `pr_commit_msg`: `chore(template): upstream template update`  
-- `template_sync_ignore_file_path`: `.github/.templatesyncignore`  
-
-**Key Features**  
-✅ Automatically creates PRs with template updates  
-✅ Respects `.templatesyncignore` file to exclude specific files  
-✅ Uses `SCORE_APPROVALS_PAT` secret for authentication  
-✅ Configurable PR titles and commit messages  
-✅ Can be triggered on schedule or manually  
-
-> ℹ️ **Note:** This workflow requires the `SCORE_APPROVALS_PAT` secret with appropriate permissions to create pull requests.
-
----
-
-### **15. Bzlmod Lockfile Check Workflow**
-
-This workflow keeps `MODULE.bazel` and `MODULE.bazel.lock` consistent and reproducible. Two checks run in parallel:
-
-- **`bzlmod-tidy-check`** — runs `bazel mod tidy` and fails if it would change any file, meaning `MODULE.bazel` has formatting or dependency declarations that are not normalized
-- **`bzlmod-lockfile-check`** — runs `bazel mod deps --lockfile_mode=error` and fails if the committed lockfile does not match the resolved dependency graph, meaning the lockfile is stale
-
-> ⚠️ **Security:** this workflow refuses to run when called from `pull_request_target`. That event has write access to repository secrets while checking out fork code, making it unsafe to execute Bazel on untrusted input. Use `pull_request` or `schedule` instead.
-
-> 💡 **Recommendation:** run these checks locally via [pre-commit](https://pre-commit.com/) so issues are caught before they reach CI:
->
-> ```yaml
-> - repo: local
->   hooks:
->     - id: bzlmod-tidy
->       name: bazel mod tidy
->       entry: bazel mod tidy
->       language: system
->       pass_filenames: false
->     - id: bzlmod-lockfile
->       name: bazel mod deps lockfile check
->       entry: bazel mod deps --lockfile_mode=error
->       language: system
->       pass_filenames: false
-> ```
-
-**Usage Example**
-
-```yaml
-name: Bzlmod Lockfile Check
-
-on:
-  pull_request:
-  push:
-    branches:
-      - main
-
-jobs:
-  bzlmod-lock:
-    uses: eclipse-score/cicd-workflows/.github/workflows/bzlmod-lock-check.yml@main
-    with:
-      working-directory: .  # optional, this is the default
-```
-
-**Defaults**  
-- `working-directory`: `.`
-
-This workflow:  
-✅ Fails if `MODULE.bazel.lock` is missing  
-✅ Fails if `bazel mod tidy` would change `MODULE.bazel` or `MODULE.bazel.lock`  
-✅ Fails if `bazel mod deps --lockfile_mode=error` reports a stale or inconsistent lockfile  
-✅ Reports both failures independently in the PR checks UI  
-
----
-
 
 ##  How to Update Workflows
 Since these workflows are centralized, updates in the `cicd-workflows` repository will **automatically apply to all repositories using them**. If you need a specific version, reference a **tagged release** instead of `main`:
