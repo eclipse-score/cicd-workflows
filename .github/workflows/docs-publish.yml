@@ -87,6 +87,9 @@ jobs:
       id-token: write # to verify the deployment originates from an appropriate source
       contents: write # to update versions.json and commit to gh-pages
       pull-requests: write # to comment on PRs with preview link
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy-pages.outputs.page_url }}
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     steps:
       - name: Resolve build metadata
