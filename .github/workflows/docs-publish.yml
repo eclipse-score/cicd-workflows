@@ -304,7 +304,7 @@ jobs:
         if: steps.deploy-pages.outputs.page_url != ''
         run: |
           echo "### Documentation published" >> $GITHUB_STEP_SUMMARY
-          echo "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ steps.target.outputs.folder }}/" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.deploy-pages.outputs.page_url }}${{ steps.target.outputs.folder }}/" >> $GITHUB_STEP_SUMMARY
 
       - name: Find existing PR comment
         if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != ''
@@ -322,4 +322,4 @@ jobs:
           issue-number: ${{ steps.metadata.outputs.pr_number }}
           body: |
             Documentation preview for this pull request is available at:
-            **${{ steps.target.outputs.folder }}**: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ steps.target.outputs.folder }}/
+            **${{ steps.target.outputs.folder }}**: ${{ steps.deploy-pages.outputs.page_url }}${{ steps.target.outputs.folder }}/
