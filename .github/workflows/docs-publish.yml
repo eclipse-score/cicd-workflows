@@ -87,9 +87,6 @@ jobs:
       id-token: write # to verify the deployment originates from an appropriate source
       contents: write # to update versions.json and commit to gh-pages
       pull-requests: write # to comment on PRs with preview link
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy-pages.outputs.page_url }}
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     steps:
       - name: Resolve build metadata
@@ -302,6 +299,12 @@ jobs:
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
         with:
           artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
+
+      - name: Post deployment URL to summary
+        if: steps.deploy-pages.outputs.page_url != ''
+        run: |
+          echo "### Documentation published" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.deploy-pages.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Find existing PR comment
         if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != ''
