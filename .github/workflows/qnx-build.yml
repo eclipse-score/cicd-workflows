@@ -166,9 +166,9 @@ jobs:
           github-app-private-key: ${{ secrets.github-app-private-key }}
 
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@cache
         with:
-          unique-cache-name: ${{ github.job }}${{ inputs.bazel-disk-cache }}
+          disk-cache-key: ${{ github.job }}${{ inputs.bazel-disk-cache }}
 
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90 # 2025-06-04
 

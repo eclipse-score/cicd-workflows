@@ -111,15 +111,13 @@ jobs:
 
       - name: Setup Bazel
         if: ${{ steps.check.outputs.any_changed == 'true' || env.DRY_RUN == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@cache
         with:
-          unique-cache-name: ${{ github.job }}
-          # setup-bazel-cache saves whenever its `main-branch` matches the
-          # current ref. Only cache-writing events may match that ref.
-          main-branch: ${{ env.DRY_RUN == 'false' && github.ref_name || '__cache_maintenance_read_only' }}
+          disk-cache-key: ${{ github.job }}
           # The post-step uploads the newly warmed cache; restoring the old
           # cache first would defeat a lockfile-driven refresh.
-          skip-cache-restore: true
+          repository-cache-restore: false
+          repository-cache-save: ${{ env.DRY_RUN == 'false' }}
 
       # Required only while constructing a cache after a cache-writing event.
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
