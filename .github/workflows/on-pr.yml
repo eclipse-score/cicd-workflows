@@ -299,7 +299,6 @@ jobs:
           fi
 
           echo "✅ Module name is valid: $MODULE_NAME"
-
       - name: 🕵️ Detect Bazel targets
         id: bazel
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
