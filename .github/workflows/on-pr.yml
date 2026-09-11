@@ -220,6 +220,11 @@ jobs:
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
 
+      - name: ⚙️ Setup Bazel with shared caching
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
+        with:
+          unique-cache-name: ${{ github.job }}
       - name: ⚙️ Setup uv
         if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true') }}
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
@@ -294,13 +299,6 @@ jobs:
           fi
 
           echo "✅ Module name is valid: $MODULE_NAME"
-
-      - name: ⚙️ Setup Bazel with shared caching
-        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
-        with:
-          unique-cache-name: ${{ github.job }}
-
       - name: 🕵️ Detect Bazel targets
         id: bazel
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
