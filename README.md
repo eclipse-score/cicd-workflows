@@ -90,14 +90,11 @@ jobs:
     with:
       repo-url: "${{ github.server_url }}/${{ github.repository }}" # optional, this is the default
       bazel-target: "run //:license-check" # optional, this is the default
-    secrets:
-      dash-api-token: ${{ secrets.ECLIPSE_GITLAB_API_TOKEN }} # mandatory - the Eclispe DASH API token 
 ```
 
 This workflow:
 
-✅ Runs **DASH license compliance checks** for **Rust, C++, and Python**  
-✅ Uses the **organization secret** `ECLIPSE_GITLAB_API_TOKEN`  
+✅ Runs **license compliance checks** for **Rust, C++, and Python** without a DASH API token
 ✅ Comments results directly on the **Pull Request**
 
 > ℹ️ **Note:** You can override the Bazel command using the `bazel-target` input.  

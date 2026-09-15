@@ -45,9 +45,6 @@ on:
       token:
         description: Token for private dependencies; an alternative to GitHub App credentials
         required: false
-      dash-api-token:
-        description: "Eclipse DASH API Token for license verification"
-        required: true
 
 jobs:
   license-check:
@@ -92,10 +89,7 @@ jobs:
           OUTPUT=""
           EXIT_CODE=0
 
-          # Use org secret as fallback if dash-api-token is not provided
-          TOKEN="${{ secrets.dash-api-token }}"
-
-          CMD="bazel ${{ inputs.bazel-target }} -- -review -project automotive.score -repo $REPO_URL -token $TOKEN"
+          CMD="bazel ${{ inputs.bazel-target }} -- -project automotive.score -repo $REPO_URL"
           echo "Running: $CMD"
 
           CHECK_OUTPUT=$($CMD 2>&1)
@@ -135,6 +129,10 @@ jobs:
             ```
 
             **Status:** ${{ env.exit_code == 0 && '✅ Passed' || '⚠️ Needs Review' }}
+
+            #### Manual IP review
+
+            This workflow reports license findings but does not create Eclipse IP Team review requests automatically. If a review is needed, follow the [DASH manual review-request instructions](https://github.com/eclipse-dash/dash-licenses#automatic-ip-team-review-requests).
 
             <details>
             <summary>Click to expand output</summary>
