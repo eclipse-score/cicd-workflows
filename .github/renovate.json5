@@ -18,6 +18,7 @@
     "eclipse-score/config_management",
     "eclipse-score/devcontainer",
     "eclipse-score/docs-as-code",
+    "eclipse-score/inc_security_crypto",
     "eclipse-score/inc_someip_gateway",
     "eclipse-score/infrastructure",
     "eclipse-score/itf",
