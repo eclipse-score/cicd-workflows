@@ -82,7 +82,7 @@ jobs:
 
       - name: Run License Check via Bazel
         run: |
-          set +e  # Allow execution to continue even if a command fails
+          set -euo pipefail
 
           REPO_URL="${{ inputs.repo-url }}"
           if [[ -z "$REPO_URL" ]]; then
@@ -100,8 +100,10 @@ jobs:
 
           echo "Running DASH license check"
 
+          set +e
           CHECK_OUTPUT=$(bazel ${{ inputs.bazel-target }} -- -project automotive.score -repo "$REPO_URL" "${TOKEN_ARGS[@]}" 2>&1)
           CHECK_EXIT_CODE=$?
+          set -e
 
           OUTPUT="[License Check Output]\n$CHECK_OUTPUT"
           if [ $CHECK_EXIT_CODE -ne 0 ]; then
