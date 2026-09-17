@@ -302,9 +302,11 @@ jobs:
 
       - name: Post deployment URL to summary
         if: steps.deploy-pages.outputs.page_url != ''
+        env:
+          DOCUMENTATION_URL: "${{ steps.deploy-pages.outputs.page_url }}${{ steps.target.outputs.folder }}/"
         run: |
           echo "### Documentation published" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.deploy-pages.outputs.page_url }}${{ steps.target.outputs.folder }}/" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.DOCUMENTATION_URL }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Find existing PR comment
         if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != ''
@@ -318,8 +320,10 @@ jobs:
       - name: Comment on PR with preview link
         if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != '' && steps.fc.outputs.comment-id == ''
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        env:
+          DOCUMENTATION_URL: "${{ steps.deploy-pages.outputs.page_url || format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}${{ steps.target.outputs.folder }}/"
         with:
           issue-number: ${{ steps.metadata.outputs.pr_number }}
           body: |
             Documentation preview for this pull request is available at:
-            **${{ steps.target.outputs.folder }}**: ${{ steps.deploy-pages.outputs.page_url }}${{ steps.target.outputs.folder }}/
+            **${{ steps.target.outputs.folder }}**: ${{ env.DOCUMENTATION_URL }}
