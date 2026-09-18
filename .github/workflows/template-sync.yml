@@ -76,7 +76,7 @@ jobs:
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
       - name: Sync Template Changes
-        uses: AndreasAugustin/actions-template-sync@v2.5.3
+        uses: AndreasAugustin/actions-template-sync@v2.6.0
         with:
           source_gh_token: ${{ secrets.SCORE_APPROVALS_PAT}}
           target_gh_token: ${{ secrets.SCORE_APPROVALS_PAT}}
