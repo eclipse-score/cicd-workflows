@@ -111,7 +111,7 @@ jobs:
 
       - name: Setup Bazel
         if: ${{ steps.check.outputs.any_changed == 'true' || env.DRY_RUN == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@cache
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@setup-bazel-cache/v0.1.0
         with:
           disk-cache-key: ${{ github.job }}
           # The post-step uploads the newly warmed cache; restoring the old
