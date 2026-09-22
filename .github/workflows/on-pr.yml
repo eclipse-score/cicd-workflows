@@ -222,9 +222,10 @@ jobs:
 
       - name: ⚙️ Setup Bazel with shared caching
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@e2a2a587a759b681632040ec1e1294015a0405f5 # setup-bazel-cache/v0.1.0
         with:
-          unique-cache-name: ${{ github.job }}
+          disk-cache-key: ${{ github.job }}
+
       - name: ⚙️ Setup uv
         if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true') }}
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1

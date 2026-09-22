@@ -17,7 +17,7 @@ action) in every Bazel job with the S-CORE cache action:
 - name: Setup Bazel with shared caching
   uses: eclipse-score/cicd-actions/setup-bazel-cache@<actions-sha>
   with:
-    unique-cache-name: ${{ github.job }}[-matrix-job-name]
+    disk-cache-key: ${{ github.job }}[-matrix-job-name]
 ```
 
 Add an optional stable suffix for matrix values or target configurations when a
@@ -185,7 +185,7 @@ trusted event such as a merge-queue run or a manually dispatched run.
 - Include the Bazel configurations needed for the desired cache coverage in
   `variants`; omitting rarely used configurations keeps the repository cache
   smaller and faster to restore.
-- Use stable, distinct `unique-cache-name` values for each cache-producing job.
+- Use stable, distinct `disk-cache-key` values for each cache-producing job.
 - Do not run an independent cache-pruning job in parallel with maintenance.
 - Keep the final prune job after all warmup jobs; it needs `actions: write`.
 - Update the pinned action and workflow SHAs together when adopting a newer
@@ -202,7 +202,7 @@ The workflow manages two cache types:
 
 All Bazel jobs restore these caches through
 `eclipse-score/cicd-actions/setup-bazel-cache`. Each job or target configuration
-needs a stable, unique cache name so disk caches do not collide.
+needs a stable, unique disk-cache key so disk caches do not collide.
 
 On a cache-writing push or manual dispatch, the reusable workflow compares
 `MODULE.bazel.lock` with the previous commit. If it changed, it constructs and
