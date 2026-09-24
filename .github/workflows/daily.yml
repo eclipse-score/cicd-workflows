@@ -100,7 +100,7 @@ jobs:
     name: Cleanup old documentation
     needs: detect-repo-capabilities
     if: needs.detect-repo-capabilities.outputs.should_run_docs_cleanup == 'true'
-    uses: ./.github/workflows/docs-cleanup.yml
+    uses: ./.github/workflows/_docs-cleanup.yml
     # Forward the private-dependency credentials so the called workflow can
     # configure inter-repo access too.
     with:
