@@ -193,7 +193,7 @@ jobs:
 
       - name: Setup latest QEMU
         if: inputs.bazel-test-target != ''
-        uses: bgsw-contrib/score_cicd-actions/setup-qemu-latest@main
+        uses: eclipse-score/score_cicd-actions/setup-qemu-latest@main
         with:
           qemu-targets: aarch64-softmmu,x86_64-softmmu
 
