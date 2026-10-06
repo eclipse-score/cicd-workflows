@@ -94,19 +94,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          HEAD_REPO_OWNER: ${{ github.event.workflow_run.head_repository.owner.login || github.event.pull_request.head.repo.owner.login || '' }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || '' }}
           EVENT_NAME: ${{ github.event.workflow_run.event || github.event_name }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || '' }}
           REF_NAME: ${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
         run: |
           if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
-            # fork-origin workflow_run payloads do not include pull_requests[];
-            if [[ -z "$PR_NUMBER" && -n "$HEAD_REPO_OWNER" && -n "$REF_NAME" ]]; then
+            # Fork-origin workflow_run payloads may omit pull_requests[]. Resolve by
+            # commit SHA because owner:branch can select the wrong fork when an owner
+            # has multiple forks. Branch names stay out of the URL, including slashes.
+            if [[ -z "$PR_NUMBER" && -n "$HEAD_SHA" && -n "$REF_NAME" ]]; then
               PR_NUMBER="$(curl -fsSL \
                 -H "Authorization: Bearer ${GH_TOKEN}" \
                 -H "Accept: application/vnd.github+json" \
-                "https://api.github.com/repos/${REPO}/pulls?state=all&head=${HEAD_REPO_OWNER}:${REF_NAME}" \
-                | jq -r '.[0].number // empty' || true)"
+                "https://api.github.com/repos/${REPO}/commits/${HEAD_SHA}/pulls?per_page=100" \
+                | jq -r --arg sha "$HEAD_SHA" --arg ref "$REF_NAME" '
+                    # A commit can belong to several PRs. Only publish an unambiguous
+                    # open PR whose branch and current head match the completed build.
+                    [.[] | select(.state == "open" and .head.sha == $sha and .head.ref == $ref) | .number]
+                    | unique
+                    | if length == 1 then .[0] else empty end
+                  ' || true)"
             fi
 
             if [[ -z "$PR_NUMBER" ]]; then
