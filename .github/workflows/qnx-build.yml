@@ -191,18 +191,11 @@ jobs:
             --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
             ${{ inputs.bazel-target }}
 
-      - name: Install qemu
+      - name: Setup latest QEMU
         if: inputs.bazel-test-target != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system
-
-      - name: Enable KVM group permissons
-        if: inputs.bazel-test-target != ''
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+        uses: eclipse-score/score_cicd-actions/setup-qemu-latest@main
+        with:
+          qemu-targets: aarch64-softmmu,x86_64-softmmu
 
       - name: Test with QNX toolchain
         if: inputs.bazel-test-target != ''
