@@ -112,6 +112,10 @@ jobs:
       github.event_name == 'pull_request_target' &&
       (github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name)
     environment: ${{ inputs.environment-name }}
+    # A new push to a PR supersedes a still pending approval of an older commit.
+    concurrency:
+      group: qnx-approval-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-${{ inputs.bazel-config }}
+      cancel-in-progress: true
     runs-on: >-
       ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) ||
       vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
