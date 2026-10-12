@@ -56,6 +56,11 @@ on:
         required: false
         default: ''
         type: string
+      test-log-artifact-name:
+        description: Name of the uploaded test-log artifact; use a unique name for each matrix job
+        required: false
+        default: qnx-testlogs
+        type: string
       extra-bazel-test-flags:
         description: Additional Bazel flags to pass to the test command (whitespace separated)
         required: false
@@ -253,6 +258,6 @@ jobs:
         if: inputs.bazel-test-target != '' && always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: qnx-testlogs
-          path: "bazel-testlogs/**"
+          name: ${{ inputs.test-log-artifact-name }}
+          path: "${{ inputs.working-directory }}/bazel-testlogs/**"
           if-no-files-found: ignore
