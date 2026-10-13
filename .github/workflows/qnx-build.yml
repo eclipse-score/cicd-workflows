@@ -56,11 +56,26 @@ on:
         required: false
         default: ''
         type: string
+      test-log-artifact-name:
+        description: Name of the uploaded test-log artifact; use a unique name for each matrix job
+        required: false
+        default: qnx-testlogs
+        type: string
       extra-bazel-test-flags:
         description: Additional Bazel flags to pass to the test command (whitespace separated)
         required: false
         default: ''
         type: string
+      fetch-attempts:
+        description: Maximum number of attempts for the `bazel fetch` step that downloads the QNX SDP
+        required: false
+        default: 3
+        type: number
+      fetch-retry-delay:
+        description: Seconds to wait between failed `bazel fetch` attempts
+        required: false
+        default: 30
+        type: number
       score-qnx-license-server:
         description: >-
           Address of the QNX license server (e.g. '6287@license-server-hostname'). Configures user.bazelrc with related action env vars.
@@ -186,11 +201,32 @@ jobs:
           qnx-credential-helper: ${{ inputs.credential-helper }}
           qnx-license-dir: /opt/score_qnx/license
 
+      - name: Fetch QNX dependencies
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -euo pipefail
+
+          # Retry only the download, so transient qnx.com timeouts do not fail the build.
+          for attempt in $(seq 1 ${{ inputs.fetch-attempts }}); do
+            # !! if changed also adapt the build command below
+            if bazel fetch --config ${{ inputs.bazel-config }} \
+              --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
+              ${{ inputs.bazel-target }}; then
+              exit 0
+            fi
+            echo "Fetch attempt ${attempt}/${{ inputs.fetch-attempts }} failed"
+            if [ "${attempt}" -lt ${{ inputs.fetch-attempts }} ]; then
+              sleep ${{ inputs.fetch-retry-delay }}
+            fi
+          done
+          exit 1
+
       - name: Build with QNX toolchain
         working-directory: ${{ inputs.working-directory }}
         run: |
           set -euo pipefail
 
+          # !! if changed also adapt the fetch command above
           bazel build --config ${{ inputs.bazel-config }} \
             --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
             ${{ inputs.bazel-target }}
@@ -222,6 +258,6 @@ jobs:
         if: inputs.bazel-test-target != '' && always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: qnx-testlogs
-          path: "bazel-testlogs/**"
+          name: ${{ inputs.test-log-artifact-name }}
+          path: "${{ inputs.working-directory }}/bazel-testlogs/**"
           if-no-files-found: ignore

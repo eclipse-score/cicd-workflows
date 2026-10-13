@@ -257,6 +257,7 @@ jobs:
       credential-helper: ".github/tools/qnx_credential_helper.py" # optional, default shown
       environment-name: "workflow-approval" # optional, default shown
       extra-bazel-flags: "--lockfile_mode=error" # optional, pass explicitly when needed
+      test-log-artifact-name: "qnx-testlogs" # optional, default shown
     secrets:
       score-qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
       score-qnx-user: ${{ secrets.SCORE_QNX_USER }}
@@ -267,6 +268,9 @@ jobs:
 - Runs on `pull_request_target` so maintainers can approve the `workflow-approval` environment before secrets are used.
 - Installs the QNX license, builds with the configured Bazel target/config, and cleans up the license directory.
 - Additional Bazel flags are caller-controlled via `extra-bazel-flags`; the workflow does not enable `--lockfile_mode=error` by default.
+- When `bazel-test-target` is supplied, test logs are uploaded from `<working-directory>/bazel-testlogs/**` using `test-log-artifact-name`, which defaults to `qnx-testlogs`.
+- Matrix callers must supply a unique `test-log-artifact-name` for each job to avoid artifact-name conflicts.
+- Include `github.run_attempt` in the artifact name when rerunning jobs must not conflict with artifacts from earlier attempts.
 
 ---
 
