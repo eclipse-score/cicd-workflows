@@ -311,6 +311,22 @@ jobs:
         with:
           artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
 
+      - name: Resolve documentation URL
+        if: steps.metadata.outputs.should_deploy == 'true'
+        id: documentation-url
+        env:
+          PAGES_BASE_URL: ${{ steps.deploy-pages.outputs.page_url || format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}
+          TARGET_FOLDER: ${{ steps.target.outputs.folder }}
+        run: echo "url=${PAGES_BASE_URL%/}/${TARGET_FOLDER}/" >> "$GITHUB_OUTPUT"
+
+      - name: Post deployment URL to summary
+        if: steps.metadata.outputs.should_deploy == 'true'
+        env:
+          DOCUMENTATION_URL: ${{ steps.documentation-url.outputs.url }}
+        run: |
+          echo "### Documentation published" >> "$GITHUB_STEP_SUMMARY"
+          echo "$DOCUMENTATION_URL" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Find existing PR comment
         if: steps.metadata.outputs.should_deploy == 'true' && steps.metadata.outputs.pr_number != ''
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
@@ -327,4 +343,4 @@ jobs:
           issue-number: ${{ steps.metadata.outputs.pr_number }}
           body: |
             Documentation preview for this pull request is available at:
-            **${{ steps.target.outputs.folder }}**: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ steps.target.outputs.folder }}/
+            **${{ steps.target.outputs.folder }}**: ${{ steps.documentation-url.outputs.url }}
