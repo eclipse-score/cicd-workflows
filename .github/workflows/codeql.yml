@@ -60,14 +60,14 @@ jobs:
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
 
       # Initializes the CodeQL tools for scanning.
 
       - name: Configure access to private dependencies
-        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
+        uses: eclipse-score/cicd-actions/inter-repo-access@63c3e9c93df76d76a1baca18e407745ddaeb2fca # main branch (2026-10-12)
         # An `if` condition cannot access secrets, so expose only their presence.
         env:
           HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
@@ -78,7 +78,7 @@ jobs:
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4.37.9
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -89,13 +89,13 @@ jobs:
         run: ${{ inputs.build-script }}
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4.37.9
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           category: "/language:${{matrix.language}}"
           output: sarif-results.sarif
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sarif-results.sarif
           path: sarif-results.sarif
