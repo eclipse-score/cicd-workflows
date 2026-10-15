@@ -25,6 +25,7 @@
     "eclipse-score/lifecycle",
     "eclipse-score/logging",
     "eclipse-score/module_template",
+    "eclipse-score/openssl",
     "eclipse-score/os_images",
     "eclipse-score/process_description",
     "eclipse-score/qnx_unit_tests",
