@@ -81,12 +81,37 @@ Capability detection looks for:
 - **Python/uv** — both `pyproject.toml` and `uv.lock`
 - **pre-commit** — `.pre-commit-config.yaml`
 
-The presence of the Bazel `//:format.check` and `//:copyright.check` targets is
+The presence of the configured Bazel targets (by default `//:format.check` and
+`//:copyright.check`) is
 detected by querying Bazel directly, so those checks only run when the target
 actually exists.
 
 > A Bazel module-name check exists but is currently disabled until its detection
 > script is fixed.
+
+## Custom Bazel targets
+
+Callers can override the check targets with optional string inputs:
+
+| Input              | Default               | Command                  |
+| ------------------ | --------------------- | ------------------------ |
+| `format-target`    | `//:format.check`      | `bazel test <target>`    |
+| `copyright-target` | `//:copyright.check`   | `bazel run <target>`     |
+
+```yaml
+jobs:
+  common:
+    uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@main
+    with:
+      format-target: "//tools/format:check"
+      copyright-target: "//tools/license:check"
+    permissions:
+      contents: read
+```
+
+Each input accepts one Bazel target label, not a command or a list of targets.
+Both detection and execution use the configured label. A check is skipped if
+its target cannot be queried. Omitting these inputs preserves the default targets.
 
 ## Skipping checks
 
@@ -98,11 +123,11 @@ to `true`:
 | ------------------- | ---------------------------------------- |
 | `skip-pre-commit`   | pre-commit                               |
 | `skip-python-tests` | Python / pytest                          |
-| `skip-format`       | `bazel //:format.check`                  |
-| `skip-copyright`    | `bazel //:copyright.check`               |
+| `skip-format`       | configured Bazel formatting check       |
+| `skip-copyright`    | configured Bazel copyright check        |
 | `skip-bzlmod-lock`  | both the bzlmod tidy and lockfile checks |
 
-All inputs default to `false`, so existing callers are unaffected. Example:
+All skip inputs default to `false`, so existing callers are unaffected. Example:
 
 ```yaml
 jobs:

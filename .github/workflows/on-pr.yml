@@ -52,12 +52,12 @@ on:
         default: false
         type: boolean
       skip-format:
-        description: "Skip bazel //:format.check even if the target exists"
+        description: "Skip the Bazel formatting check even if the configured target exists"
         required: false
         default: false
         type: boolean
       skip-copyright:
-        description: "Skip bazel //:copyright.check even if the target exists"
+        description: "Skip the Bazel copyright check even if the configured target exists"
         required: false
         default: false
         type: boolean
@@ -78,6 +78,16 @@ on:
           '"self-hosted"') or a JSON array of labels (e.g. '["self-hosted", "linux", "x64"]').
         required: false
         default: ""
+        type: string
+      format-target:
+        description: "Bazel target to test for formatting"
+        required: false
+        default: "//:format.check"
+        type: string
+      copyright-target:
+        description: "Bazel target to run for copyright checks"
+        required: false
+        default: "//:copyright.check"
         type: string
     secrets:
       github-app-private-key:
@@ -303,6 +313,9 @@ jobs:
       - name: 🕵️ Detect Bazel targets
         id: bazel
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
+        env:
+          FORMAT_TARGET: ${{ inputs.format-target }}
+          COPYRIGHT_TARGET: ${{ inputs.copyright-target }}
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/pr-check-lib.sh"
@@ -314,50 +327,48 @@ jobs:
             bazel query "$1" >/dev/null 2>&1
           }
 
-          emit_output has_copyright_check has_bazel_target "//:copyright.check"
-          emit_output has_format_check has_bazel_target "//:format.check"
+          emit_output has_copyright_check has_bazel_target "$COPYRIGHT_TARGET"
+          emit_output has_format_check has_bazel_target "$FORMAT_TARGET"
 
-      - name: 🖌️ Run bazel //:format.check
+      - name: 🖌️ Run bazel formatting check
         if: ${{ !cancelled() && steps.bazel.outputs.has_format_check == 'true' && !inputs.skip-format }}
+        env:
+          FORMAT_TARGET: ${{ inputs.format-target }}
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
 
-          if ! run_grouped "bazel test //:format.check" bazel test //:format.check; then
-            report_failure "Formatting check failed" <<'MD'
-              `//:format.check` found files that are not formatted according to the project formatting rules.
+          if ! run_grouped "bazel test $FORMAT_TARGET" bazel test "$FORMAT_TARGET"; then
+            report_failure "Formatting check failed" <<MD
+              \`$FORMAT_TARGET\` found files that are not formatted according to the project formatting rules.
 
               **Reproduce locally**
-              ```bash
-              bazel test //:format.check
-              ```
+              \`\`\`bash
+              bazel test $FORMAT_TARGET
+              \`\`\`
 
               **Fix**
-              Auto-format the sources, then commit:
-              ```bash
-              bazel run //:format
-              ```
+              Run the repository's formatter, then commit the updated sources.
           MD
           fi
 
-      - name: © Run bazel //:copyright.check
+      - name: © Run bazel copyright check
         if: ${{ !cancelled() && steps.bazel.outputs.has_copyright_check == 'true' && !inputs.skip-copyright }}
+        env:
+          COPYRIGHT_TARGET: ${{ inputs.copyright-target }}
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
 
-          if ! run_grouped "bazel run //:copyright.check" bazel run //:copyright.check; then
-            report_failure "Copyright check failed" <<'MD'
+          if ! run_grouped "bazel run $COPYRIGHT_TARGET" bazel run "$COPYRIGHT_TARGET"; then
+            report_failure "Copyright check failed" <<MD
               One or more source files are missing the required copyright/license header.
 
               **Reproduce locally**
-              ```bash
-              bazel run //:copyright.check
-              ```
+              \`\`\`bash
+              bazel run $COPYRIGHT_TARGET
+              \`\`\`
 
               **Fix**
-              Add the missing headers automatically, then commit:
-              ```bash
-              bazel run //:copyright.fix
-              ```
+              Add the missing headers using the repository's copyright tooling, then commit the updated sources.
           MD
           fi
 
