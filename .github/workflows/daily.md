@@ -29,8 +29,19 @@ jobs:
     uses: eclipse-score/cicd-workflows/.github/workflows/daily.yml@main
 ```
 
-The reusable workflow does not expose any parameters. It applies a fixed
-maintenance policy:
+The reusable workflow takes one optional input, `skip-stale-prs` (boolean,
+default `false`). Set it to `true` to disable stale pull request handling while
+keeping documentation cleanup and cache pruning:
+
+```yaml
+jobs:
+  daily:
+    uses: eclipse-score/cicd-workflows/.github/workflows/daily.yml@main
+    with:
+      skip-stale-prs: true
+```
+
+By default it applies a fixed maintenance policy:
 
 - Marks pull requests as stale after `30` days of inactivity using the `stale` label
 - Closes stale pull requests after `10` more days, adding the `autoclosed` label when closing
