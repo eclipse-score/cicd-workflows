@@ -33,6 +33,11 @@ on:
         required: false
         default: ""
         type: string
+      skip-stale-prs:
+        description: Set to true to skip marking and closing stale pull requests
+        required: false
+        default: false
+        type: boolean
     secrets:
       github-app-private-key:
         description: GitHub App private key used with `github-app-client-id` to access private dependencies
@@ -44,6 +49,7 @@ on:
 jobs:
   stale-prs:
     name: Mark and close stale pull requests
+    if: ${{ !inputs.skip-stale-prs }}
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
     permissions:
       contents: read
