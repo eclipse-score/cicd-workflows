@@ -62,7 +62,12 @@ on:
         default: false
         type: boolean
       skip-bzlmod-lock:
-        description: "Skip the Bazel bzlmod tidy/lockfile checks even if MODULE.bazel.lock exists"
+        description: "Skip the Bazel bzlmod tidy/lockfile checks even if MODULE.bazel.lock exists. Cannot be combined with require-bzlmod-lock"
+        required: false
+        default: false
+        type: boolean
+      require-bzlmod-lock:
+        description: "Fail if MODULE.bazel exists but MODULE.bazel.lock is missing, instead of silently skipping the lockfile checks. Cannot be combined with skip-bzlmod-lock"
         required: false
         default: false
         type: boolean
@@ -113,6 +118,12 @@ jobs:
           echo "That event has write access to repo secrets while checking out fork code,"
           echo "making it unsafe to run repository code on untrusted input."
           echo "Use pull_request or merge_group instead."
+          exit 1
+
+      - name: 🚫 Reject conflicting lockfile inputs
+        if: ${{ inputs.require-bzlmod-lock && inputs.skip-bzlmod-lock }}
+        run: |
+          echo "::error::'require-bzlmod-lock' and 'skip-bzlmod-lock' are mutually exclusive. Set only one of them."
           exit 1
 
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
@@ -204,6 +215,8 @@ jobs:
             "MODULE.bazel" \
             "WORKSPACE" \
             "WORKSPACE.bazel"
+          emit_output has_bzlmod any_file_exists \
+            "MODULE.bazel"
           emit_output has_bazel_lock any_file_exists \
             "MODULE.bazel.lock"
           emit_output has_devcontainer any_file_exists \
@@ -371,6 +384,19 @@ jobs:
               Add the missing headers using the repository's copyright tooling, then commit the updated sources.
           MD
           fi
+
+      - name: 🔒 Require Bazel lockfile
+        if: ${{ !cancelled() && inputs.require-bzlmod-lock && steps.detect.outputs.has_bzlmod == 'true' && steps.detect.outputs.has_bazel_lock != 'true' }}
+        run: |
+          source "$RUNNER_TEMP/pr-check-lib.sh"
+
+          report_failure "Bazel lockfile is missing" <<'MD'
+            `MODULE.bazel.lock` is required (`require-bzlmod-lock: true`) but does not exist.
+
+            **Fix**
+            Run `bazel mod tidy` and commit the generated `MODULE.bazel.lock`.
+            Make sure it is not listed in `.gitignore`.
+          MD
 
       - name: 🔒 Check Bazel module is tidy
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}

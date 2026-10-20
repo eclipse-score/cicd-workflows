@@ -73,6 +73,7 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 | Bazel copyright | `//:copyright.check` target exists       | `bazel run //:copyright.check`            |
 | Bzlmod tidy     | `MODULE.bazel.lock` exists               | `bazel mod tidy` + `git diff --exit-code` |
 | Bzlmod lockfile | `MODULE.bazel.lock` exists               | `bazel mod deps --lockfile_mode=error`    |
+| Lockfile required | `require-bzlmod-lock: true`, `MODULE.bazel` exists, lockfile missing | fails with guidance |
 
 Capability detection looks for:
 
@@ -127,7 +128,9 @@ to `true`:
 | `skip-copyright`    | configured Bazel copyright check        |
 | `skip-bzlmod-lock`  | both the bzlmod tidy and lockfile checks |
 
-All skip inputs default to `false`, so existing callers are unaffected. Example:
+All skip inputs default to `false`, so existing callers are unaffected.
+`skip-bzlmod-lock` cannot be combined with
+[`require-bzlmod-lock`](#requiring-the-bazel-lockfile). Example:
 
 ```yaml
 jobs:
@@ -135,6 +138,35 @@ jobs:
     uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@main
     with:
       skip-pre-commit: true
+    permissions:
+      contents: read
+```
+
+## Requiring the Bazel lockfile
+
+By default, the bzlmod tidy and lockfile checks only run when `MODULE.bazel.lock`
+exists. If a repository uses bzlmod but the lockfile is missing (never committed,
+deleted, or git-ignored), those checks are **silently skipped**.
+
+Set `require-bzlmod-lock: true` to turn that into a failure:
+
+| Input                | Default | Meaning                                                                                  |
+| -------------------- | ------- | ---------------------------------------------------------------------------------------- |
+| `require-bzlmod-lock` | `false` | Fail the PR check if `MODULE.bazel` exists but `MODULE.bazel.lock` does not             |
+
+- Applies only to bzlmod repositories (`MODULE.bazel` present). `WORKSPACE`-only
+  repositories are unaffected, since they have no lockfile.
+- It only enforces that the lockfile **exists**. Whether it is tidy and up to date
+  is still verified by the regular bzlmod tidy and lockfile checks.
+- It is mutually exclusive with `skip-bzlmod-lock`. Setting both is a
+  configuration error: the job fails immediately and no other checks run.
+
+```yaml
+jobs:
+  common:
+    uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@main
+    with:
+      require-bzlmod-lock: true
     permissions:
       contents: read
 ```
