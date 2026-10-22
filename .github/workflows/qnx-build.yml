@@ -67,12 +67,12 @@ on:
         default: ''
         type: string
       fetch-attempts:
-        description: Maximum number of attempts for the `bazel fetch` step that downloads the QNX SDP
+        description: Maximum number of attempts for the fetch step (`bazel build --nobuild`) that downloads the QNX SDP
         required: false
         default: 3
         type: number
       fetch-retry-delay:
-        description: Seconds to wait between failed `bazel fetch` attempts
+        description: Seconds to wait between failed fetch attempts
         required: false
         default: 30
         type: number
@@ -207,9 +207,11 @@ jobs:
           set -euo pipefail
 
           # Retry only the download, so transient qnx.com timeouts do not fail the build.
+          # `bazel fetch` only covers the loading phase; the QNX SDP is a toolchain repo that is
+          # fetched during analysis, hence `bazel build --nobuild`.
           for attempt in $(seq 1 ${{ inputs.fetch-attempts }}); do
             # !! if changed also adapt the build command below
-            if bazel fetch --config ${{ inputs.bazel-config }} \
+            if bazel build --nobuild --config ${{ inputs.bazel-config }} \
               --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
               ${{ inputs.bazel-target }}; then
               exit 0
