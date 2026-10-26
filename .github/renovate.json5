@@ -87,12 +87,5 @@
       matchPackageNames: ["/^score_/"],
       enabled: true,
     },
-    {
-      // score_tooling >1.1.0 up to and including 1.2.0 is broken with no fix
-      // available. Block updates beyond 1.1.0 until a fixed version is released.
-      matchManagers: ["bazel-module"],
-      matchPackageNames: ["score_tooling"],
-      allowedVersions: "<=1.1.0",
-    }
   ],
 }
