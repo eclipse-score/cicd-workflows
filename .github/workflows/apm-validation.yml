@@ -1,0 +1,107 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+# Centralized validation for AI agent skills, prompts, and instructions managed
+# via the Agent Package Manager (APM).
+#
+# Consumer repositories call this workflow from their own CI (e.g. on pull
+# request) to verify that:
+#   - the APM content (marketplace packages plus local custom skills) is intact,
+#     untampered, and structurally sound (`apm audit --ci`), and
+#   - the committed `apm.lock.yaml` exactly matches the codebase
+#     (`apm install --frozen`).
+#
+# The workflow is feature-detected: if the consumer repository has no
+# `apm.yml`/`apm.yaml` at its root, all APM steps are skipped, so legacy
+# repositories that have not migrated to APM keep passing unchanged.
+#
+# No authentication is required: the APM marketplace is public, and
+# `setup-only: true` leaves the committed `.github/skills` and instructions
+# pristine during verification.
+
+# Attention: this workflow must be called with following permissions:
+#    permissions:
+#      contents: read
+
+name: APM Validation
+
+on:
+  workflow_call:
+    inputs:
+      runner-labels:
+        description: >-
+          Runner label(s) for this workflow's jobs, overriding the repository/organization runner
+          variables. Must be a JSON-encoded string: a single label as a JSON string (e.g.
+          '"self-hosted"') or a JSON array of labels (e.g. '["self-hosted", "linux", "x64"]').
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  apm-validation:
+    name: APM Validation
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+
+    permissions:
+      contents: read
+
+    outputs:
+      has-apm: ${{ steps.detect.outputs.has_apm }}
+
+    steps:
+      - name: Refuse to run on pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "This workflow must not be called from pull_request_target."
+          echo "That event has write access to repo secrets while checking out fork code,"
+          echo "making it unsafe to run repository code on untrusted input."
+          echo "Use pull_request or merge_group instead."
+          exit 1
+
+      - name: Check out consumer repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+
+      - name: Detect APM configuration
+        id: detect
+        run: |
+          set -euo pipefail
+
+          if [[ -f apm.yml || -f apm.yaml ]]; then
+            echo "APM configuration detected; APM validation will run."
+            echo "has_apm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No apm.yml/apm.yaml found; skipping APM validation (legacy repository)."
+            echo "has_apm=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup APM
+        if: ${{ !cancelled() && steps.detect.outputs.has_apm == 'true' }}
+        uses: microsoft/apm-action@v1
+        with:
+          # No token: the marketplace is public. setup-only leaves the committed
+          # .github/skills and instructions untouched during verification.
+          setup-only: true
+
+      - name: Audit APM content
+        if: ${{ !cancelled() && steps.detect.outputs.has_apm == 'true' }}
+        run: |
+          set -euo pipefail
+          apm audit --ci
+
+      - name: Verify frozen lockfile
+        if: ${{ !cancelled() && steps.detect.outputs.has_apm == 'true' }}
+        run: |
+          set -euo pipefail
+          apm install --frozen
