@@ -107,7 +107,59 @@ the same version twice is intended.
 | `retention-days` | `1` | Number of days to retain the documentation artifact. |
 | `bazel-target` | `//:docs` | Bazel target invoked with `bazel run`. |
 | `tests-report-artifact` | empty | Optional artifact downloaded to `tests-report` before the docs build. |
+| `coverage-report-artifact` | empty | Optional artifact containing plain LCOV as `coverage.lcov` or `coverage_report.dat` at its root, downloaded to `coverage-report` before the docs build. |
 | `deployment_type` | `workflow` | Deprecated compatibility input; publishing is always handled by `docs-publish.yml`. |
+
+## Coverage in documentation
+
+To display line and branch coverage in module verification reports, pass a
+coverage artifact to `coverage-report-artifact` and use a docs-as-code version
+that supports coverage reports. Associate each component's source files with
+its documentation bundle using `primary_need_id` and `code_targets`.
+
+The C++ coverage workflow includes `coverage.lcov` at the root of its
+`<repository-name>_cpp_coverage<artifact-name-suffix>` artifact, alongside the
+HTML report. Connect both jobs in the same calling workflow:
+
+```yaml
+jobs:
+  coverage:
+    uses: eclipse-score/cicd-workflows/.github/workflows/cpp-coverage.yml@main
+    permissions:
+      contents: read
+    with:
+      bazel-target: "//..."
+      extra-bazel-flags: "--combined_report=lcov"
+
+  docs:
+    needs: coverage
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
+    permissions:
+      contents: read
+    with:
+      coverage-report-artifact: ${{ format('{0}_cpp_coverage', github.event.repository.name) }}
+```
+
+Keep any repository-specific coverage configuration and instrumentation flags.
+If the coverage job sets `artifact-name-suffix`, append that same suffix to
+`coverage-report-artifact`. Both jobs must run in the same workflow run;
+`needs: coverage` ensures the artifact is available before the docs build starts.
+By default, a failed coverage job also prevents the dependent docs job from running.
+
+For Rust or another coverage producer, provide an artifact with a plain UTF-8
+LCOV file named `coverage.lcov` or `coverage_report.dat` at its root, and pass
+that artifact's name to `coverage-report-artifact`. When using the Rust workflow,
+configure `coverage-target` to generate this file directly in the uploaded
+directory selected by `coverage-artifact-path`. HTML alone or an archive inside
+the artifact cannot supply the measurements.
+
+LCOV source paths must match the documentation bundles' selected code files.
+Use repository-relative paths (or supported Bazel external-repository paths)
+from the same workspace context; absolute runner paths are unsupported.
+
+When `coverage-report-artifact` is empty, no report is downloaded and documentation
+can build without measurements. When it is set, a missing artifact or the absence
+of both `coverage.lcov` and `coverage_report.dat` fails the docs job.
 
 ## Publishing behavior
 
