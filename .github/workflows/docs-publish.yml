@@ -87,7 +87,7 @@ jobs:
       id-token: write # to verify the deployment originates from an appropriate source
       contents: write # to update versions.json and commit to gh-pages
       pull-requests: write # to comment on PRs with preview link
-    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
       - name: Resolve build metadata
         id: metadata

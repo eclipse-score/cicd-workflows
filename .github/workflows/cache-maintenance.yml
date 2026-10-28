@@ -177,7 +177,7 @@ jobs:
   prune_old_caches:
     # This must be a separate job: setup-bazel-cache uploads in a post-step;
     # pruning earlier could leave consumers without a repository cache.
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || 'ubuntu-latest' }}
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || 'ubuntu-24.04' }}
     permissions:
       actions: write # Required to delete GitHub Actions caches.
       contents: read

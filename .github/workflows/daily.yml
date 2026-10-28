@@ -56,7 +56,7 @@ jobs:
   stale-prs:
     name: Mark and close stale pull requests
     if: ${{ !inputs.skip-stale-prs }}
-    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
       issues: write
@@ -84,7 +84,7 @@ jobs:
             are ready, and we will pick it up from there.
   detect-repo-capabilities:
     name: Detect repository capabilities
-    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
       pages: read
@@ -131,7 +131,7 @@ jobs:
     needs: detect-repo-capabilities
     # Only repositories that publish documentation (GitHub Pages enabled) are checked.
     if: ${{ !inputs.skip-docs-link-check && needs.detect-repo-capabilities.outputs.should_run_docs_cleanup == 'true' }}
-    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
       issues: write # Required to create or update the "Broken Documentation Links" issue.
@@ -164,7 +164,7 @@ jobs:
     permissions:
       actions: write # Required to delete GitHub Actions caches.
       contents: read
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || 'ubuntu-latest' }}
+    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || 'ubuntu-24.04' }}
     steps:
       - name: Prune obsolete cache generations
         uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7 # prune-cache/v0.0.0
