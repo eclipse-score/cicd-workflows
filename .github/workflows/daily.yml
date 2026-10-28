@@ -14,7 +14,8 @@
 name: Daily Maintenance Tasks
 
 # This workflow is designed to run daily and perform maintenance tasks such as
-# marking and closing stale pull requests and cleaning up old documentation.
+# marking and closing stale pull requests, cleaning up old documentation and
+# checking the documentation for dead links.
 # An example how to use the workflow can be found in ./_local_daily.yml
 
 on:
@@ -35,6 +36,11 @@ on:
         type: string
       skip-stale-prs:
         description: Set to true to skip marking and closing stale pull requests
+        required: false
+        default: false
+        type: boolean
+      skip-docs-link-check:
+        description: Set to true to skip the documentation dead link check
         required: false
         default: false
         type: boolean
@@ -119,6 +125,39 @@ jobs:
       pull-requests: read
       pages: write
       id-token: write
+
+  docs-link-check:
+    name: Check documentation for dead links
+    needs: detect-repo-capabilities
+    # Only repositories that publish documentation (GitHub Pages enabled) are checked.
+    if: ${{ !inputs.skip-docs-link-check && needs.detect-repo-capabilities.outputs.should_run_docs_cleanup == 'true' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      issues: write # Required to create or update the "Broken Documentation Links" issue.
+    steps:
+      - uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
+        # Hint: if condition cannot access secrets, so we pass them via env
+        env:
+          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
+          HAS_TOKEN: ${{ secrets.token != '' }}
+        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.github-app-client-id != '' }}
+        with:
+          token: ${{ secrets.token }}
+          github-app-client-id: ${{ inputs.github-app-client-id }}
+          github-app-private-key: ${{ secrets.github-app-private-key }}
+
+      - name: Setup Bazel
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@e2a2a587a759b681632040ec1e1294015a0405f5 # setup-bazel-cache/v0.1.0
+        with:
+          disk-cache-key: ${{ github.job }}
+
+      # Checks out the repository, runs `bazel run //:docs_link_check` and
+      # creates or updates an issue listing the broken links it found.
+      - name: Run docs-as-code link check
+        uses: eclipse-score/docs-as-code/.github/actions/link-check@6a19771a59036997daa28e2520a33a3fa2f78ebe # v8.5.1
+        with:
+          github-token: ${{ github.token }}
 
   cache-cleanup:
     name: Cleanup old caches

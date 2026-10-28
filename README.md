@@ -11,7 +11,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 | **[PR Checks](.github/workflows/on-pr.md)**    | Main PR entry point: auto-detects capabilities and runs pre-commit, tests, format, copyright and lockfile checks in one job |
 | **[Bazel Cache Maintenance](.github/workflows/cache-maintenance.md)** | Maintains lockfile-keyed repository and job-specific Bazel caches                                                           |
 | **[Documentation](.github/workflows/docs.md)** | Builds and securely publishes documentation to GitHub Pages                                                                 |
-| **[Daily Maintenance](.github/workflows/daily.md)** | Handles stale pull requests, cleans old documentation, and prunes obsolete caches                                  |
+| **[Daily Maintenance](.github/workflows/daily.md)** | Handles stale pull requests, cleans old docs, checks docs for dead links, and prunes caches                        |
 | **License Check**                              | Verifies OSS licenses and compliance                                                                                        |
 | **Static Code Analysis**                       | Runs Clang-Tidy, Clippy, Pylint, and other linters                                                                          |
 | **Tests**                                      | Executes tests using GoogleTest, Rust test, or pytest                                                                       |
