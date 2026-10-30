@@ -28,7 +28,18 @@ permissions:
 jobs:
   daily:
     uses: eclipse-score/cicd-workflows/.github/workflows/daily.yml@main
+    # Use this same caller-level group for documentation publication below.
+    concurrency:
+      group: docs-publish
+      cancel-in-progress: false
+      queue: max
 ```
+
+Apply the same job-level `concurrency` configuration to the publication caller
+in [the documentation workflow setup](docs.md). Both jobs write `gh-pages`;
+serializing them prevents conflicting pushes. Keep the caller group distinct
+from the publisher's internal `cicd-pages-deploy` group to avoid a caller
+holding the lock its called workflow needs.
 
 The reusable workflow takes two optional boolean inputs, both default `false`:
 
