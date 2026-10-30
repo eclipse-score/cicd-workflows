@@ -28,7 +28,46 @@ permissions:
 jobs:
   daily:
     uses: eclipse-score/cicd-workflows/.github/workflows/daily.yml@main
+    # Use this same caller-level group for documentation publication below.
+    concurrency:
+      group: docs-publish
+      cancel-in-progress: false
+      queue: max
 ```
+
+## Coordinate with documentation publication
+
+Daily cleanup and documentation publication both update `gh-pages`. If they
+overlap, cleanup can change the branch after the publisher checks it out,
+causing the publisher's push to fail with a non-fast-forward rejection.
+
+Use the same job-level concurrency group in both calling workflows. The daily
+caller above uses `docs-publish`; add the matching configuration to the job that
+calls `docs-publish.yml` in your documentation workflow:
+
+```yaml
+jobs:
+  publish:
+    needs: build-docs # Use your documentation build job's ID.
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-publish.yml@main
+    concurrency:
+      group: docs-publish
+      cancel-in-progress: false
+      queue: max
+    # Keep the permissions and inputs required by your publication setup.
+```
+
+Concurrency groups are shared across workflows in a repository. Keep the group
+identical for all callers that write `gh-pages`; do not include the workflow
+name or triggering branch. Disabling cancellation lets an active writer finish,
+and `queue: max` queues waiting jobs rather than replacing a pending run.
+
+The publisher also has an internal `cicd-pages-deploy` concurrency group. That
+group only serializes publishers; daily cleanup does not acquire it. Use a
+different group name for the caller-level lock, as shown above, so a caller
+does not hold the same lock its called workflow needs to acquire.
+
+## Optional maintenance settings
 
 The reusable workflow takes two optional boolean inputs, both default `false`:
 
@@ -44,6 +83,10 @@ jobs:
     uses: eclipse-score/cicd-workflows/.github/workflows/daily.yml@main
     with:
       skip-stale-prs: true
+    concurrency:
+      group: docs-publish
+      cancel-in-progress: false
+      queue: max
 ```
 
 By default it applies a fixed maintenance policy:
