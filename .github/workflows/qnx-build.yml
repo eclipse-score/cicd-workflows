@@ -108,6 +108,12 @@ on:
       token:
         description: Token for private dependencies; an alternative to GitHub App credentials
         required: false
+      qnx-sdp-github-token:
+        description: >-
+          GitHub token used by the QNX build toolchain to download the QNX SDP release asset
+          from https://github.com/eclipse-score/qnx_sdp_pkg. Requires read access to that repository;
+          optional for SDP downloads from qnx.com.
+        required: false
       score-qnx-license:
         description: Base64-encoded QNX license content
         required: true
@@ -156,6 +162,9 @@ jobs:
       contents: read
       pull-requests: read
 
+    env:
+      GH_TOKEN: ${{ secrets.qnx-sdp-github-token }}
+
     steps:
       - name: Free up disk space
         uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
@@ -184,10 +193,17 @@ jobs:
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
 
+      # The QNX SDP is proprietary and must not end up in the Actions cache.
+      # Its tarball lives in the repository cache and its extraction in the external cache, so both stay off.
+      # The disk cache only holds build outputs and test results, so it is kept.
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@e2a2a587a759b681632040ec1e1294015a0405f5 # setup-bazel-cache/v0.1.0
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@b04e3349097576dd2f06850c62fb9423515d2963 # 2026-11-02
         with:
           disk-cache-key: ${{ github.job }}${{ inputs.bazel-disk-cache }}
+          repository-cache-restore: false
+          repository-cache-save: false
+          external-cache-restore: false
+          external-cache-save: false
 
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90 # 2025-06-04
 
