@@ -40,10 +40,10 @@ jobs:
         id: update
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv run --no-project --with PyYAML==6.0.3 python tests/ci/update_consumers.py
+        run: uv run --locked python tests/ci/update_consumers.py
 
       - name: Validate the candidate catalog and updater
-        run: uv run --no-project --with PyYAML==6.0.3 python -m unittest discover -s tests/ci -v
+        run: uv run --locked python -m pytest -v
 
       # Pass the edited file to publishing separately from matrix job outputs:
       # a reusable-workflow matrix retains only one invocation's output values.

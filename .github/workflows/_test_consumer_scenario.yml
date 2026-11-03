@@ -72,4 +72,4 @@ jobs:
           ACTUAL: ${{ needs.checks.outputs.check-results }}
           REQUIRED_CHECKS: ${{ inputs.required-checks }}
           SOURCE_SHA: ${{ inputs.ref }}
-        run: uv run --no-project --with PyYAML==6.0.3 python tests/ci/consumers.py verify
+        run: uv run --locked python tests/ci/consumers.py verify

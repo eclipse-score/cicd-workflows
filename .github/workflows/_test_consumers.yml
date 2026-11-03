@@ -28,11 +28,14 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       - name: Test catalog validation and outcome assertions
-        run: uv run --no-project --with PyYAML==6.0.3 python -m unittest discover -s tests/ci -v
+        run: uv run --locked python -m pytest -v
+
+      - name: Lint Python helpers
+        run: uv run --locked ruff check tests/ci
 
       - name: Generate consumer matrix
         id: catalog
-        run: uv run --no-project --with PyYAML==6.0.3 python tests/ci/consumers.py
+        run: uv run --locked python tests/ci/consumers.py
 
   # Each row calls the same wrapper, which keeps the workflow result and the
   # corresponding assertions together. This is one shared workflow file for the

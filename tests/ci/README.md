@@ -74,11 +74,24 @@ The fallback PR triggers the normal PR suite and is not merged automatically.
 
 ## Local verification
 
-Run the helper tests from the repository root:
+The repository's [Python project](../../pyproject.toml) declares PyYAML and the
+pytest/Ruff development tools. `uv.lock` pins their resolved versions, and
+`.python-version` selects Python 3.12 for local runs and GitHub Actions. This is
+repository tooling: no Python package is built or published.
+
+Run the helper tests and lint checks from the repository root:
 
 ```sh
-uv run --no-project --with PyYAML==6.0.3 python -m unittest discover -s tests/ci -v
+uv sync --locked
+uv run --locked python -m pytest -v
+uv run --locked ruff check tests/ci
 ```
+
+All workflow helper calls use the same locked project environment. `--locked`
+rejects dependency changes without a matching lockfile update. After deliberately
+changing dependencies, run `uv lock` and commit `pyproject.toml` and `uv.lock`
+together. The shared `on-pr` workflow also discovers and runs these tests through
+the root `pyproject.toml` and `uv.lock`.
 
 These tests cover catalog validation, outcome assertions, pin edits and the
 publishing handoff. They do not execute the consumers' checks. The
