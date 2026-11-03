@@ -1,0 +1,52 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Suite entry point: validate the shared catalog once, then run an independent
+# compatibility scenario for each entry. Adding a consumer changes only the
+# catalog; workflow jobs and assertions remain shared across all consumers.
+#
+# Called by this repository's PR workflow so a candidate must keep working with
+# pinned real repositories before its changes can be accepted.
+name: Consumer compatibility
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # Fail invalid catalogs and broken assertion helpers before starting consumer
+  # jobs. Those jobs may download toolchains and run repository-specific checks.
+  prepare:
+    name: Validate consumer catalog
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.catalog.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Test catalog validation and outcome assertions
+        run: uv run --no-project --with PyYAML==6.0.3 python -m unittest discover -s tests/ci -v
+
+      - name: Generate consumer matrix
+        id: catalog
+        run: uv run --no-project --with PyYAML==6.0.3 python tests/ci/consumers.py
+
+  # Each row calls the same wrapper, which keeps the workflow result and the
+  # corresponding assertions together. This is one shared workflow file for the
+  # entire catalog, not a generated or hand-maintained workflow per consumer.
+  consumers:
+    name: ${{ matrix.name }}
+    needs: prepare
+    strategy:
+      # Collect every consumer result even if a different consumer fails.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    uses: ./.github/workflows/_test_on_pr_consumer.yml
+    with:
+      repository: ${{ matrix.repository }}
+      ref: ${{ matrix.ref }}
+      required-checks: ${{ matrix.required-checks }}
+      overrides: ${{ matrix.overrides }}

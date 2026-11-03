@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# One invocation represents one catalog entry: run the candidate workflow,
+# then verify that it checked the pinned source and performed the expected work.
+# Keeping both jobs in this wrapper makes each matrix row independently fail
+# when its observations differ from its expectations.
+name: Consumer compatibility scenario
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: Public consumer repository from the shared catalog
+        type: string
+        required: true
+      ref:
+        description: Full consumer commit SHA, pinned for reproducible PR runs
+        type: string
+        required: true
+      required-checks:
+        description: JSON list of checks that must run successfully
+        type: string
+        required: true
+      # The catalog keeps reasons beside each override. Preparation validates
+      # them and sends only their execution values through this JSON input.
+      overrides:
+        description: JSON object of validated consumer-specific check inputs
+        type: string
+        default: "{}"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  # A relative call executes the workflow from this PR/merge commit. Only its
+  # source checkout changes; check settings use defaults unless the catalog
+  # explicitly documents overrides below.
+  checks:
+    uses: ./.github/workflows/on-pr.yml
+    with:
+      source-repository: ${{ inputs.repository }}
+      source-ref: ${{ inputs.ref }}
+      # Missing values preserve the public workflow defaults. Only check targets
+      # and skip switches are accepted by the catalog's override validator.
+      format-target: ${{ fromJSON(inputs.overrides).format-target || '//:format.check' }}
+      copyright-target: ${{ fromJSON(inputs.overrides).copyright-target || '//:copyright.check' }}
+      skip-pre-commit: ${{ fromJSON(inputs.overrides).skip-pre-commit || false }}
+      skip-python-tests: ${{ fromJSON(inputs.overrides).skip-python-tests || false }}
+      skip-format: ${{ fromJSON(inputs.overrides).skip-format || false }}
+      skip-copyright: ${{ fromJSON(inputs.overrides).skip-copyright || false }}
+      skip-bzlmod-lock: ${{ fromJSON(inputs.overrides).skip-bzlmod-lock || false }}
+
+  # A separate wrapper per scenario preserves that call's outputs. Reading
+  # outputs from a reusable-workflow matrix directly would retain just one
+  # completed invocation and could hide missing checks in the other consumers.
+  verify:
+    # Retain the default success condition: a failed consumer workflow already
+    # fails this scenario. Assertions add coverage for successful calls that
+    # skipped expected work; they do not turn failed checks into expected passes.
+    needs: checks
+    runs-on: ubuntu-24.04
+    steps:
+      # The assertion helper belongs to this candidate, so checkout stays on the
+      # caller PR/merge revision rather than the consumer revision checked above.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Require the pinned checkout and expected checks
+        env:
+          ACTUAL: ${{ needs.checks.outputs.check-results }}
+          REQUIRED_CHECKS: ${{ inputs.required-checks }}
+          SOURCE_SHA: ${{ inputs.ref }}
+        run: uv run --no-project --with PyYAML==6.0.3 python tests/ci/consumers.py verify

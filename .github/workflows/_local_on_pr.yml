@@ -23,3 +23,37 @@ jobs:
     uses: ./.github/workflows/on-pr.yml
     permissions:
       contents: read
+
+  # Exercise the candidate workflow against the pinned real-consumer catalog.
+  # The common job above checks this repository itself; it cannot reveal broken
+  # capability detection or tooling assumptions in other SCORE repositories.
+  consumers:
+    uses: ./.github/workflows/_test_on_pr_consumers.yml
+    permissions:
+      contents: read
+
+  # Matrix jobs have varying names. Branch protection can require this stable
+  # result, which must turn red when preparation or any consumer assertion fails.
+  # always() is essential: the gate must execute after upstream failures/skips
+  # and report them as failure instead of becoming another skipped job itself.
+  ci-success:
+    name: CI success
+    needs: [common, consumers]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Require common checks and all consumers
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        shell: python
+        run: |
+          import json
+          import os
+
+          results = json.loads(os.environ['RESULTS'])
+
+          # Only explicit success is acceptable. Failure, cancellation and an
+          # unexpected skip all mean that required coverage was not completed.
+          if any(result != 'success' for result in results):
+              raise SystemExit(f'PR checks did not succeed: {results}')

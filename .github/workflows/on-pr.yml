@@ -40,7 +40,27 @@ name: 🔁
 
 on:
   workflow_call:
+    # Compatibility scenarios need observations from the actual check steps.
+    # Propagate the job output through the reusable workflow boundary so each
+    # scenario can assert its own checkout and capability-dependent outcomes.
+    outputs:
+      check-results:
+        description: JSON containing the checked-out commit and individual check outcomes
+        value: ${{ jobs.pr-checks.outputs.check-results }}
     inputs:
+      # Ordinary callers omit both source inputs and retain checkout's event
+      # defaults. Compatibility tests select a real consumer checkout while the
+      # workflow implementation still comes from the candidate PR revision.
+      source-repository:
+        description: Repository to check; defaults to the caller repository
+        required: false
+        default: ""
+        type: string
+      source-ref:
+        description: Source commit or ref; uses checkout defaults when omitted
+        required: false
+        default: ""
+        type: string
       skip-pre-commit:
         description: "Skip the pre-commit check even if .pre-commit-config.yaml exists"
         required: false
@@ -110,6 +130,11 @@ jobs:
     permissions:
       contents: read
 
+    # Expose observed outcomes for compatibility tests. A green job alone does
+    # not prove a capability was detected or its check actually ran.
+    outputs:
+      check-results: ${{ steps.results.outputs.check-results }}
+
     steps:
       - name: 🚫 Refuse to run on pull_request_target
         if: github.event_name == 'pull_request_target'
@@ -129,9 +154,15 @@ jobs:
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
 
       - name: 📥 Check out
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
+          # Repository/ref are checkout inputs, never interpolated shell code.
+          # Leaving ref empty preserves checkout's normal event-ref handling
+          # for the caller, or its default branch for an external repository.
+          repository: ${{ inputs.source-repository || github.repository }}
+          ref: ${{ inputs.source-ref }}
 
       - name: 🧰 Prepare shared check helper
         if: ${{ !cancelled() }}
@@ -247,13 +278,19 @@ jobs:
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
         uses: eclipse-score/cicd-actions/setup-bazel-cache@e2a2a587a759b681632040ec1e1294015a0405f5 # setup-bazel-cache/v0.1.0
         with:
-          disk-cache-key: ${{ github.job }}
+          # Separate consumer caches while preserving ordinary callers' keys.
+          disk-cache-key: ${{ inputs.source-repository != '' && format('{0}-{1}', github.job, inputs.source-repository) || github.job }}
+          # An external checkout has its own history. Caller event SHAs cannot
+          # decide whether its lockfile changed, so restore caches explicitly.
+          disk-cache-restore: ${{ (inputs.source-repository != '' || inputs.source-ref != '') && 'true' || 'auto' }}
+          repository-cache-restore: ${{ (inputs.source-repository != '' || inputs.source-ref != '') && 'true' || 'auto' }}
 
       - name: ⚙️ Setup uv
         if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true') }}
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       - name: 🧹 Run pre-commit checks
+        id: pre-commit
         if: ${{ !cancelled() && steps.detect.outputs.has_precommit == 'true' && !inputs.skip-pre-commit }}
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
@@ -278,6 +315,7 @@ jobs:
           fi
 
       - name: 🐍 Run Python tests with uv
+        id: python-tests
         if: ${{ !cancelled() && steps.detect.outputs.has_python_uv == 'true' && !inputs.skip-python-tests }}
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
@@ -344,6 +382,7 @@ jobs:
           emit_output has_format_check has_bazel_target "$FORMAT_TARGET"
 
       - name: 🖌️ Run bazel formatting check
+        id: format
         if: ${{ !cancelled() && steps.bazel.outputs.has_format_check == 'true' && !inputs.skip-format }}
         env:
           FORMAT_TARGET: ${{ inputs.format-target }}
@@ -365,6 +404,7 @@ jobs:
           fi
 
       - name: © Run bazel copyright check
+        id: copyright
         if: ${{ !cancelled() && steps.bazel.outputs.has_copyright_check == 'true' && !inputs.skip-copyright }}
         env:
           COPYRIGHT_TARGET: ${{ inputs.copyright-target }}
@@ -386,6 +426,7 @@ jobs:
           fi
 
       - name: 🔒 Require Bazel lockfile
+        id: require-lock
         if: ${{ !cancelled() && inputs.require-bzlmod-lock && steps.detect.outputs.has_bzlmod == 'true' && steps.detect.outputs.has_bazel_lock != 'true' }}
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
@@ -399,6 +440,7 @@ jobs:
           MD
 
       - name: 🔒 Check Bazel module is tidy
+        id: module-tidy
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
@@ -427,6 +469,7 @@ jobs:
           fi
 
       - name: 🔒 Check Bazel lockfile is up to date
+        id: lockfile
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel_lock == 'true' && !inputs.skip-bzlmod-lock }}
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
@@ -454,3 +497,37 @@ jobs:
               Regenerate the lockfile with `bazel mod tidy` and commit the updated `MODULE.bazel.lock`.
           MD
           fi
+
+      # Publish observations even after a failed check. Use outcome (before any
+      # continue-on-error handling), and preserve skipped as a distinct result.
+      # Returning JSON avoids artifacts and extra permissions for consumer tests.
+      # cancelled() is a status function, so !cancelled() already suppresses the
+      # implicit success() gate and keeps reporting after earlier check failures.
+      - name: Report individual check outcomes
+        id: results
+        if: ${{ !cancelled() }}
+        env:
+          CHECK_STEPS: ${{ toJSON(steps) }}
+          SOURCE_SHA: ${{ steps.checkout.outputs.commit }}
+        shell: python
+        run: |
+          import json
+          import os
+
+          # The steps context includes skipped checks as well as executed ones.
+          # Keep the full named set so consumers can distinguish an intentional
+          # skip from a capability that unexpectedly stopped being detected.
+          steps = json.loads(os.environ['CHECK_STEPS'])
+          names = ('pre-commit', 'python-tests', 'format', 'copyright',
+                   'require-lock', 'module-tidy', 'lockfile')
+
+          results = {
+              'commit': os.environ['SOURCE_SHA'],
+              'checks': {name: steps[name]['outcome'] for name in names},
+          }
+
+          # Report checkout's observed commit, not the requested ref. An input
+          # echo would claim the right source even if checkout selected another
+          # revision. Single-line JSON passes intact through GitHub job outputs.
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('check-results=' + json.dumps(results) + '\n')
