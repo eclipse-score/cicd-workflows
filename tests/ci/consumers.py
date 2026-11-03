@@ -30,6 +30,10 @@ ROOT = Path(__file__).resolve().parents[2]
 CHECKS = {'pre-commit', 'python-tests', 'format', 'copyright',
           'require-lock', 'module-tidy', 'lockfile'}
 
+# require-lock reports a missing-lockfile error, not a successful capability.
+# Keep it observable in reports, but never require it to execute successfully.
+REQUIRED_CHECKS = CHECKS - {'require-lock'}
+
 
 # Only existing check switches/targets may vary between scenarios. Keeping the
 # allowlist narrow prevents runner selection, credentials or checkout settings
@@ -120,7 +124,7 @@ def load_catalog(content):
         # A nonempty, explicit list records the minimum supported profile.
         # Unknown names are usually typos; duplicates obscure the intended list.
         if (not isinstance(required, list) or not required or
-                any(not isinstance(name, str) or name not in CHECKS for name in required) or
+                any(not isinstance(name, str) or name not in REQUIRED_CHECKS for name in required) or
                 len(set(required)) != len(required)):
             raise ValueError(f'{name}: required-checks must be a nonempty list of unique known checks')
 
@@ -129,9 +133,42 @@ def load_catalog(content):
     return rows
 
 
-def matrix(path=ROOT / '.github/ci/consumers.yml'):
+def workflow_defaults(path):
+    """Read execution defaults from the candidate rather than freezing them in tests.
+
+    The wrapper has to declare individual scalar inputs because workflow calls
+    cannot accept a dynamically expanded mapping. Resolving their defaults here
+    ensures an accidental skip or target change is exercised by real consumers.
+    Catalog overrides are applied afterwards, including explicit false values.
+    """
+    workflow = yaml.safe_load(path.read_text(encoding='utf-8'))
+    # PyYAML's YAML 1.1 loader recognizes the Actions 'on' key as boolean true.
+    # Accept the literal key too so this remains valid with a YAML 1.2 loader.
+    trigger = workflow.get('on', workflow.get(True))
+    definitions = trigger['workflow_call']['inputs']
+    defaults = {}
+
+    for name in sorted(TARGET_INPUTS | SKIP_INPUTS.keys()):
+        definition = definitions[name]
+        boolean = name in SKIP_INPUTS
+        expected_type = 'boolean' if boolean else 'string'
+        value = definition.get('default', False if boolean else '')
+
+        # Fail preparation on incompatible API changes rather than coercing
+        # strings into truthy booleans and testing a different workflow call.
+        if definition['type'] != expected_type or type(value) is not (bool if boolean else str):
+            raise ValueError(f'{name}: expected a {expected_type} workflow default')
+
+        defaults[name] = value
+
+    return defaults
+
+
+def matrix(path=ROOT / '.github/ci/consumers.yml',
+           workflow_path=ROOT / '.github/workflows/on-pr.yml'):
     """Encode the validated catalog for GitHub's reusable-workflow matrix inputs."""
     rows = load_catalog(path.read_text(encoding='utf-8'))
+    defaults = workflow_defaults(workflow_path)
 
     # Reusable workflow inputs are scalar. Encode only the structured fields;
     # the human-readable reasons remain in the catalog for review, while the
@@ -139,7 +176,7 @@ def matrix(path=ROOT / '.github/ci/consumers.yml'):
     return {'include': [{
         'name': row['name'], 'repository': row['repository'], 'ref': row['ref'],
         'required-checks': json.dumps(row['required-checks']),
-        'overrides': json.dumps(overrides(row)),
+        'check-inputs': json.dumps(defaults | overrides(row)),
     } for row in rows]}
 
 

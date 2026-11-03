@@ -22,13 +22,13 @@ on:
         description: JSON list of checks that must run successfully
         type: string
         required: true
-      # The catalog keeps reasons beside each override. Preparation validates
-      # them and sends only their execution values through this JSON input.
-      overrides:
-        description: JSON object of validated consumer-specific check inputs
+      # Preparation reads defaults from the candidate workflow and applies
+      # validated catalog overrides. No default values are duplicated here:
+      # regressions in ordinary calls must also break compatibility scenarios.
+      check-inputs:
+        description: JSON object of candidate defaults with documented consumer overrides
         type: string
-        default: "{}"
-        required: false
+        required: true
 
 permissions:
   contents: read
@@ -36,21 +36,21 @@ permissions:
 jobs:
   # A relative call executes the workflow from this PR/merge commit. Only its
   # source checkout changes; check settings use defaults unless the catalog
-  # explicitly documents overrides below.
+  # explicitly documents overrides in its entry.
   checks:
     uses: ./.github/workflows/on-pr.yml
     with:
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.ref }}
-      # Missing values preserve the public workflow defaults. Only check targets
-      # and skip switches are accepted by the catalog's override validator.
-      format-target: ${{ fromJSON(inputs.overrides).format-target || '//:format.check' }}
-      copyright-target: ${{ fromJSON(inputs.overrides).copyright-target || '//:copyright.check' }}
-      skip-pre-commit: ${{ fromJSON(inputs.overrides).skip-pre-commit || false }}
-      skip-python-tests: ${{ fromJSON(inputs.overrides).skip-python-tests || false }}
-      skip-format: ${{ fromJSON(inputs.overrides).skip-format || false }}
-      skip-copyright: ${{ fromJSON(inputs.overrides).skip-copyright || false }}
-      skip-bzlmod-lock: ${{ fromJSON(inputs.overrides).skip-bzlmod-lock || false }}
+      # Forward resolved values directly. In particular, a false override must
+      # remain false even when the candidate's default for that input is true.
+      format-target: ${{ fromJSON(inputs.check-inputs).format-target }}
+      copyright-target: ${{ fromJSON(inputs.check-inputs).copyright-target }}
+      skip-pre-commit: ${{ fromJSON(inputs.check-inputs).skip-pre-commit }}
+      skip-python-tests: ${{ fromJSON(inputs.check-inputs).skip-python-tests }}
+      skip-format: ${{ fromJSON(inputs.check-inputs).skip-format }}
+      skip-copyright: ${{ fromJSON(inputs.check-inputs).skip-copyright }}
+      skip-bzlmod-lock: ${{ fromJSON(inputs.check-inputs).skip-bzlmod-lock }}
 
   # A separate wrapper per scenario preserves that call's outputs. Reading
   # outputs from a reusable-workflow matrix directly would retain just one

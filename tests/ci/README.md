@@ -4,7 +4,9 @@ Changes to [`on-pr.yml`](../../.github/workflows/on-pr.yml) are tested against p
 [the consumer catalog](../../.github/ci/consumers.yml). The suite calls the workflow from
 the candidate PR, checks out each catalog commit and uses the existing default
 checks. The complete workflow must succeed, and every entry in `required-checks`
-must report successful execution on the pinned checkout. Additional checks may
+must report successful execution on the pinned checkout. The matrix reads check
+input defaults from the candidate `on-pr.yml` and then applies documented catalog
+overrides, so changes to public defaults are exercised by the consumers. Additional checks may
 run or be skipped without changing this minimum contract.
 
 The catalog covers application modules, C++ foundations, documentation and
@@ -23,6 +25,9 @@ Add consumers as entries in the shared catalog:
 
 `required-checks` is a tested minimum compatibility profile, not an exhaustive
 assessment of a repository. An omitted check does not imply a missing capability.
+`require-lock` is an error guard that fails only when a required lockfile is
+missing. It remains in reported outcomes but cannot be a required successful
+check in the catalog.
 Review changes to minimum requirements separately from routine pin updates so
 that a failing consumer cannot silently weaken its compatibility contract.
 
@@ -77,5 +82,5 @@ uv run --no-project --with PyYAML==6.0.3 python -m unittest discover -s tests/ci
 
 These tests cover catalog validation, outcome assertions, pin edits and the
 publishing handoff. They do not execute the consumers' checks. The
-[consumer suite](../../.github/workflows/_test_on_pr_consumers.yml) runs those
+[consumer suite](../../.github/workflows/_test_consumers.yml) runs those
 checks in GitHub Actions using the candidate workflow implementation.

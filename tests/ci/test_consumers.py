@@ -18,7 +18,7 @@ import unittest
 
 import yaml
 
-from consumers import CHECKS, ROOT, matrix, verify
+from consumers import CHECKS, ROOT, matrix, verify, workflow_defaults
 
 
 class ConsumerTests(unittest.TestCase):
@@ -63,7 +63,7 @@ class ConsumerTests(unittest.TestCase):
 
     def test_empty_unknown_and_duplicate_requirements_are_rejected(self):
         """A minimum profile must exercise known checks and identify them clearly."""
-        for required in ([], ['formatt'], ['format', 'format'], 'format'):
+        for required in ([], ['formatt'], ['require-lock'], ['format', 'format'], 'format'):
             with self.subTest(required=required):
                 self.row['required-checks'] = required
 
@@ -79,10 +79,40 @@ class ConsumerTests(unittest.TestCase):
 
         row = self.load_catalog(self.catalog)['include'][0]
 
-        self.assertEqual(json.loads(row['overrides']), {
-            'format-target': '//tools:format.check', 'skip-python-tests': True,
-        })
+        expected = workflow_defaults(ROOT / '.github/workflows/on-pr.yml')
+        expected.update({'format-target': '//tools:format.check', 'skip-python-tests': True})
+        self.assertEqual(json.loads(row['check-inputs']), expected)
         self.assertEqual(json.loads(row['required-checks']), self.row['required-checks'])
+
+    def test_candidate_defaults_reach_scenarios_without_wrapper_fallbacks(self):
+        """Accidental target/skip defaults must affect consumers, not be masked."""
+        workflow = yaml.safe_load((ROOT / '.github/workflows/on-pr.yml').read_text())
+        definitions = workflow[True]['workflow_call']['inputs']
+        definitions['format-target']['default'] = '//:changed-format.check'
+        definitions['skip-format']['default'] = True
+        definitions['skip-python-tests']['default'] = True
+        self.row['overrides'] = {
+            'skip-python-tests': {'value': False, 'reason': 'This scenario must run Python tests.'},
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'consumers.yml'
+            candidate = Path(directory) / 'on-pr.yml'
+            path.write_text(yaml.safe_dump(self.catalog))
+            candidate.write_text(yaml.safe_dump(workflow))
+            inputs = json.loads(matrix(path, candidate)['include'][0]['check-inputs'])
+
+        self.assertEqual(inputs['format-target'], '//:changed-format.check')
+        self.assertTrue(inputs['skip-format'])
+        self.assertFalse(inputs['skip-python-tests'])
+
+        # Check the wrapper forwards these resolved values without replacements.
+        # Any fallback such as "|| false" or a hardcoded target must fail here,
+        # because it could hide future changes to the candidate's public API.
+        wrapper = yaml.safe_load((ROOT / '.github/workflows/_test_consumer_scenario.yml').read_text())
+        call = wrapper['jobs']['checks']['with']
+        for name in inputs:
+            self.assertEqual(call[name], '${{ fromJSON(inputs.check-inputs).' + name + ' }}')
 
     def test_overrides_require_reasons_supported_inputs_and_valid_types(self):
         """Exceptions must be explicit and cannot conceal unrelated workflow settings."""
@@ -152,7 +182,7 @@ class ConsumerTests(unittest.TestCase):
         # A failure outside the minimum set is handled by the wrapper's job
         # dependency, not ignored by the overall suite. Inspect that dependency
         # here so this relaxed minimum assertion cannot replace the success gate.
-        workflow = yaml.safe_load((ROOT / '.github/workflows/_test_on_pr_consumer.yml').read_text())
+        workflow = yaml.safe_load((ROOT / '.github/workflows/_test_consumer_scenario.yml').read_text())
         job = workflow['jobs']['verify']
         self.assertEqual(job['needs'], 'checks')
         self.assertNotIn('if', job)

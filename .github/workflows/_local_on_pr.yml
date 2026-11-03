@@ -28,7 +28,7 @@ jobs:
   # The common job above checks this repository itself; it cannot reveal broken
   # capability detection or tooling assumptions in other SCORE repositories.
   consumers:
-    uses: ./.github/workflows/_test_on_pr_consumers.yml
+    uses: ./.github/workflows/_test_consumers.yml
     permissions:
       contents: read
 

@@ -66,12 +66,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    uses: ./.github/workflows/_test_on_pr_consumer.yml
+    uses: ./.github/workflows/_test_consumer_scenario.yml
     with:
       repository: ${{ matrix.repository }}
       ref: ${{ matrix.ref }}
       required-checks: ${{ matrix.required-checks }}
-      overrides: ${{ matrix.overrides }}
+      check-inputs: ${{ matrix.check-inputs }}
 
   publish:
     needs: [prepare, consumers]
