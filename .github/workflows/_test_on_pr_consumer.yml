@@ -40,8 +40,8 @@ jobs:
   checks:
     uses: ./.github/workflows/on-pr.yml
     with:
-      source-repository: ${{ inputs.repository }}
-      source-ref: ${{ inputs.ref }}
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
       # Missing values preserve the public workflow defaults. Only check targets
       # and skip switches are accepted by the catalog's override validator.
       format-target: ${{ fromJSON(inputs.overrides).format-target || '//:format.check' }}

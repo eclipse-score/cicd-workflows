@@ -48,16 +48,16 @@ on:
         description: JSON containing the checked-out commit and individual check outcomes
         value: ${{ jobs.pr-checks.outputs.check-results }}
     inputs:
-      # Ordinary callers omit both source inputs and retain checkout's event
+      # Ordinary callers omit both checkout inputs and retain checkout's event
       # defaults. Compatibility tests select a real consumer checkout while the
       # workflow implementation still comes from the candidate PR revision.
-      source-repository:
+      repository:
         description: Repository to check; defaults to the caller repository
         required: false
         default: ""
         type: string
-      source-ref:
-        description: Source commit or ref; uses checkout defaults when omitted
+      ref:
+        description: Commit, tag or branch to check; uses checkout defaults when omitted
         required: false
         default: ""
         type: string
@@ -161,8 +161,8 @@ jobs:
           # Repository/ref are checkout inputs, never interpolated shell code.
           # Leaving ref empty preserves checkout's normal event-ref handling
           # for the caller, or its default branch for an external repository.
-          repository: ${{ inputs.source-repository || github.repository }}
-          ref: ${{ inputs.source-ref }}
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
 
       - name: 🧰 Prepare shared check helper
         if: ${{ !cancelled() }}
@@ -279,11 +279,11 @@ jobs:
         uses: eclipse-score/cicd-actions/setup-bazel-cache@e2a2a587a759b681632040ec1e1294015a0405f5 # setup-bazel-cache/v0.1.0
         with:
           # Separate consumer caches while preserving ordinary callers' keys.
-          disk-cache-key: ${{ inputs.source-repository != '' && format('{0}-{1}', github.job, inputs.source-repository) || github.job }}
+          disk-cache-key: ${{ inputs.repository != '' && format('{0}-{1}', github.job, inputs.repository) || github.job }}
           # An external checkout has its own history. Caller event SHAs cannot
           # decide whether its lockfile changed, so restore caches explicitly.
-          disk-cache-restore: ${{ (inputs.source-repository != '' || inputs.source-ref != '') && 'true' || 'auto' }}
-          repository-cache-restore: ${{ (inputs.source-repository != '' || inputs.source-ref != '') && 'true' || 'auto' }}
+          disk-cache-restore: ${{ (inputs.repository != '' || inputs.ref != '') && 'true' || 'auto' }}
+          repository-cache-restore: ${{ (inputs.repository != '' || inputs.ref != '') && 'true' || 'auto' }}
 
       - name: ⚙️ Setup uv
         if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true') }}
