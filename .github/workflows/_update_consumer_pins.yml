@@ -29,6 +29,7 @@ jobs:
     outputs:
       changed: ${{ steps.update.outputs.changed }}
       matrix: ${{ steps.update.outputs.matrix }}
+      artifact-id: ${{ steps.snapshot.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,7 +47,8 @@ jobs:
 
       # Pass the edited file to publishing separately from matrix job outputs:
       # a reusable-workflow matrix retains only one invocation's output values.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: snapshot
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.update.outputs.changed == 'true'
         with:
           name: consumer-pin-update-${{ github.run_attempt }}
@@ -90,7 +92,9 @@ jobs:
           token: ${{ secrets.SCORE_BOT_CLASSIC_PAT }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: consumer-pin-update-${{ github.run_attempt }}
+          # A partial rerun keeps prepare's original outputs. Its artifact may
+          # belong to an earlier attempt, so use its ID rather than today's name.
+          artifact-ids: ${{ needs.prepare.outputs.artifact-id }}
           path: .github/ci
 
       - name: Push verified pins to main
@@ -106,13 +110,22 @@ jobs:
           # and send the candidate through the PR checks on the current base.
           git push origin HEAD:refs/heads/main
 
-      # Give the PR action the same input on both fallback paths: the tested
-      # base commit plus staged catalog changes. Its detached-HEAD handling uses
-      # the checkout's current HEAD as the start of the changes to replay; a
-      # committed-but-unpushed candidate would otherwise become that start.
+      # The PR action must see a named main checkout at the tested base. For a
+      # detached checkout it automatically rebases with a conflict preference
+      # that could overwrite concurrent catalog contracts. Keeping this base
+      # creates a PR with the tested pin-only diff; GitHub exposes any conflict
+      # with newer main for manual resolution instead of choosing older checks.
       - name: Prepare catalog changes for the fallback PR
         if: needs.consumers.result == 'failure' || steps.push.outcome == 'failure'
-        run: git reset --soft "$GITHUB_SHA"
+        run: |
+          # Undo a rejected local commit while retaining the candidate staged.
+          git reset --soft "$GITHUB_SHA"
+          git checkout -B main "$GITHUB_SHA"
+          # Failed consumer runs reach this path without a local push commit.
+          git add -- .github/ci/consumers.yml
+          # The action resets a named working base to its local remote ref.
+          # Pin that ref too: never mix newer main with the tested catalog here.
+          git update-ref refs/remotes/origin/main "$GITHUB_SHA"
 
       - name: Open or update the fallback PR
         if: needs.consumers.result == 'failure' || steps.push.outcome == 'failure'

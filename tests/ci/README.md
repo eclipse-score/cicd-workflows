@@ -57,6 +57,11 @@ normal push to `main`. A concurrent change on `main` or branch protection reject
 the push; it is never forced. Failed consumer checks or a rejected push instead
 create or update one PR on `bot/consumer-pin-update` for review. An API failure
 leaves the catalog unchanged, and a run without new commits publishes nothing.
+The fallback branch retains the tested base and changes only pins. Concurrent
+catalog edits can therefore cause a visible merge conflict that needs manual
+resolution; they are never resolved automatically in favor of the older catalog.
+Partial workflow reruns download the exact artifact produced by preparation,
+even when that job succeeded in an earlier attempt.
 
 Publishing reuses `SCORE_BOT_CLASSIC_PAT`, already used by Renovate. Consumer
 checks run separately with read-only permissions and receive no bot credential.
