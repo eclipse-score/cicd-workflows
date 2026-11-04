@@ -31,7 +31,7 @@ jobs:
         run: uv run --locked python -m pytest -v
 
       - name: Lint Python helpers
-        run: uv run --locked ruff check tests/ci
+        run: uv run --locked ruff check tests/ci tools
 
       - name: Generate consumer matrix
         id: catalog

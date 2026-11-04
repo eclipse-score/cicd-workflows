@@ -1,0 +1,68 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Keep the parser and executor at the action's revision. The checked-out
+# workspace belongs to the consumer and must not supply the central scripts.
+name: Configured Bazel checks
+description: Plan, execute or verify the opt-in configured Bazel POC
+inputs:
+  mode:
+    description: Operation to perform (plan, run or verify)
+    required: true
+  config:
+    description: Checkout-relative configuration file for plan and run
+    default: ""
+  job:
+    description: Planned matrix row to execute
+    default: ""
+  reports:
+    description: Directory containing generated or downloaded evidence
+    required: true
+  expected:
+    description: JSON plan produced by preparation, required for verify
+    default: ""
+  source-commit:
+    description: Observed preparation checkout, required for verify
+    default: ""
+outputs:
+  matrix:
+    description: GitHub matrix with one row per configured check
+    value: ${{ steps.execute.outputs.matrix }}
+  expected:
+    description: Complete plan against which reports must be verified
+    value: ${{ steps.execute.outputs.expected }}
+  artifact-prefix:
+    description: Unique namespace for this invocation's matrix artifacts
+    value: ${{ steps.execute.outputs.artifact-prefix }}
+  results:
+    description: Verified checkout and per-job command observations
+    value: ${{ steps.execute.outputs.results }}
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+    - name: Run the central implementation
+      id: execute
+      shell: bash
+      env:
+        ACTION_DIRECTORY: ${{ github.action_path }}
+        MODE: ${{ inputs.mode }}
+        CONFIG_PATH: ${{ inputs.config }}
+        JOB_ID: ${{ inputs.job }}
+        REPORTS: ${{ inputs.reports }}
+        EXPECTED: ${{ inputs.expected }}
+        SOURCE_COMMIT: ${{ inputs.source-commit }}
+      run: |
+        # The POC cross-compiles ARM targets on the same native Linux runner.
+        # Architecture metadata must not accidentally make an ARM runner execute
+        # a plan that promises native x86_64 test evidence.
+        test "$(uname -s)" = Linux
+        test "$(uname -m)" = x86_64
+
+        # uv uses the central action's locked project, not the consumer's Python
+        # environment. A consumer needs neither Python dependencies nor uv.lock.
+        project="$(realpath "$ACTION_DIRECTORY/../../..")"
+        uv run --locked --no-dev --project "$project" python \
+          "$project/tools/configured_checks.py" "$MODE" \
+          --workspace "$GITHUB_WORKSPACE" --reports "$REPORTS"
