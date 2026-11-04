@@ -9,8 +9,9 @@ requires-python = ">=3.12"
 dependencies = ["PyYAML>=6.0.3,<7"]
 
 [tool.uv]
-# These helpers run from the workflow checkout. They are repository tooling,
-# not a library to build or publish; uv manages their environment and lockfile.
+# Workflow helpers and maintainer tools share one locked environment. Actions
+# select this project explicitly, even when the checkout belongs to a consumer.
+# These scripts are not a library to build or publish.
 package = false
 
 [[tool.uv.index]]
@@ -21,7 +22,7 @@ default = true
 # Keep the helpers beside their regression tests while making their imports
 # work identically under pytest locally and in the shared on-pr workflow.
 testpaths = ["tests/ci"]
-pythonpath = ["tests/ci"]
+pythonpath = ["tests/ci", "tools"]
 
 [tool.ruff.lint]
 # Check undefined names and unused imports without imposing a formatting rewrite
