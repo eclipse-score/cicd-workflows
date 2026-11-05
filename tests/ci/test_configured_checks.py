@@ -33,7 +33,7 @@ def document():
     return {'schema-version': 2, 'variants': [{
         'name': 'native', 'architecture': [{'name': 'x86_64'}],
         'os': [{'name': 'linux'}], 'checks': {'tests': [{
-            'test-type': 'unit', 'bazel-configs': 'linux, debug',
+            'bazel-configs': 'linux, debug',
             'bazel-build-targets': '//lib:library',
             'bazel-test-targets': '//lib/... -//lib:integration',
         }]},
@@ -51,9 +51,12 @@ def test_legacy_schema_and_new_schema_produce_same_commands(workspace, document)
     legacy['schema-version'] = 1
     variant = legacy['variants'][0]
     variant['quality-gates'] = variant.pop('checks')
+    variant['quality-gates']['tests'][0]['test-type'] = 'historic'
+    # Schema 1 keeps its historical row name; commands and producer facts agree.
     adapted = plan(workspace, write_config(workspace, legacy))
     assert current[0]['commands'] == adapted[0]['commands']
-    assert current[0]['id'] == adapted[0]['id']
+    assert adapted[0]['id'] == current[0]['id'] + '-historic'
+    assert current[0]['metadata'] == adapted[0]['metadata']
     assert current[0]['commands'][0] == [
         'bazel', 'build', '--keep_going', '--verbose_failures',
         '--lockfile_mode=error', '--config=linux', '--config=debug',
@@ -69,7 +72,7 @@ def test_legacy_schema_and_new_schema_produce_same_commands(workspace, document)
     (lambda d: d['variants'][0]['checks']['tests'][0].update({'workflow-config': None}), 'mapping'),
     (lambda d: d['variants'][0]['checks']['tests'][0].update({'workflow-config': {'pre-test': 'echo'}}), 'unsupported fields'),
     (lambda d: d['variants'][0]['checks']['tests'][0].update({'workflow-config': {'bazel-test-custom-cli-args': '--remote_executor=elsewhere'}}), 'tag-filter'),
-    (lambda d: d['variants'][0]['checks']['tests'][0].update({'test-type': []}), 'supported type'),
+    (lambda d: d['variants'][0]['checks']['tests'][0].update({'test-type': []}), 'unsupported fields'),
     (lambda d: d['variants'][0]['architecture'][0].update({'name': 'aarch64'}), 'native x86_64'),
     (lambda d: d['variants'].append(deepcopy(d['variants'][0])), 'duplicate name'),
     (lambda d: d['variants'][0]['checks']['tests'].append(deepcopy(d['variants'][0]['checks']['tests'][0])), 'duplicate job'),
@@ -166,6 +169,10 @@ def test_execution_collects_bazel_evidence_and_test_logs(workspace, document, tm
     assert status == 0
     result = verify(rows, reports, sha)
     assert len(result['jobs'][rows[0]['id']]['commands']) == 2
+    assert result['jobs'][rows[0]['id']]['metadata'] == {
+        'profile': 'native', 'platform': {'os': 'linux', 'architecture': 'x86_64'},
+        'check': 'tests', 'working-directory': '.', 'batch': '',
+    }
     assert (reports / rows[0]['id'] / 'testlogs/lib/test/test.xml').is_file()
 
 
@@ -182,7 +189,7 @@ def test_failure_or_no_evidence_retains_report_and_stops_row(workspace, document
 
 @pytest.mark.parametrize('field, value', [
     ('commit', 'different'), ('config-sha256', 'different'),
-    ('commands', []),
+    ('commands', []), ('metadata', None), ('metadata', {'platform': {'os': 'qnx'}}),
 ])
 def test_verification_rejects_different_checkout_config_or_missing_commands(workspace, document, tmp_path, fake_bazel, field, value):
     rows, reports, _, sha = run_fixture(workspace, document, tmp_path)
@@ -224,6 +231,8 @@ def test_legacy_tag_filters_are_adapted_without_shell_evaluation(workspace, docu
     document['schema-version'] = 1
     variant = document['variants'][0]
     variant['quality-gates'] = variant.pop('checks')
+    variant['quality-gates']['tests'][0]['test-type'] = 'historic'
+    # Schema 1 keeps its historical row name; commands and producer facts agree.
     entry = variant['quality-gates']['tests'][0]
     entry['bazel-test-custom-cli-args'] = '--test_tag_filters=unit,-manual'
     rows = plan(workspace, write_config(workspace, document))
@@ -288,6 +297,7 @@ def test_nested_execution_and_log_collection_use_the_selected_workspace(workspac
     assert not (workspace / 'bazel-testlogs').exists()
     report = verify(rows, reports, sha)['jobs'][rows[0]['id']]
     assert report['working-directory'] == 'nested'
+    assert report['metadata']['working-directory'] == 'nested'
     assert (reports / rows[0]['id'] / 'testlogs/lib/test/test.xml').exists()
 
 
@@ -319,7 +329,7 @@ def coverage_document(workspace, document):
         'justifications-yaml': 'justifications.yml', 'coverage-threshold': 0,
         'generate-artifacts-archive': True,
     }
-    document['docs'] = {'bazel-target': '//:docs', 'tests': 'native-tests-unit',
+    document['docs'] = {'bazel-target': '//:docs', 'tests': 'native-tests',
                         'coverage': 'native-llvm-coverage'}
     return document
 
@@ -359,7 +369,7 @@ def test_invalid_coverage_is_rejected_before_execution(workspace, coverage_docum
 
 
 @pytest.mark.parametrize('key, value', [('tests', 'missing'), ('tests', 'native-coverage'),
-                                        ('coverage', 'native-tests-unit'), ('coverage', []),
+                                        ('coverage', 'native-tests'), ('coverage', []),
                                         ('github-context', 'true')])
 def test_docs_references_are_validated_during_preparation(workspace, coverage_document, key, value):
     coverage_document['docs'][key] = value
@@ -375,8 +385,10 @@ def test_coverage_executor_collects_and_verifies_reports(workspace, coverage_doc
     for row in rows:
         assert execute(workspace, config, row['id'], reports) == 0
     sha = subprocess.check_output(['git', '-C', str(workspace), 'rev-parse', 'HEAD'], text=True).strip()
-    verify(rows, reports, sha)
+    verified = verify(rows, reports, sha)
     coverage = next(row for row in rows if 'coverage' in row)
+    assert verified['jobs'][coverage['id']]['metadata']['check'] == 'llvm-coverage'
+    assert 'test-type' not in verified['jobs'][coverage['id']]['metadata']
     artifact = reports / coverage['id'] / 'coverage'
     assert (artifact / 'coverage_report.dat').read_text().startswith('SF:')
     assert (artifact / 'index.html').is_file()
@@ -441,7 +453,7 @@ def test_docs_output_uses_resolved_artifacts_and_validated_targets(workspace, co
     assert main() == 0
     values = dict(line.split('=', 1) for line in output.read_text().splitlines())
     docs, artifacts = json.loads(values['docs']), json.loads(values['artifacts'])
-    assert docs['tests-artifact'] == artifacts['native-tests-unit']['testlogs']
+    assert docs['tests-artifact'] == artifacts['native-tests']['testlogs']
     assert docs['coverage-artifact'] == artifacts['native-llvm-coverage']['coverage']
     assert docs['bazel-target'] == '//:docs'
     assert 'tests' not in docs and 'coverage' not in docs
@@ -523,7 +535,7 @@ def test_native_test_defaults_preserve_explicit_plan(workspace, document):
     explicit = plan(workspace, write_config(workspace, document))
     variant = document['variants'][0]
     del variant['os'], variant['architecture']
-    del entry['test-type'], entry['bazel-test-targets']
+    del entry['bazel-test-targets']
     defaulted = plan(workspace, write_config(workspace, document))
     assert [{k: v for k, v in row.items() if k != 'config-sha256'} for row in explicit] == [
         {k: v for k, v in row.items() if k != 'config-sha256'} for row in defaulted]
@@ -604,11 +616,11 @@ def test_compact_nested_and_arm_profiles_keep_workspace_and_emulation(workspace)
     (nested / 'MODULE.bazel.lock').write_text('{}')
     compact = {'schema-version': 2, 'tests': {
         'arm': {'bazel-configs': 'cross', 'architecture': 'aarch64', 'execution': 'qemu-user'},
-        'integration': {'bazel-configs': 'native', 'working-directory': 'nested', 'test-type': 'integration'},
+        'integration': {'bazel-configs': 'native', 'working-directory': 'nested'},
     }}
     rows = plan(workspace, write_config(workspace, compact))
-    arm = next(row for row in rows if row['id'] == 'arm-tests-unit')
-    nested_row = next(row for row in rows if row['id'] == 'integration-tests-integration')
+    arm = next(row for row in rows if row['id'] == 'arm-tests')
+    nested_row = next(row for row in rows if row['id'] == 'integration-tests')
     assert arm['execution'] == 'qemu-user'
     assert '--test_timeout=180,900,2700,10800' in arm['commands'][0]
     assert nested_row['working-directory'] == 'nested'
@@ -651,3 +663,26 @@ def test_llvm_report_can_select_build_configs_without_reusing_coverage_only_conf
     gate['coverage-html-bazel-configs'] = '--remote_executor=elsewhere'
     with pytest.raises(ValueError, match='coverage-html-bazel-configs'):
         plan(workspace, write_config(workspace, coverage_document))
+
+
+@pytest.mark.parametrize('category', ['unit', 'component', 'integration', 'sanitizer'])
+def test_schema_two_rejects_test_categories(workspace, document, category):
+    document['variants'][0]['checks']['tests'][0]['test-type'] = category
+    with pytest.raises(ValueError, match='unsupported fields.*test-type'):
+        plan(workspace, write_config(workspace, document))
+
+
+def test_profile_names_do_not_imply_categories_or_docs_priority(workspace):
+    from configured_coverage import docs_plan
+    document = {'schema-version': 2, 'tests': {
+        'unit': {'bazel-configs': 'native'},
+        'sanitizer': {'bazel-configs': 'native,asan'},
+    }, 'coverage': {'bazel-target': '//quality:coverage'}}
+    rows = plan(workspace, write_config(workspace, document))
+    assert {row['id'] for row in rows} == {'unit-tests', 'sanitizer-tests', 'coverage-coverage'}
+    assert all('test-type' not in row and 'test-type' not in row['metadata'] for row in rows)
+    with pytest.raises(ValueError, match='ambiguous report sources'):
+        docs_plan(workspace, {}, rows)
+    selected = docs_plan(workspace, {'tests': 'sanitizer-tests'}, rows)
+    assert selected['tests'] == 'sanitizer-tests'
+    assert selected['coverage'] == 'coverage-coverage'

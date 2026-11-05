@@ -127,7 +127,10 @@ def coverage_row(workspace, entry, family, name, platform, digest):
             if not inside(directory, scope['exclusions']).is_file():
                 raise ValueError('scope-check.exclusions: file does not exist')
             metadata['scope-check'] = scope
+    from configured_profiles import result_metadata
     return {'id': f'{name}-{family}', 'config-sha256': digest,
+            'metadata': result_metadata(name, platform, family,
+                                        working_directory=directory.relative_to(workspace).as_posix()),
             'working-directory': directory.relative_to(workspace).as_posix(),
             'execution': 'qnx-vm' if platform['os'] == 'qnx' else 'native',
             'platform': platform, 'prerequisites': family if family != 'coverage' else '',
@@ -202,17 +205,13 @@ def docs_plan(workspace, entry, rows):
         raise ValueError('docs.github-context: expected boolean')
     for key in ('tests', 'coverage'):
         # Root documentation can consume one native test row and one coverage
-        # row. Prefer the unique unit-test row over additional sanitizer profiles.
+        # row. Multiple candidates require an explicit source selection.
         # Ambiguity requires an explicit selection instead of relying on
         # variant order; an explicit empty string disables that report.
         if key not in entry:
             eligible = [row for row in rows if row['working-directory'] == '.' and
                         (row['has-tests'] and row['execution'] == 'native' and 'coverage' not in row
                          if key == 'tests' else 'coverage' in row)]
-            if key == 'tests' and len(eligible) > 1:
-                units = [row for row in eligible if row.get('test-type', 'unit') == 'unit']
-                if len(units) == 1:
-                    eligible = units
             if len(eligible) > 1:
                 raise ValueError(f'docs.{key}: ambiguous report sources; select a row ID')
             selected = eligible[0]['id'] if eligible else ''

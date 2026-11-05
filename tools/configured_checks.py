@@ -24,13 +24,12 @@ from configured_coverage import coverage_row, collect_coverage, check_scope, doc
 
 import yaml
 
-from configured_profiles import expand_batches, platform_profile, test_arguments
+from configured_profiles import result_metadata, expand_batches, legacy_test_names, platform_profile, test_arguments
 
 
 NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,63}')
 CONFIG = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.+-]*')
 TARGET = re.compile(r'-?(?:@[A-Za-z0-9_.+-]+)?//[^\s\x00-\x1f;`$|&<>]+')
-TYPES = {'unit', 'component', 'integration', 'sanitizer'}
 DEFAULT_FLAGS = ['--keep_going', '--verbose_failures', '--lockfile_mode=error']
 
 
@@ -128,13 +127,12 @@ def normalize(document):
                 entry['workflow-config'] = options
             variants.append(variant)
 
-    # Coverage attaches to a unique ordinary native root profile. Sanitizer
-    # profiles do not compete for this association or change existing row IDs.
-    # Ambiguous selections give coverage its own native row.
+    # Reuse a unique native root profile only for stable coverage naming.
+    # Multiple matching profiles give coverage an independent row; their names
+    # and Bazel configs do not imply any preferred kind of test.
     native = [variant for variant in variants if variant.get('architecture', [{'name': 'x86_64'}]) == [{'name': 'x86_64'}]
               and variant.get('os', [{'name': 'linux'}]) == [{'name': 'linux'}]
-              and next(iter(variant['checks'].values()))[0].get('workflow-config', {}).get('working-directory', '.') == '.'
-              and next(iter(variant['checks'].values()))[0].get('test-type', 'unit') == 'unit']
+              and next(iter(variant['checks'].values()))[0].get('workflow-config', {}).get('working-directory', '.') == '.']
     for family in ('llvm-coverage', 'gcov-coverage', 'coverage'):
         if family not in document:
             continue
@@ -209,17 +207,19 @@ def plan(workspace, config):
                 continue
             if not isinstance(entries, list) or not entries:
                 raise ValueError(f'{path}.{family}: expected a nonempty list')
+            if version == 1 and family == 'tests':
+                entries = legacy_test_names(entries)
             entries = expand_batches(entries, f'{path}.{family}')
-            for offset, entry in enumerate(entries):
+            for offset, (entry, batch) in enumerate(entries):
                 where = f'{path}.{checks_key}.{family}[{offset}]'
                 allowed = {'name', 'bazel-configs', 'bazel-build-targets', 'bazel-pre-test-targets', 'workflow-config'}
                 required = {'bazel-configs'}
                 if version == 2:
                     allowed.add('name')
                 if family == 'tests':
-                    allowed |= {'test-type', 'bazel-test-targets'}
+                    allowed.add('bazel-test-targets')
                     if version == 1:
-                        required |= {'test-type', 'bazel-test-targets'}
+                        required.add('bazel-test-targets')
                 elif version == 1:
                     required.add('bazel-build-targets')
                 if version == 1:
@@ -229,7 +229,7 @@ def plan(workspace, config):
                     # Defaults apply only to opted-in rows with an explicit
                     # compiler config. A test row still builds first only when
                     # bazel-build-targets is supplied.
-                    defaults = ({'test-type': 'unit', 'bazel-test-targets': '//...'} if family == 'tests'
+                    defaults = ({'bazel-test-targets': '//...'} if family == 'tests'
                                 else {'bazel-build-targets': '//...'})
                     entry = {**defaults, **entry}
                 options = entry.get('workflow-config', {})
@@ -261,16 +261,13 @@ def plan(workspace, config):
                 configs = [value.strip() for value in entry['bazel-configs'].split(',')]
                 if not all(CONFIG.fullmatch(value) for value in configs):
                     raise ValueError(f'{where}.bazel-configs: expected nonempty config names')
-                kind = entry.get('test-type', 'build')
                 if family == 'tests':
-                    if not isinstance(kind, str) or kind not in TYPES:
-                        raise ValueError(f'{where}: tests need a supported type')
                     if platform['os'] == 'linux' and platform['architecture'] != 'x86_64' and execution != 'qemu-user':
                         raise ValueError(f'{where}: tests need native x86_64 or explicit qemu-user execution')
-                job_name = entry.get('name', kind)
-                if not isinstance(job_name, str) or not NAME.fullmatch(job_name):
+                job_name = entry.get('name', '')
+                if not isinstance(job_name, str) or (job_name and not NAME.fullmatch(job_name)):
                     raise ValueError(f'{where}.name: invalid job name')
-                identity = f'{name}-{family}-{job_name}'
+                identity = '-'.join(part for part in (name, family, job_name) if part)
                 if any(row['id'] == identity for row in rows):
                     raise ValueError(f'{where}: duplicate job identity; supply explicit names')
 
@@ -298,7 +295,11 @@ def plan(workspace, config):
                     raise ValueError(f'{where}: test arguments on a build-only job')
                 rows.append({'id': identity, 'config-sha256': digest,
                              'working-directory': directory.relative_to(workspace).as_posix(),
-                             'execution': execution, 'has-tests': family == 'tests', 'test-type': kind, 'platform': platform, 'commands': commands})
+                             'execution': execution, 'has-tests': family == 'tests', 'platform': platform,
+                             'metadata': result_metadata(name, platform, family,
+                                                         working_directory=directory.relative_to(workspace).as_posix(),
+                                                         batch=batch),
+                             'commands': commands})
     if len(rows) > 256:
         raise ValueError('Expected at most 256 configured jobs')
     names = [row['coverage']['artifact-name'] for row in rows
@@ -348,7 +349,7 @@ def execute(workspace, config, job_id, reports):
     directory = inside(workspace, row['working-directory'])
     destination = Path(reports).resolve() / job_id
     destination.mkdir(parents=True, exist_ok=True)
-    report = {'commit': commit(workspace), 'id': job_id,
+    report = {'commit': commit(workspace), 'id': job_id, 'metadata': row['metadata'],
               'working-directory': row['working-directory'],
               'config-sha256': row['config-sha256'], 'commands': []}
     success = True
@@ -429,6 +430,8 @@ def verify(expected, reports, source_commit):
         report = actual[row['id']]
         if report['commit'] != source_commit or report['config-sha256'] != row['config-sha256']:
             raise ValueError(f'{row["id"]}: checkout or config differs from preparation')
+        if report.get('metadata') != row['metadata']:
+            raise ValueError(f'{row["id"]}: producer metadata differs from preparation')
         if report.get('working-directory') != row['working-directory']:
             raise ValueError(f'{row["id"]}: workspace differs from preparation')
         if 'coverage' in row and report.get('coverage') != row['coverage']:

@@ -25,11 +25,11 @@ def document(workspace):
     (workspace / 'rust-toolchain.toml').write_text('[toolchain]\nchannel="1.90.0"\n')
     return {'schema-version': 2, 'tests': {
         'native': {'bazel-configs': 'linux'},
-        'asan': {'test-type': 'sanitizer', 'bazel-configs': 'linux,asan'},
-        'tsan': {'test-type': 'sanitizer', 'bazel-configs': 'linux,tsan'},
+        'asan': {'bazel-configs': 'linux,asan'},
+        'tsan': {'bazel-configs': 'linux,tsan'},
     }, 'coverage': {'bazel-target': '//quality:coverage'},
         'clippy': {}, 'gitlint': True, 'codeql': {'bazel-configs': 'linux'},
-        'docs': {'check': True, 'link-check': True}}
+        'docs': {'check': True, 'link-check': True, 'tests': 'native-tests'}}
 
 
 def selected(workspace, document, identity, **options):
@@ -40,12 +40,12 @@ def selected(workspace, document, identity, **options):
 
 def test_sanitizers_keep_test_only_scope_and_docs_uses_regular_tests(workspace, document):
     rows = bazel_plan(workspace, write_config(workspace, document))
-    sanitizers = [row for row in rows if row.get('test-type') == 'sanitizer']
+    sanitizers = [row for row in rows if row['metadata']['profile'] in ('asan', 'tsan')]
     assert len(sanitizers) == 2
     assert all([c[1] for c in row['commands']] == ['test'] for row in sanitizers)
-    assert [row['id'] for row in rows if 'coverage' in row] == ['native-coverage']
+    assert [row['id'] for row in rows if 'coverage' in row] == ['coverage-coverage']
     docs = docs_plan(workspace, document['docs'], rows)
-    assert docs['tests'] == 'native-tests-unit'
+    assert docs['tests'] == 'native-tests'
     assert docs['retention-days'] == 5
     assert 'github-context' not in docs
 
@@ -56,7 +56,7 @@ def test_sanitizers_keep_test_only_scope_and_docs_uses_regular_tests(workspace, 
     ('codeql', {'bazel-configs': 'linux', 'reports': []}, 'report names'),
     ('codeql', {'bazel-configs': 'linux', 'fail-on-findings': 'false'}, 'boolean'),
     ('codeql', {'bazel-configs': 'linux', 'target-universe': '//...; true'}, 'invalid value'),
-    ('docs', {'check': 'true'}, 'boolean'),
+    ('docs', {'check': 'true', 'tests': 'native-tests'}, 'boolean'),
 ])
 def test_invalid_quality_policy_fails_main_planner(workspace, document, key, value, message):
     document[key] = value
@@ -124,6 +124,7 @@ def test_execution_proves_all_planned_commands(workspace, document, runner, tmp_
     assert quality.execute(workspace, row, reports) == 0
     verified = quality.verify([row], reports, 'frozen-sha')
     assert verified['jobs'][identity]['outcome'] == 'success'
+    assert verified['jobs'][identity]['metadata'] == row['metadata']
 
 
 @pytest.mark.parametrize('identity', ['docs-check', 'codeql'])
@@ -164,6 +165,8 @@ def test_codeql_preserves_suppression_and_failure_policy(workspace, document, ru
 
 @pytest.mark.parametrize('mutation, message', [
     (lambda r: r.update(commit='different'), 'checkout or config'),
+    (lambda r: r.pop('metadata'), 'producer metadata'),
+    (lambda r: r['metadata']['platform'].update(os='qnx'), 'producer metadata'),
     (lambda r: r['plan'].update({'config-sha256': 'different'}), 'checkout or config'),
     (lambda r: r['commands'].pop(), 'commands were skipped'),
     (lambda r: r['commands'][1]['argv'].append('--some-other-rule'), 'commands were skipped'),

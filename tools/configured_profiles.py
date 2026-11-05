@@ -13,18 +13,19 @@ import shlex
 
 
 def expand_batches(entries, path):
+    """Return entries with their exact batch names, separate from user fields."""
     from configured_checks import NAME, fields
     if not isinstance(entries, list):
         return entries
     result = []
     for original in entries:
         if not isinstance(original, dict):
-            result.append(original)
+            result.append((original, ''))
             continue
         entry = deepcopy(original)
         options = entry.get('workflow-config', {})
         if not isinstance(options, dict) or 'batches' not in options:
-            result.append(entry)
+            result.append((entry, ''))
             continue
         batches = options.pop('batches')
         if not isinstance(batches, list) or not batches:
@@ -40,8 +41,8 @@ def expand_batches(entries, path):
             expanded = {k: deepcopy(v) for k, v in entry.items()
                         if k not in ('bazel-build-targets', 'bazel-test-targets')}
             expanded.update({k: v for k, v in batch.items() if k != 'batch-name'})
-            expanded['name'] = f'{entry.get("name", entry.get("test-type", "unit"))}-{name}'
-            result.append(expanded)
+            expanded['name'] = '-'.join(part for part in (entry.get('name', ''), name) if part)
+            result.append((expanded, name))
     return result
 
 
@@ -80,3 +81,35 @@ def platform_profile(platform, family, options):
     if os_name == 'qnx' and family == 'tests' and execution != 'qnx-vm':
         raise ValueError('QNX tests require qnx-vm execution')
     return execution
+
+
+def result_metadata(profile, platform, check, *, working_directory='.', batch=''):
+    """Describe a producer without requiring consumers to parse its artifact ID.
+
+    These are execution facts, not presentation paths or organization policy.
+    Keep the original batch name: names may contain hyphens and cannot reliably
+    be reconstructed from a flattened matrix identifier.
+    """
+    return {'profile': profile, 'platform': dict(platform), 'check': check,
+            'working-directory': working_directory, 'batch': batch}
+
+
+def legacy_test_names(entries):
+    """Preserve schema-1 row identifiers without importing its test taxonomy.
+
+    The obsolete label only supplies the legacy row name. Execution and report
+    selection do not interpret it, and schema 2 rejects this field entirely.
+    """
+    from configured_checks import NAME
+    result = []
+    for original in entries:
+        if not isinstance(original, dict):
+            result.append(original)
+            continue
+        entry = deepcopy(original)
+        label = entry.pop('test-type', None)
+        if not isinstance(label, str) or not NAME.fullmatch(label):
+            raise ValueError('schema 1 tests require a plain test-type identifier')
+        entry.setdefault('name', label)
+        result.append(entry)
+    return result

@@ -24,6 +24,7 @@ import yaml
 from configured_checks import (CONFIG, Loader, commit, evidence, fields, inside,
                                output, words, TARGET)
 from configured_coverage import label
+from configured_profiles import result_metadata
 
 CODEQL_DEFAULTS = {
     'bazel-target': '//quality/static_analysis:codeql_lint',
@@ -91,8 +92,12 @@ def plan(workspace, document, digest, *, only_codeql=False, fetch_only=False, fa
         rows = [row for row in rows if row['id'] == 'codeql']
         if not rows:
             raise ValueError('No CodeQL profile configured')
-    return [{'platform': {'os': 'linux', 'architecture': 'x86_64'}, **row,
-             'config-sha256': digest} for row in rows]
+    result = []
+    for row in rows:
+        platform = row.get('platform', {'os': 'linux', 'architecture': 'x86_64'})
+        metadata = row.get('metadata', result_metadata(row['id'], platform, row['id']))
+        result.append({'platform': platform, **row, 'metadata': metadata, 'config-sha256': digest})
+    return result
 
 
 def load_plan(workspace, config):
@@ -172,7 +177,7 @@ def execute(workspace, row, reports):
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True)
-    report = {'id': row['id'], 'plan': row, 'commit': commit(workspace),
+    report = {'id': row['id'], 'plan': row, 'metadata': row['metadata'], 'commit': commit(workspace),
               'destination': str(destination),
               'outcome': 'failure', 'commands': []}
 
@@ -295,6 +300,8 @@ def verify(expected, reports, source_commit):
         raise ValueError('Missing or unexpected quality reports')
     for row in expected:
         report = actual[row['id']]
+        if report.get('metadata') != row['metadata']:
+            raise ValueError('Quality producer metadata differs from preparation')
         if report.get('plan') != row or report.get('commit') != source_commit:
             raise ValueError('Quality checkout or config differs from preparation')
         if report.get('outcome') == 'not-applicable' and row['id'] == 'gitlint' and os.environ.get('GITHUB_EVENT_NAME') != 'pull_request':
@@ -361,6 +368,7 @@ def additional_profiles(workspace, document):
             if not all((workspace / f).is_file() for f in ('MODULE.bazel', 'MODULE.bazel.lock')):
                 raise ValueError(f'{kind} requires MODULE.bazel and its lockfile')
             row = {'id': f'{kind}-{name}', 'kind': kind, 'platform': platform,
+                   'metadata': result_metadata(name, platform, kind),
                    'bazel-target': label(entry['bazel-target'], kind),
                    'bazel-configs': [c.strip() for c in configs.split(',')]}
             if kind == 'sbom':
