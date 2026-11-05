@@ -16,6 +16,14 @@ name: Documentation Build
 on:
   workflow_call:
     inputs:
+      tests-report-artifacts:
+        description: JSON array of test artifacts to merge; rejects conflicting package paths
+        type: string
+        default: '[]'
+      artifact-server-url:
+        description: Optional HTTPS server for authenticated dependency downloads
+        type: string
+        default: ""
       repository:
         description: Repository to document; defaults to the caller repository
         type: string
@@ -71,6 +79,12 @@ on:
         default: ""
         type: string
     secrets:
+      artifact-server-user:
+        description: Optional artifact server login
+        required: false
+      artifact-server-token:
+        description: Optional artifact server token
+        required: false
       gh_app_private_key:
         description: "GitHub App Private Key for inter-repo access (not used in public S-CORE)"
         required: false
@@ -88,16 +102,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
-        # Hint: if condition cannot access secrets, so we pass them via env
-        env:
-          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.gh_app_private_key != '' }}
-          HAS_TOKEN: ${{ secrets.token != '' }}
-        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.gh_app_client_id != '' }}
+      - uses: eclipse-score/cicd-workflows/.github/actions/build-environment@central-workflow
         with:
           token: ${{ secrets.token }}
           github-app-client-id: ${{ inputs.gh_app_client_id }}
           github-app-private-key: ${{ secrets.gh_app_private_key }}
+          artifact-server-url: ${{ inputs.artifact-server-url }}
+          artifact-server-user: ${{ secrets.artifact-server-user }}
+          artifact-server-token: ${{ secrets.artifact-server-token }}
+          profile: docs
 
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
 
@@ -116,18 +129,29 @@ jobs:
           disk-cache-restore: ${{ (inputs.repository != '' || inputs.ref != '') && 'true' || 'auto' }}
           repository-cache-restore: ${{ (inputs.repository != '' || inputs.ref != '') && 'true' || 'auto' }}
 
-      - name: Install Graphviz
-        uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
-        with:
-          packages: graphviz
-          cache: false
-
       - name: Download test report
-        if: inputs.tests-report-artifact != ''
+        if: inputs.tests-report-artifact != '' && inputs.tests-report-artifacts == '[]'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.tests-report-artifact }}
           path: tests-report
+
+      - name: Download selected test reports
+        if: ${{ inputs.tests-report-artifacts != '[]' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ format('@({0})', join(fromJSON(inputs.tests-report-artifacts), '|')) }}
+          path: ${{ runner.temp }}/docs-test-artifacts
+
+      - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
+        if: ${{ inputs.tests-report-artifacts != '[]' }}
+        env:
+          TEST_REPORT_DOWNLOADS: ${{ runner.temp }}/docs-test-artifacts
+          TEST_REPORT_ARTIFACTS: ${{ inputs.tests-report-artifacts }}
+        with:
+          engine: test-reports
+          mode: merge
+          reports: ${{ github.workspace }}/tests-report
 
       - name: Download coverage report
         if: inputs.coverage-report-artifact != ''

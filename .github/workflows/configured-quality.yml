@@ -5,7 +5,30 @@ name: Configured quality checks
 
 on:
   workflow_call:
+    outputs:
+      results:
+        description: Verified quality evidence
+        value: ${{ jobs.verify.outputs.results }}
+      artifacts:
+        description: Report, analysis and SBOM artifact names by profile ID
+        value: ${{ jobs.prepare.outputs.artifacts }}
     inputs:
+      github-app-client-id:
+        description: Optional GitHub App client ID
+        type: string
+        default: ""
+      artifact-server-url:
+        description: Optional HTTPS server for authenticated dependency downloads
+        type: string
+        default: ""
+      qnx-license-server:
+        description: Optional QNX license server
+        type: string
+        default: ""
+      qnx-runner-labels:
+        description: Optional JSON labels for QNX runners; defaults to shared runner selection
+        type: string
+        default: ""
       config:
         description: Checkout-relative module CI configuration
         type: string
@@ -34,10 +57,32 @@ on:
         description: Optional JSON runner labels
         type: string
         default: ""
+    secrets:
+      github-app-private-key:
+        description: Optional GitHub App key
+        required: false
+      token:
+        description: Optional read token
+        required: false
+      artifact-server-user:
+        description: Optional artifact server login
+        required: false
+      artifact-server-token:
+        description: Optional artifact server token
+        required: false
+      qnx-license:
+        description: Optional QNX license
+        required: false
+      qnx-user:
+        description: Optional QNX portal user
+        required: false
+      qnx-password:
+        description: Optional QNX portal password
+        required: false
 
 jobs:
   prepare:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -45,6 +90,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       expected: ${{ steps.plan.outputs.expected }}
       has-checks: ${{ steps.plan.outputs.has-checks }}
+      artifacts: ${{ steps.plan.outputs.artifacts }}
       has-codeql: ${{ steps.plan.outputs.has-codeql }}
       artifact-prefix: ${{ steps.plan.outputs.artifact-prefix }}
       source-commit: ${{ steps.checkout.outputs.commit }}
@@ -76,7 +122,7 @@ jobs:
     name: Quality / ${{ matrix.id }}
     needs: prepare
     if: ${{ needs.prepare.outputs.has-checks == 'true' }}
-    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    runs-on: ${{ matrix.platform.os == 'qnx' && (inputs.qnx-runner-labels && fromJSON(inputs.qnx-runner-labels) || vars.runner_labels_ghub24_large_x64 && fromJSON(vars.runner_labels_ghub24_large_x64)) || inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     timeout-minutes: 120
     permissions:
       contents: read
@@ -92,6 +138,21 @@ jobs:
           ref: ${{ needs.prepare.outputs.source-commit }}
           fetch-depth: 0
           lfs: true
+      - uses: eclipse-score/cicd-workflows/.github/actions/build-environment@central-workflow
+        if: ${{ matrix.id != 'gitlint' }}
+        with:
+          token: ${{ secrets.token }}
+          github-app-client-id: ${{ inputs.github-app-client-id }}
+          github-app-private-key: ${{ secrets.github-app-private-key }}
+          artifact-server-url: ${{ inputs.artifact-server-url }}
+          artifact-server-user: ${{ secrets.artifact-server-user }}
+          artifact-server-token: ${{ secrets.artifact-server-token }}
+          qnx: ${{ matrix.platform.os == 'qnx' }}
+          qnx-license: ${{ secrets.qnx-license }}
+          qnx-user: ${{ secrets.qnx-user }}
+          qnx-password: ${{ secrets.qnx-password }}
+          qnx-license-server: ${{ inputs.qnx-license-server }}
+          profile: ${{ startsWith(matrix.id, 'docs-') && 'docs' || '' }}
       - uses: eclipse-score/cicd-actions/setup-bazel-cache@ee1eb410c572e2a97ae27488f8401887ec331de3
         if: ${{ matrix.id != 'clippy' && matrix.id != 'gitlint' }}
         with:
@@ -99,11 +160,6 @@ jobs:
           disk-cache-restore: 'true'
           repository-cache-restore: 'true'
           report-test-cache-hits: 'false'
-      - uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
-        if: ${{ startsWith(matrix.id, 'docs-') }}
-        with:
-          packages: graphviz
-          cache: false
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         if: ${{ matrix.id == 'clippy' }}
         with:
@@ -163,15 +219,40 @@ jobs:
           path: ${{ runner.temp }}/quality/codeql/linux/analysis_reports/
           retention-days: 30
           if-no-files-found: warn
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && matrix.kind == 'sbom' }}
+        with:
+          name: ${{ needs.prepare.outputs.artifact-prefix }}-sbom-${{ matrix.id }}
+          path: ${{ runner.temp }}/quality/${{ matrix.id }}/sbom/
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && matrix.kind == 'sca' }}
+        with:
+          name: ${{ needs.prepare.outputs.artifact-prefix }}-analysis-${{ matrix.id }}
+          path: ${{ runner.temp }}/quality/${{ matrix.id }}/analysis/
+          retention-days: 30
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && ((matrix.id == 'codeql' && !inputs.fetch-only) || matrix.kind == 'sca') }}
+        with:
+          name: ${{ needs.prepare.outputs.artifact-prefix }}-sarif-${{ matrix.id }}
+          path: |
+            ${{ runner.temp }}/quality/${{ matrix.id }}/publish/*.sarif
+            ${{ runner.temp }}/quality/${{ matrix.id }}/analysis/**/*.sarif
+          retention-days: 30
+          if-no-files-found: warn
 
   verify:
     name: Verify quality checks
     needs: [prepare, checks]
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     timeout-minutes: 10
     permissions:
       contents: read
+    outputs:
+      results: ${{ steps.verify.outputs.results }}
     steps:
       - name: Require preparation and execution
         env:
@@ -189,6 +270,7 @@ jobs:
           pattern: ${{ needs.prepare.outputs.artifact-prefix }}-report-*
           path: ${{ runner.temp }}/quality
       - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
+        id: verify
         if: ${{ needs.prepare.outputs.has-checks == 'true' }}
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -206,7 +288,7 @@ jobs:
     name: Publish CodeQL findings
     needs: [prepare, checks]
     if: ${{ !cancelled() && needs.prepare.outputs.has-codeql == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -217,7 +299,7 @@ jobs:
         id: download
         continue-on-error: true
         with:
-          name: codeql-sarif-results
+          pattern: ${{ needs.prepare.outputs.artifact-prefix }}-sarif-*
           path: ${{ runner.temp }}/sarif
       # Fork PRs may lack code-scanning write permissions. The required gate is
       # the local SARIF finding check, independent of this best-effort upload.
@@ -225,5 +307,5 @@ jobs:
         if: ${{ steps.download.outcome == 'success' }}
         continue-on-error: true
         with:
-          sarif_file: ${{ runner.temp }}/sarif/codeql-nightly.sarif
+          sarif_file: ${{ runner.temp }}/sarif
           category: codeql-nightly

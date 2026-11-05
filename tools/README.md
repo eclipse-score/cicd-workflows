@@ -85,9 +85,10 @@ transfer have not run yet.
   and saves that same directory for its post step.
 - The executor owns its build-event files. Cache setup disables only its test-hit
   reporter, which otherwise supplies a competing build-event destination.
-- Only Linux x86_64 runners are supported. ARM64 build rows cross-compile;
+- Execution uses Linux x86_64 runners. ARM64 build rows cross-compile;
   ARM64 test rows require the explicit QEMU user-mode profile. Emulated passes
-  do not establish native ARM hardware coverage. QNX needs a separate environment.
+  do not establish native ARM hardware coverage. QNX profiles use the shared SDK/VM environment described in
+  [PR checks](../.github/workflows/on-pr.md).
 - Module configs may themselves use module-specific Bazel behavior. The POC
   deliberately offers no arbitrary shell hooks or package-installation options.
 - Schema 1 compatibility covers the implemented tests and LLVM coverage subset.
@@ -144,7 +145,7 @@ setup commands or arbitrary shell hooks are accepted from consumer YAML.
 
 ## Coverage and Docs integration
 
-`configured_coverage.py` owns the two coverage contracts and Docs selection.
+`configured_coverage.py` owns the coverage contracts and Docs selection.
 LLVM coverage preserves the template's `bazel-configs`, `bazel-targets`,
 `justifications-yaml`, `coverage-html-bazel-target`, `coverage-threshold` and
 `generate-artifacts-archive` fields as one object per variant. The SCORE report
@@ -233,11 +234,35 @@ base/head SHAs; a not-applicable report cannot pass PR verification.
 Only the separate SARIF publication job inherits caller write permissions. Fork
 upload failures remain best effort as in the module workflow; unsuppressed finding
 failures remain required. Scheduled CodeQL uses the same configuration and helper,
-with an explicit reporting-only override. QNX keeps its existing secret-bearing
-pull_request_target workflow. New check names require branch-protection review.
+with an explicit reporting-only override. Existing consumers retain their QNX callers until migrated; configured QNX
+profiles now use the shared SDK/VM setup without privileged PR events. New check names require branch-protection review.
 
 Local regression tests cover failure propagation, empty selections, suppression
 policy, source/config mismatches, missing/duplicate reports, command completeness,
 real Gitlint success/failure, sanitizer scope and automatic Docs report selection.
 Remote permissions, CodeQL tool execution and artifact transfers still need a
 GitHub run after review.
+
+
+## Configured PR execution
+
+`on-pr.yml` directly owns configured execution, including
+commit freezing, matrix orchestration, quality verification and Docs handoff.
+`build-environment` consolidates authentication and fixed prerequisite profiles;
+`configured_profiles.py` adapts batch inheritance and literal test controls from the
+source workflow. `gcov_coverage.py` adds the genhtml recipe, and
+`configured_quality.py` adapts its SCA/SBOM execution protocols. Public configuration
+and migration boundaries are documented in [PR checks](../.github/workflows/on-pr.md).
+
+The existing planner/executor/verifier remains authoritative. Do not add a second
+execution path for migrated modules. Batch rows must preserve their own targets;
+analysis-only configurations must not synthesize empty test evidence. Docs merges
+selected test artifacts centrally through `test_reports.py`; differing reports at
+the same package path fail rather than overwriting each other.
+
+Local comparison against the preceding implementation preserves Baselibs and
+Lifecycle commands, coverage policies and Docs selection; platform/prerequisite
+metadata is additive. Regression tests cover QNX selection, batches, test options,
+precheck failures, SCA findings, missing/invalid analysis and SBOM outputs, and Docs
+merge conflicts. These checks establish local contracts, not remote execution of
+the QNX SDK or a module analyzer.

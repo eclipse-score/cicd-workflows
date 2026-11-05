@@ -4,7 +4,8 @@
 repositories. It auto-detects what a repository contains and runs the relevant
 checks — pre-commit, Python tests, Bazel format/copyright, and the Bazel bzlmod
 lockfile checks — as a **single job**. Optional configured Bazel checks run in
-additional matrix jobs when `workflow-config-yaml` is provided.
+additional matrix jobs when `workflow-config-yaml` is provided. The same workflow
+also orchestrates coverage, analysis, SBOM and Docs with shared platform setup.
 
 ## Usage
 
@@ -61,7 +62,7 @@ use named `builds` profiles with `bazel-configs`; `bazel-build-targets` defaults
 
 Each named profile selects one OS and architecture; schema 2 defaults to Linux x86_64. This POC supports Linux x86_64
 builds/tests, Linux aarch64 builds and explicit aarch64 tests under QEMU on
-x86_64 runners. Profile names must be unique across `tests` and `builds`. An optional `name`
+x86_64 runners, plus QNX builds and VM tests with optional SDK credentials. Profile names must be unique across `tests` and `builds`. An optional `name`
 identifies the check within a profile; otherwise it defaults to the test type or `build`.
 Supported test types are `unit`, `component`, `integration`, and `sanitizer`;
 these identify checks and do not install services or change Bazel semantics.
@@ -117,9 +118,9 @@ tests:
 ```
 
 The optional `bazel-test-custom-cli-args` accepts only
-`--test_tag_filters=...` and `--build_tag_filters=...`. Arbitrary flags, shell
+tag filters and the [documented test controls](#test-profiles-and-batches). Arbitrary flags, shell
 hooks and unrecognized fields fail explicitly. The supported schema 1 subset
-accepts `quality-gates.tests` and adapts it to the same execution plan.
+adapts existing test configurations to the same execution plan.
 Unsupported legacy options are errors rather than silently ignored settings.
 
 The existing schema 2 `variants` layout remains supported for advanced callers,
@@ -295,6 +296,141 @@ true`. `fetch-only: true` fetches dependencies without claiming analysis success
 The optional string `fail-on-findings: "false"` overrides the configured failure
 policy for a reporting-only nightly run. The source revision is frozen and all
 quality reports are verified against that revision and the configuration hash.
+
+### Test profiles and batches
+
+The configured build/test contract above continues to apply. Profiles default to Linux x86_64, root workspace and unit tests.
+Only explicitly configured families run. Add batches when one test profile needs
+several independently scheduled selections:
+
+```yaml
+schema-version: 2
+tests:
+  target:
+    os: qnx
+    bazel-configs: target-tests
+    bazel-test-custom-cli-args: --test_timeout=600 --nocache_test_results
+    batches:
+      - batch-name: core
+        bazel-test-targets: //core/...
+      - batch-name: integration
+        bazel-build-targets: //integration:image
+        bazel-test-targets: //integration/...
+```
+
+Batches inherit configs and test options but select their own targets. A parent
+build/test target selection is removed; a batch may explicitly request a build.
+Names must be unique. The resulting row IDs are `target-tests-unit-core` and
+`target-tests-unit-integration`.
+
+`bazel-pre-test-targets` optionally declares Bazel run labels, executed with the
+profile configs after its build and before tests. A failed precheck stops tests.
+It replaces shell pre-test hooks with an explicit Bazel interface.
+
+`bazel-test-custom-cli-args` accepts tag filters, test output mode, test-result
+caching, build-tests-only, runs per test, flaky attempts, positive test timeout
+classes and literal `--test_arg=...` values. Arguments are never evaluated by a
+shell. Flags that replace execution infrastructure or evidence destinations are
+rejected.
+
+QNX builds install the SDK; QNX tests additionally install system VM prerequisites.
+The module config still selects the QNX toolchain and VM test wrapper. Linux ARM64
+tests retain the explicit `execution: qemu-user` profile. Emulation does not prove
+behavior on target hardware.
+
+### GCC/QCC coverage, analysis and SBOM
+
+LLVM and module-orchestrated coverage retain their existing contracts.
+`gcov-coverage` adds GCC/QCC coverage for Linux or QNX in the variants layout:
+
+```yaml
+schema-version: 2
+variants:
+  - name: target
+    os: [{name: qnx}]
+    checks:
+      gcov-coverage:
+        bazel-configs: target-coverage
+        bazel-targets: //core/...
+        coverage-threshold: 80
+```
+
+The central recipe runs Bazel coverage with a combined LCOV report, generates HTML
+with genhtml, checks the line threshold and stages plain LCOV and Cobertura for
+consumers. Available diagnostics are retained on threshold failure.
+
+Named `sca` and `sbom` profiles can run alongside tests or on their own:
+
+```yaml
+schema-version: 2
+sca:
+  native:
+    bazel-target: //analysis:run
+    bazel-configs: native
+    bazel-targets: //core/...
+    reports: [cpp-code-scanning]
+    safety-level: QM
+sbom:
+  native:
+    bazel-target: //:sbom
+    bazel-configs: native
+    cyclonedx: bazel-bin/module.cdx.json
+    spdx: bazel-bin/module.spdx.json
+```
+
+The SCA tool is a module-provided Bazel target implementing the CLI
+`--config=NAME --platform=linux|qnx [--safety-level=QM|ASIL] [--report=NAME] TARGET...`.
+It must produce SARIF under `_sca/`; additional analysis files are retained there.
+This is an explicit tool protocol, not an adapter for any arbitrary analyzer.
+Unsuppressed findings fail by default; `fail-on-findings: false` selects reporting
+only. The existing `codeql` profile keeps its separate module tool protocol.
+
+SBOM profiles build their declared target and validate/stage CycloneDX and/or SPDX
+JSON from declared `bazel-bin/` paths. They do not update lockfiles or publish to
+external services. `quality-results` and `quality-artifacts` expose verified
+outcomes and artifact names by profile ID. Existing `configured-results` and
+`configured-artifacts` continue to describe Bazel build/test/coverage rows.
+
+Docs can select several test rows using `docs.tests: [ROW_ID, ROW_ID]`. The central
+workflow merges their package-relative XML paths and rejects differing reports
+at the same path. Select non-overlapping batches when assembling one Docs input.
+The existing unique-row defaults and explicit empty selectors remain supported.
+
+### Platform credentials and runners
+
+Public modules need no credentials. Private dependencies use the existing
+`github-app-client-id` input plus `github-app-private-key` secret, or a `token`
+secret. All execution families, including analysis and Docs, share this setup.
+
+For authenticated HTTPS dependency downloads, set `artifact-server-url` and pass
+`artifact-server-user` and `artifact-server-token` secrets. The host is selected by
+the caller; there is no organization-specific endpoint in the workflow.
+
+QNX profiles require `qnx-license`, `qnx-user` and `qnx-password` secrets; an optional
+`qnx-license-server` input is forwarded to SDK setup. `qnx-runner-labels` optionally
+selects JSON runner labels. Otherwise the central large-runner variable is used
+when configured, followed by the ordinary runner selection. Missing credentials
+fail setup. A fork without those credentials cannot execute QNX profiles.
+Privileged `pull_request_target` calls are rejected.
+
+### Migration boundaries
+
+`on-pr.yml` owns configured execution, shared setup, verification and report
+handoff across tests, coverage, analysis and documentation. Organization-specific
+report assembly and publication can consume its outputs separately.
+
+Existing module configurations continue to work. Older source configurations need
+an explicit migration: runner selection and credentials belong on the reusable
+call; central profiles own installed prerequisites; shell hooks become Bazel
+prechecks; analysis and SBOM use the named profiles above. Unknown fields fail
+preparation, including obsolete publication and package-installation options.
+The supported schema 1 subset is not a drop-in replacement for the entire source
+schema.
+
+Local validation covers configuration compatibility, command/evidence contracts,
+report failures and real genhtml execution. QNX SDK/VM execution, analysis tool
+compatibility, GitHub permissions and artifact transfers still require remote
+validation. Helper/workflow references must be pinned together before release.
 
 ## Private Bazel dependencies
 
@@ -503,3 +639,9 @@ The `check-results` output is a JSON object containing the checked-out `commit`
 and a `checks` map with `pre-commit`, `python-tests`, `format`, `copyright`,
 `require-lock`, `module-tidy` and `lockfile` step outcomes. A skipped check is
 reported as `skipped`. Failed checks still fail the workflow.
+
+
+LLVM coverage can optionally set `coverage-html-bazel-configs` to a comma-separated
+list of build configs for its HTML/report target. It defaults to no extra configs:
+Bazel rc configs defined only under `coverage:` cannot be reused by `bazel run`.
+Use this override when the module report target needs a configured build toolchain.

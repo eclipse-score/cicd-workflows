@@ -86,11 +86,13 @@ def plan(workspace, document, digest, *, only_codeql=False, fetch_only=False, fa
                 raise ValueError('Invalid fail-on-findings override')
             options['fail-on-findings'] = fail_override == 'true'
         rows.append({'id': 'codeql', **options, 'fetch-only': fetch_only})
+    rows.extend(additional_profiles(workspace, document))
     if only_codeql:
         rows = [row for row in rows if row['id'] == 'codeql']
         if not rows:
             raise ValueError('No CodeQL profile configured')
-    return [{**row, 'config-sha256': digest} for row in rows]
+    return [{'platform': {'os': 'linux', 'architecture': 'x86_64'}, **row,
+             'config-sha256': digest} for row in rows]
 
 
 def load_plan(workspace, config):
@@ -121,6 +123,17 @@ def recipes(row, destination, *, targets=(), policy='', base='', head=''):
     if row['id'] == 'gitlint':
         return [['git', 'rev-list', f'{base}..{head}'],
                 ['gitlint', '--config', policy, '--commits', f'{base}..{head}']]
+    if row.get('kind') == 'sbom':
+        return [['bazel', 'build', '--lockfile_mode=error',
+                 *[f'--config={c}' for c in row['bazel-configs']], '--', row['bazel-target']]]
+    if row.get('kind') == 'sca':
+        args = [f'--config={c}' for c in row['bazel-configs']]
+        args += [f'--platform={row["platform"]["os"]}']
+        if row.get('safety-level'):
+            args.append(f'--safety-level={row["safety-level"]}')
+        args += [f'--report={r}' for r in row['reports']]
+        environment = ['--action_env=QNX_HOST', '--action_env=QNX_TARGET'] if row['platform']['os'] == 'qnx' else []
+        return [['bazel', 'run', '--lockfile_mode=error', *environment, row['bazel-target'], '--', *args, *row['bazel-targets']]]
     flags = ['--lockfile_mode=error', *[f'--config={c}' for c in row['bazel-configs']]]
     if row['fetch-only']:
         return [['bazel', 'build', *flags, '--nobuild', '//...']]
@@ -228,6 +241,8 @@ def execute(workspace, row, reports):
             run(lint)
             report.update({'policy-sha256': hashlib.sha256(policy.read_bytes()).hexdigest(),
                            'commits': revisions, 'base': base, 'head': head})
+        elif row.get('kind') in ('sbom', 'sca'):
+            execute_additional(workspace, row, destination, report, run)
         elif row['id'] == 'codeql':
             commands = recipes(row, destination)
             if row['fetch-only']:
@@ -296,6 +311,16 @@ def verify(expected, reports, source_commit):
             count = 1 if row['id'].startswith('docs-') else 2
             if sum(type(c.get('evidence-count')) is int and c['evidence-count'] > 0 for c in commands) != count:
                 raise ValueError('Missing Bazel analysis evidence')
+        if row.get('kind') in ('sbom', 'sca'):
+            if len(commands) != 1 or commands[0].get('evidence-count', 0) < 1:
+                raise ValueError('Missing SBOM/SCA Bazel evidence')
+            if row['kind'] == 'sbom' and report.get('formats') != sorted(row['outputs']):
+                raise ValueError('Missing SBOM format evidence')
+            if row['kind'] == 'sca':
+                count = report.get('unsuppressed-findings')
+                if (not report.get('sarif-files') or type(count) is not int or count < 0 or
+                        (row['fail-on-findings'] and count)):
+                    raise ValueError('Missing SCA report evidence or unsuppressed findings')
         if row['id'] == 'clippy' and (type(report.get('workspace-artifacts')) is not int or report['workspace-artifacts'] < 1):
             raise ValueError('Missing Clippy workspace evidence')
         if row['id'] == 'gitlint' and (not report.get('commits') or not report.get('policy-sha256') or
@@ -308,6 +333,102 @@ def verify(expected, reports, source_commit):
                 raise ValueError('Missing SARIF evidence or unsuppressed findings')
     return {'commit': source_commit, 'jobs': actual}
 
+
+
+def additional_profiles(workspace, document):
+    """Port SCA/SBOM job selection without organization-specific publication."""
+    from configured_checks import NAME
+    rows = []
+    for kind in ('sca', 'sbom'):
+        if kind not in document:
+            continue
+        profiles = document[kind]
+        if not isinstance(profiles, dict) or not profiles:
+            raise ValueError(f'{kind}: expected named profiles')
+        for name, entry in profiles.items():
+            if not isinstance(name, str) or not NAME.fullmatch(name):
+                raise ValueError(f'{kind}: invalid profile name')
+            common = {'bazel-target', 'bazel-configs', 'os', 'architecture'}
+            fields(entry, common | ({'bazel-targets', 'reports', 'safety-level', 'fail-on-findings'}
+                                   if kind == 'sca' else {'cyclonedx', 'spdx'}),
+                   {'bazel-target', 'bazel-configs'} | ({'bazel-targets'} if kind == 'sca' else set()), kind)
+            configs = entry['bazel-configs']
+            if not isinstance(configs, str) or not all(CONFIG.fullmatch(c.strip()) for c in configs.split(',')):
+                raise ValueError(f'{kind}.bazel-configs: expected nonempty config names')
+            platform = {'os': entry.get('os', 'linux'), 'architecture': entry.get('architecture', 'x86_64')}
+            if platform['os'] not in ('linux', 'qnx') or platform['architecture'] not in ('x86_64', 'aarch64'):
+                raise ValueError(f'{kind}: unsupported platform')
+            if not all((workspace / f).is_file() for f in ('MODULE.bazel', 'MODULE.bazel.lock')):
+                raise ValueError(f'{kind} requires MODULE.bazel and its lockfile')
+            row = {'id': f'{kind}-{name}', 'kind': kind, 'platform': platform,
+                   'bazel-target': label(entry['bazel-target'], kind),
+                   'bazel-configs': [c.strip() for c in configs.split(',')]}
+            if kind == 'sbom':
+                outputs = {key: entry[key] for key in ('cyclonedx', 'spdx') if key in entry}
+                if not outputs:
+                    raise ValueError('sbom: declare cyclonedx and/or spdx output paths')
+                # bazel-bin is a generated symlink outside the checkout. Validate
+                # its lexical suffix here, and resolve it only after the build.
+                for value in outputs.values():
+                    if (not isinstance(value, str) or not value.startswith('bazel-bin/') or
+                            any(part in ('..', '') for part in value.split('/')) or not value.endswith('.json')):
+                        raise ValueError('SBOM output must be a bazel-bin/*.json path without traversal')
+                row['outputs'] = outputs
+            else:
+                reports = entry.get('reports', [])
+                if not isinstance(reports, list) or any(not isinstance(r, str) or not CONFIG.fullmatch(r) for r in reports):
+                    raise ValueError('sca.reports: expected report names')
+                safety = entry.get('safety-level', '')
+                if safety not in ('', 'QM', 'ASIL'):
+                    raise ValueError('sca.safety-level: expected QM or ASIL')
+                fail = entry.get('fail-on-findings', True)
+                if type(fail) is not bool:
+                    raise ValueError('sca.fail-on-findings: expected boolean')
+                row.update({'bazel-targets': words(entry['bazel-targets'], TARGET, 'sca.bazel-targets'),
+                            'reports': reports, 'safety-level': safety, 'fail-on-findings': fail})
+            rows.append(row)
+    return rows
+
+
+def execute_additional(workspace, row, destination, report, run):
+    """Keep module tools behind Bazel targets and retain their real output files."""
+    if row['kind'] == 'sbom':
+        run(recipes(row, destination)[0], bazel=True)
+        staged = destination / 'sbom'
+        staged.mkdir()
+        for format_name, value in row['outputs'].items():
+            source = workspace / value
+            document = json.loads(source.read_text())
+            if not isinstance(document, dict):
+                raise ValueError(f'Invalid {format_name} SBOM document')
+            if format_name == 'cyclonedx':
+                valid = document.get('bomFormat') == 'CycloneDX' and document.get('specVersion')
+            else:
+                valid = str(document.get('spdxVersion', '')).startswith('SPDX-') and document.get('SPDXID')
+            if not valid:
+                raise ValueError(f'Invalid {format_name} SBOM document')
+            shutil.copyfile(source, staged / f'{format_name}.json')
+        report['formats'] = sorted(row['outputs'])
+    else:
+        source = workspace / '_sca'
+        # Reports from an earlier invocation cannot satisfy this analysis.
+        if source.exists():
+            if source.is_symlink():
+                raise ValueError('SCA output directory must not be a symlink')
+            shutil.rmtree(source)
+        try:
+            run(recipes(row, destination)[0], bazel=True)
+            files = sorted(source.rglob('*.sarif'))
+            if not files:
+                raise ValueError('SCA did not produce SARIF reports')
+            count = sum(len(findings(path)) for path in files)
+            report.update({'sarif-files': [p.relative_to(source).as_posix() for p in files],
+                           'unsuppressed-findings': count})
+            if row['fail-on-findings'] and count:
+                raise ValueError(f'SCA reported {count} unsuppressed finding(s)')
+        finally:
+            if source.is_dir():
+                shutil.copytree(source, destination / 'analysis', dirs_exist_ok=True)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -324,8 +445,13 @@ def main():
             output('matrix', json.dumps({'include': rows}, separators=(',', ':')))
             output('expected', json.dumps(rows, separators=(',', ':')))
             output('has-checks', 'true' if rows else 'false')
-            output('has-codeql', 'true' if any(r['id'] == 'codeql' and not r['fetch-only'] for r in rows) else 'false')
-            output('artifact-prefix', 'quality-' + uuid.uuid4().hex)
+            output('has-codeql', 'true' if any((r['id'] == 'codeql' and not r['fetch-only']) or r.get('kind') == 'sca' for r in rows) else 'false')
+            prefix = 'quality-' + uuid.uuid4().hex
+            output('artifact-prefix', prefix)
+            output('artifacts', json.dumps({r['id']: {'report': f'{prefix}-report-{r["id"]}',
+                   **({'sbom': f'{prefix}-sbom-{r["id"]}'} if r.get('kind') == 'sbom' else {}),
+                   **({'analysis': f'{prefix}-analysis-{r["id"]}'} if r.get('kind') == 'sca' else {})}
+                   for r in rows}, separators=(',', ':')))
             print(json.dumps(rows, indent=2))
         else:
             row = next(r for r in rows if r['id'] == os.environ['JOB_ID'])

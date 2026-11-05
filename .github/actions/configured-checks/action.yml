@@ -7,7 +7,7 @@ name: Configured CI checks
 description: Plan, execute or verify configured Bazel and typed quality checks
 inputs:
   engine:
-    description: Typed execution engine (bazel or quality)
+    description: Typed execution engine (bazel, quality or test-reports)
     default: bazel
   mode:
     description: Operation to perform (plan, run or verify)
@@ -32,7 +32,7 @@ inputs:
     default: ""
 outputs:
   has-checks:
-    description: Whether the quality plan contains checks
+    description: Whether the selected plan contains checks
     value: ${{ steps.execute.outputs.has-checks }}
   has-codeql:
     description: Whether the quality plan contains SARIF analysis
@@ -85,6 +85,7 @@ runs:
         case "$ENGINE" in
           bazel) implementation=configured_checks.py ;;
           quality) implementation=configured_quality.py ;;
+          test-reports) implementation=test_reports.py ;;
           *) echo "Unknown configured engine: $ENGINE" >&2; exit 1 ;;
         esac
         project="$(realpath "$ACTION_DIRECTORY/../../..")"

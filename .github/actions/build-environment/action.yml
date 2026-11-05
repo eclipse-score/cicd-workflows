@@ -1,0 +1,145 @@
+# Copyright (c) 2026 ETAS GmbH and Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Shared PR job setup. Credentials are optional for public
+# builds and use the same contract in tests, coverage, analysis and Docs.
+name: Prepare build environment
+description: Configure private dependencies and platform prerequisites centrally
+inputs:
+  token:
+    description: Optional read token for private GitHub dependencies
+    default: ""
+  github-app-client-id:
+    description: Optional GitHub App client ID
+    default: ""
+  github-app-private-key:
+    description: Optional GitHub App private key
+    default: ""
+  artifact-server-url:
+    description: Optional HTTPS server for authenticated Bazel downloads
+    default: ""
+  artifact-server-user:
+    description: Artifact server login
+    default: ""
+  artifact-server-token:
+    description: Artifact server token
+    default: ""
+  qnx:
+    description: Whether the selected toolchain requires QNX setup
+    default: "false"
+  qnx-license:
+    description: QNX license
+    default: ""
+  qnx-user:
+    description: QNX portal user
+    default: ""
+  qnx-password:
+    description: QNX portal password
+    default: ""
+  qnx-license-server:
+    description: Optional QNX license server
+    default: ""
+  execution:
+    description: native, qemu-user or qnx-vm
+    default: native
+  architecture:
+    description: Target architecture
+    default: x86_64
+  profile:
+    description: Optional central prerequisite profile (docs, gcov-coverage or llvm-coverage)
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90
+      env:
+        HAS_KEY: ${{ inputs.github-app-private-key != '' }}
+        HAS_TOKEN: ${{ inputs.token != '' }}
+      if: ${{ env.HAS_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.github-app-client-id != '' }}
+      with:
+        token: ${{ inputs.token }}
+        github-app-client-id: ${{ inputs.github-app-client-id }}
+        github-app-private-key: ${{ inputs.github-app-private-key }}
+
+    - name: Validate requested prerequisites
+      id: prerequisites
+      shell: python
+      env:
+        SERVER_URL: ${{ inputs.artifact-server-url }}
+        SERVER_USER: ${{ inputs.artifact-server-user }}
+        SERVER_TOKEN: ${{ inputs.artifact-server-token }}
+        QNX: ${{ inputs.qnx }}
+        QNX_LICENSE: ${{ inputs.qnx-license }}
+        QNX_USER: ${{ inputs.qnx-user }}
+        QNX_PASSWORD: ${{ inputs.qnx-password }}
+        EXECUTION: ${{ inputs.execution }}
+        ARCHITECTURE: ${{ inputs.architecture }}
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        import os
+        import re
+        from urllib.parse import urlsplit
+
+        server = os.environ['SERVER_URL']
+        host = ''
+        if server:
+            parsed = urlsplit(server)
+            if (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
+                    or not re.fullmatch(r'[A-Za-z0-9.-]+', parsed.hostname)):
+                raise SystemExit('artifact-server-url requires an HTTPS URL without embedded credentials')
+            if not os.environ['SERVER_USER'] or not os.environ['SERVER_TOKEN']:
+                raise SystemExit('Artifact server access requires user and token secrets')
+            host = parsed.hostname
+        if os.environ['QNX'] == 'true':
+            for name in ('QNX_LICENSE', 'QNX_USER', 'QNX_PASSWORD'):
+                if not os.environ[name]:
+                    raise SystemExit(f'QNX setup requires {name}')
+        packages = set()
+        execution = os.environ['EXECUTION']
+        if execution == 'qemu-user':
+            packages.add('qemu-user')
+        elif execution == 'qnx-vm':
+            packages.update(('qemu-system-arm', 'qemu-system-x86', 'qemu-utils', 'openssh-client'))
+            if os.environ['ARCHITECTURE'] == 'aarch64':
+                packages.add('ipxe-qemu')
+        elif execution != 'native':
+            raise SystemExit('Unsupported execution profile')
+        profile = os.environ['PROFILE']
+        if profile == 'docs':
+            packages.add('graphviz')
+        elif profile == 'gcov-coverage':
+            packages.add('lcov')
+        elif profile == 'llvm-coverage':
+            packages.update(('clang', 'llvm'))
+        elif profile:
+            raise SystemExit('Unsupported prerequisite profile')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write(f'host={host}\npackages={" ".join(sorted(packages))}\n')
+
+    # Same netrc integration as the source workflow, with a caller-selected host.
+    - uses: extractions/netrc@c3879108aae6b4ed5c4eb60854ae04f06d2f2f68 # v3.0.0
+      if: ${{ steps.prerequisites.outputs.host != '' }}
+      with:
+        machine: ${{ steps.prerequisites.outputs.host }}
+        username: ${{ inputs.artifact-server-user }}
+        password: ${{ inputs.artifact-server-token }}
+
+    - uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
+      if: ${{ steps.prerequisites.outputs.packages != '' }}
+      with:
+        packages: ${{ steps.prerequisites.outputs.packages }}
+        cache: false
+
+    - uses: eclipse-score/cicd-actions/setup-qnx-sdp@a2b3c36fc7d1b9d03880d19935c7ac9cfffe58c6
+      if: ${{ inputs.qnx == 'true' }}
+      with:
+        qnx-license: ${{ inputs.qnx-license }}
+        qnx-user: ${{ inputs.qnx-user }}
+        qnx-password: ${{ inputs.qnx-password }}
+        qnx-license-server: ${{ inputs.qnx-license-server }}
+
+    - name: Install ARM VM ROM location
+      if: ${{ inputs.execution == 'qnx-vm' && inputs.architecture == 'aarch64' }}
+      shell: bash
+      run: sudo ln -sf /usr/lib/ipxe/qemu/efi-virtio.rom /usr/share/qemu/efi-virtio.rom

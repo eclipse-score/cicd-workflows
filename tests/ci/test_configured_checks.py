@@ -637,3 +637,17 @@ def test_compact_module_coverage_without_tests_still_requires_reports(workspace)
     assert row['commands'] == [['bazel', 'run', '--lockfile_mode=error', '//quality:coverage', '--']]
     assert row['coverage']['output-directory'] == 'coverage_artifacts'
     assert not row['has-tests']
+
+
+def test_llvm_report_can_select_build_configs_without_reusing_coverage_only_configs(workspace, coverage_document):
+    gate = coverage_document['variants'][0]['checks']['llvm-coverage']
+    before = next(row for row in plan(workspace, write_config(workspace, coverage_document)) if 'coverage' in row)
+    assert '--config=llvm_cov' not in before['commands'][1]
+    gate['coverage-html-bazel-configs'] = 'native,report-tools'
+    after = next(row for row in plan(workspace, write_config(workspace, coverage_document)) if 'coverage' in row)
+    assert after['commands'][0] == before['commands'][0]
+    assert '--config=native' in after['commands'][1]
+    assert '--config=report-tools' in after['commands'][1]
+    gate['coverage-html-bazel-configs'] = '--remote_executor=elsewhere'
+    with pytest.raises(ValueError, match='coverage-html-bazel-configs'):
+        plan(workspace, write_config(workspace, coverage_document))

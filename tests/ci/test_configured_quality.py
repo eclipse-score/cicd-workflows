@@ -255,7 +255,7 @@ def test_real_gitlint_checks_frozen_pr_head_without_synthetic_merge(workspace, d
 
 
 @pytest.mark.parametrize('identity', ['clippy', 'docs-check', 'codeql'])
-def test_tool_failures_fail_the_quality_gate(workspace, document, runner, tmp_path, identity):
+def test_tool_failures_fail_configured_checks(workspace, document, runner, tmp_path, identity):
     runner['exit'] = 2
     row = selected(workspace, document, identity)
     assert quality.execute(workspace, row, tmp_path) == 1

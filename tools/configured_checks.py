@@ -24,6 +24,8 @@ from configured_coverage import coverage_row, collect_coverage, check_scope, doc
 
 import yaml
 
+from configured_profiles import expand_batches, platform_profile, test_arguments
+
 
 NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,63}')
 CONFIG = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.+-]*')
@@ -89,10 +91,12 @@ def normalize(document):
     for callers using the existing variants layout. The two layouts cannot be
     mixed, since that would create two sources of truth for the same profiles.
     """
-    compact = {'tests', 'builds', 'llvm-coverage', 'coverage'}
-    if not isinstance(document, dict) or not compact.intersection(document):
+    compact = {'tests', 'builds', 'llvm-coverage', 'gcov-coverage', 'coverage'}
+    if not isinstance(document, dict) or not (compact | {'sca', 'sbom', 'clippy', 'gitlint', 'docs', 'codeql'}).intersection(document) or 'variants' in document:
+        if isinstance(document, dict) and 'variants' in document and compact.intersection(document):
+            raise ValueError('Do not mix variants with compact profiles')
         return document
-    fields(document, compact | {'schema-version', 'docs', 'clippy', 'codeql', 'gitlint'}, {'schema-version'}, '$')
+    fields(document, compact | {'schema-version', 'docs', 'clippy', 'codeql', 'gitlint', 'sca', 'sbom'}, {'schema-version'}, '$')
     if type(document['schema-version']) is not int or document['schema-version'] != 2:
         raise ValueError('The compact layout requires schema-version: 2')
     variants = []
@@ -117,7 +121,7 @@ def normalize(document):
             # The public layout puts execution options beside the Bazel config.
             # The normalized legacy layout retains workflow-config internally.
             options = {key: entry.pop(key) for key in
-                       ('working-directory', 'execution', 'bazel-test-custom-cli-args') if key in entry}
+                       ('working-directory', 'execution', 'bazel-test-custom-cli-args', 'batches') if key in entry}
             if 'workflow-config' in entry:
                 raise ValueError(f'{family}.{name}: place execution options directly in the profile')
             if options:
@@ -131,7 +135,7 @@ def normalize(document):
               and variant.get('os', [{'name': 'linux'}]) == [{'name': 'linux'}]
               and next(iter(variant['checks'].values()))[0].get('workflow-config', {}).get('working-directory', '.') == '.'
               and next(iter(variant['checks'].values()))[0].get('test-type', 'unit') == 'unit']
-    for family in ('llvm-coverage', 'coverage'):
+    for family in ('llvm-coverage', 'gcov-coverage', 'coverage'):
         if family not in document:
             continue
         entry = document[family]
@@ -151,7 +155,7 @@ def normalize(document):
             names.add(family)
             variants.append({'name': family, 'checks': {family: entry}})
     return {'schema-version': 2, 'variants': variants,
-            **{key: document[key] for key in ('docs', 'clippy', 'codeql', 'gitlint') if key in document}}
+            **{key: document[key] for key in ('docs', 'clippy', 'codeql', 'gitlint', 'sca', 'sbom') if key in document}}
 
 
 def plan(workspace, config):
@@ -160,26 +164,27 @@ def plan(workspace, config):
     source = inside(workspace, config)
     content = source.read_text(encoding='utf-8')
     document = normalize(yaml.load(content, Loader=Loader))
-    fields(document, {'schema-version', 'variants', 'docs', 'clippy', 'codeql', 'gitlint'}, {'schema-version', 'variants'}, '$')
+    fields(document, {'schema-version', 'variants', 'docs', 'clippy', 'codeql', 'gitlint', 'sca', 'sbom'}, {'schema-version', 'variants'}, '$')
     version = document['schema-version']
     if type(version) is not int or version not in (1, 2):
         raise ValueError('schema-version: expected 1 or 2')
     variants = document['variants']
-    if not isinstance(variants, list) or not variants:
-        raise ValueError('variants: expected a nonempty list')
+    if not isinstance(variants, list):
+        raise ValueError('variants: expected a list')
 
     # The hash records the actual local/checked-out configuration, including
     # uncommitted POC edits. The commit alone cannot identify a local trial.
     digest = hashlib.sha256(content.encode()).hexdigest()
     rows, variant_names = [], set()
-    gate_key = 'quality-gates' if version == 1 else 'checks'
+    # Retain the schema 1 key only for existing caller configurations.
+    checks_key = 'quality-gates' if version == 1 else 'checks'
 
     # Each variant describes one platform, with native Linux as the default.
     # Dimensions never produce an implicit Cartesian product.
     for index, variant in enumerate(variants):
         path = f'variants[{index}]'
-        fields(variant, {'name', 'architecture', 'os', gate_key},
-               ({'name', 'architecture', 'os', gate_key} if version == 1 else {'name', gate_key}), path)
+        fields(variant, {'name', 'architecture', 'os', checks_key},
+               ({'name', 'architecture', 'os', checks_key} if version == 1 else {'name', checks_key}), path)
         name = variant['name']
         if not isinstance(name, str) or not NAME.fullmatch(name) or name in variant_names:
             raise ValueError(f'{path}.name: invalid or duplicate name')
@@ -191,23 +196,23 @@ def plan(workspace, config):
                 raise ValueError(f'{path}.{dimension}: expected exactly one named value')
             fields(value[0], {'name'}, {'name'}, f'{path}.{dimension}')
             platform[dimension] = value[0]['name']
-        if platform['os'] != 'linux' or platform['architecture'] not in ('x86_64', 'aarch64'):
-            raise ValueError(f'{path}: POC supports Linux x86_64 and aarch64 builds only')
+        platform_profile(platform, 'builds', {})
 
-        families = variant[gate_key]
-        fields(families, {'tests', 'llvm-coverage'} if version == 1 else
-               {'builds', 'tests', 'llvm-coverage', 'coverage'}, set(), f'{path}.{gate_key}')
+        families = variant[checks_key]
+        fields(families, {'tests', 'llvm-coverage', 'gcov-coverage'} if version == 1 else
+               {'builds', 'tests', 'llvm-coverage', 'gcov-coverage', 'coverage'}, set(), f'{path}.{checks_key}')
         if not families:
-            raise ValueError(f'{path}.{gate_key}: no jobs configured')
+            raise ValueError(f'{path}.{checks_key}: no jobs configured')
         for family, entries in families.items():
-            if family in ('llvm-coverage', 'coverage'):
+            if family in ('llvm-coverage', 'gcov-coverage', 'coverage'):
                 rows.append(coverage_row(workspace, entries, family, name, platform, digest))
                 continue
             if not isinstance(entries, list) or not entries:
                 raise ValueError(f'{path}.{family}: expected a nonempty list')
+            entries = expand_batches(entries, f'{path}.{family}')
             for offset, entry in enumerate(entries):
-                where = f'{path}.{gate_key}.{family}[{offset}]'
-                allowed = {'bazel-configs', 'bazel-build-targets', 'workflow-config'}
+                where = f'{path}.{checks_key}.{family}[{offset}]'
+                allowed = {'name', 'bazel-configs', 'bazel-build-targets', 'bazel-pre-test-targets', 'workflow-config'}
                 required = {'bazel-configs'}
                 if version == 2:
                     allowed.add('name')
@@ -244,11 +249,7 @@ def plan(workspace, config):
                 # Execution profiles describe runner requirements, not arbitrary
                 # hooks. The QEMU profile installs user-mode emulation centrally;
                 # Bazel configs still select the toolchain and run_under wrapper.
-                execution = options.get('execution', 'native')
-                if execution not in ('native', 'qemu-user'):
-                    raise ValueError(f'{where}: execution must be native or qemu-user')
-                if execution == 'qemu-user' and (platform['architecture'] != 'aarch64' or family != 'tests'):
-                    raise ValueError(f'{where}: qemu-user requires Linux aarch64 tests')
+                execution = platform_profile(platform, family, options)
                 if not (directory / 'MODULE.bazel').is_file() or not (directory / 'MODULE.bazel.lock').is_file():
                     raise ValueError(f'{where}: configured builds require MODULE.bazel and its lockfile')
 
@@ -264,7 +265,7 @@ def plan(workspace, config):
                 if family == 'tests':
                     if not isinstance(kind, str) or kind not in TYPES:
                         raise ValueError(f'{where}: tests need a supported type')
-                    if platform['architecture'] != 'x86_64' and execution != 'qemu-user':
+                    if platform['os'] == 'linux' and platform['architecture'] != 'x86_64' and execution != 'qemu-user':
                         raise ValueError(f'{where}: tests need native x86_64 or explicit qemu-user execution')
                 job_name = entry.get('name', kind)
                 if not isinstance(job_name, str) or not NAME.fullmatch(job_name):
@@ -280,13 +281,13 @@ def plan(workspace, config):
                 if 'bazel-build-targets' in entry:
                     targets = words(entry['bazel-build-targets'], TARGET, f'{where}.bazel-build-targets')
                     commands.append(['bazel', 'build', *flags, '--', *targets])
+                if 'bazel-pre-test-targets' in entry:
+                    from configured_coverage import label
+                    for target in words(entry['bazel-pre-test-targets'], TARGET, where):
+                        commands.append(['bazel', 'run', *flags, label(target, where), '--'])
                 if family == 'tests':
                     raw = options.get('bazel-test-custom-cli-args', '')
-                    if not isinstance(raw, str):
-                        raise ValueError(f'{where}: test CLI arguments must be a string')
-                    extra = shlex.split(raw)
-                    if any(not re.fullmatch(r'--(?:test|build)_tag_filters=[A-Za-z0-9_,+.-]+', value) for value in extra):
-                        raise ValueError(f'{where}: POC supports tag-filter arguments only')
+                    extra = test_arguments(raw, where)
                     # Emulation is slower than native execution. Keep this
                     # timeout policy in the shared profile, not in every caller.
                     if execution == 'qemu-user':
@@ -297,16 +298,18 @@ def plan(workspace, config):
                     raise ValueError(f'{where}: test arguments on a build-only job')
                 rows.append({'id': identity, 'config-sha256': digest,
                              'working-directory': directory.relative_to(workspace).as_posix(),
-                             'execution': execution, 'has-tests': family == 'tests', 'test-type': kind, 'commands': commands})
-    if not 1 <= len(rows) <= 256:
-        raise ValueError('Expected between 1 and 256 configured jobs')
+                             'execution': execution, 'has-tests': family == 'tests', 'test-type': kind, 'platform': platform, 'commands': commands})
+    if len(rows) > 256:
+        raise ValueError('Expected at most 256 configured jobs')
     names = [row['coverage']['artifact-name'] for row in rows
              if row.get('coverage', {}).get('artifact-name')]
     if len(names) != len(set(names)):
         raise ValueError('Coverage artifact names must be unique within a plan')
     docs_plan(workspace, document.get('docs'), rows)
     from configured_quality import plan as quality_plan
-    quality_plan(workspace, document, digest)
+    quality_rows = quality_plan(workspace, document, digest)
+    if not rows and not quality_rows and document.get('docs') is None:
+        raise ValueError('No configured checks or documentation build')
     return rows
 
 
@@ -372,12 +375,22 @@ def execute(workspace, config, job_id, reports):
             observed['outcome'] = 'success'
         # Threshold failures can still produce useful HTML and LCOV. Stage
         # those reports while retaining the failed command as gate evidence.
+        if row.get('coverage', {}).get('kind') == 'gcov-coverage' and success:
+            from gcov_coverage import generate
+            generate(directory, directory / row['coverage']['output-directory'], row['coverage']['threshold'])
         if 'coverage' in row:
             collect_coverage(directory, destination / 'coverage', row['coverage'])
             report['coverage'] = row['coverage']
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         report['error'] = str(error)
         success = False
+        if 'coverage' in row:
+            # Threshold failures still retain useful diagnostics. A collected
+            # report does not turn the failed matrix job into a successful gate.
+            try:
+                collect_coverage(directory, destination / 'coverage', row['coverage'])
+            except (OSError, ValueError):
+                pass
     finally:
         # Keep the report outside the consumer checkout. Uploading it on failure
         # lets the parent verify missing/skipped commands rather than trusting a
@@ -478,6 +491,7 @@ def main():
     if args.mode == 'plan':
         rows = plan(args.workspace, args.config)
         output('matrix', json.dumps({'include': rows}, separators=(',', ':')))
+        output('has-checks', 'true' if rows else 'false')
         output('expected', json.dumps(rows, separators=(',', ':')))
         prefix = f'configured-{uuid.uuid4().hex}'
         output('artifact-prefix', prefix)
@@ -487,7 +501,8 @@ def main():
         docs = docs_plan(args.workspace.resolve(), document.get('docs'), rows)
         if docs:
             tests, coverage = docs.pop('tests'), docs.pop('coverage')
-            docs['tests-artifact'] = artifacts[tests]['testlogs'] if tests else ''
+            docs['tests-artifact'] = artifacts[tests]['testlogs'] if tests and isinstance(tests, str) else ''
+            docs['tests-artifacts'] = [artifacts[row]['testlogs'] for row in tests] if isinstance(tests, list) else []
             docs['coverage-artifact'] = artifacts[coverage]['coverage'] if coverage else ''
         output('docs', json.dumps(docs, separators=(',', ':')))
         print(json.dumps(rows, indent=2))

@@ -47,14 +47,14 @@ def retention(value):
 def coverage_row(workspace, entry, family, name, platform, digest):
     """Keep the LLVM template fields; permit a module Bazel orchestrator separately."""
     from configured_checks import CONFIG, DEFAULT_FLAGS, TARGET, fields, inside, words
-    if platform != {'os': 'linux', 'architecture': 'x86_64'}:
-        raise ValueError('Coverage requires native Linux x86_64')
+    if family != 'gcov-coverage' and platform != {'os': 'linux', 'architecture': 'x86_64'}:
+        raise ValueError('LLVM/module coverage requires native Linux x86_64')
     common = {'coverage-threshold', 'workflow-config'}
     llvm = {'bazel-configs', 'bazel-targets', 'justifications-yaml',
-            'coverage-html-bazel-target', 'generate-artifacts-archive',
+            'coverage-html-bazel-target', 'coverage-html-bazel-configs', 'generate-artifacts-archive',
             'testlogs-subdir', 'scope-check'}
-    required = set() if family == 'llvm-coverage' else {'bazel-target'}
-    fields(entry, common | (llvm if family == 'llvm-coverage' else {'bazel-target', 'output-directory'}), required, family)
+    required = set() if family == 'llvm-coverage' else ({'bazel-configs', 'bazel-targets'} if family == 'gcov-coverage' else {'bazel-target'})
+    fields(entry, common | (llvm if family == 'llvm-coverage' else ({'bazel-configs', 'bazel-targets'} if family == 'gcov-coverage' else {'bazel-target', 'output-directory'})), required, family)
     entry = {**(LLVM_DEFAULTS if family == 'llvm-coverage' else {'output-directory': 'coverage_artifacts'}), **entry}
     options = entry.get('workflow-config', {})
     fields(options, {'working-directory', 'artifact-name', 'retention-days'}, set(), f'{family}.workflow-config')
@@ -69,7 +69,17 @@ def coverage_row(workspace, entry, family, name, platform, digest):
         raise ValueError('artifact-name: expected a simple name with optional {repository}')
     metadata = {'threshold': threshold, 'artifact-name': artifact,
                 'retention-days': retention(options.get('retention-days', 10))}
-    if family == 'coverage':
+    if family == 'gcov-coverage':
+        from configured_checks import CONFIG
+        configs = entry['bazel-configs']
+        if not isinstance(configs, str) or not all(CONFIG.fullmatch(c.strip()) for c in configs.split(',')):
+            raise ValueError('bazel-configs: expected nonempty config names')
+        metadata['output-directory'] = 'coverage-report'
+        metadata['kind'] = 'gcov-coverage'
+        flags = [*DEFAULT_FLAGS, *[f'--config={c.strip()}' for c in configs.split(',')]]
+        commands = [['bazel', 'coverage', *flags, '--combined_report=lcov', '--',
+                     *words(entry['bazel-targets'], TARGET, family)]]
+    elif family == 'coverage':
         output = inside(directory, entry['output-directory'])
         if output == directory:
             raise ValueError('output-directory must be a dedicated subdirectory')
@@ -95,9 +105,15 @@ def coverage_row(workspace, entry, family, name, platform, digest):
             args += ['--archive-dir', metadata['output-directory']]
         else:
             args += [metadata['output-directory']]
+        report_configs = entry.get('coverage-html-bazel-configs', '')
+        if not isinstance(report_configs, str) or (report_configs and not all(CONFIG.fullmatch(c.strip()) for c in report_configs.split(','))):
+            raise ValueError('coverage-html-bazel-configs: expected config names')
+        report_flags = [f'--config={c.strip()}' for c in report_configs.split(',')] if report_configs else []
         commands = [
             ['bazel', 'coverage', *flags, '--build_tests_only', '--', *words(entry['bazel-targets'], TARGET, family)],
-            ['bazel', 'run', '--lockfile_mode=error',
+            # Instrumentation configs can be coverage-only Bazel rc sections.
+            # Report targets select build configs separately when they need them.
+            ['bazel', 'run', '--lockfile_mode=error', *report_flags,
              label(entry['coverage-html-bazel-target'], family), '--', *args],
         ]
         if 'scope-check' in entry:
@@ -113,7 +129,9 @@ def coverage_row(workspace, entry, family, name, platform, digest):
             metadata['scope-check'] = scope
     return {'id': f'{name}-{family}', 'config-sha256': digest,
             'working-directory': directory.relative_to(workspace).as_posix(),
-            'execution': 'native', 'has-tests': family == 'llvm-coverage',
+            'execution': 'qnx-vm' if platform['os'] == 'qnx' else 'native',
+            'platform': platform, 'prerequisites': family if family != 'coverage' else '',
+            'has-tests': family in ('llvm-coverage', 'gcov-coverage'),
             'commands': commands, 'coverage': metadata}
 
 
@@ -158,15 +176,7 @@ def collect_coverage(directory, destination, metadata):
     report = next((path for path in candidates if path.is_file()), None)
     if report is None:
         raise ValueError('Coverage did not produce an LCOV report')
-    if zipfile.is_zipfile(report):
-        with zipfile.ZipFile(report) as archive:
-            if 'lcov_report/lcov.dat' not in archive.namelist():
-                raise ValueError('Coverage ZIP does not contain lcov_report/lcov.dat')
-            data = archive.read('lcov_report/lcov.dat')
-    else:
-        data = report.read_bytes()
-    if b'SF:' not in data or b'end_of_record' not in data:
-        raise ValueError('Coverage report does not contain LCOV records')
+    data = normalized_lcov(report)
     (destination / 'coverage_report.dat').write_bytes(data)
     # Both supported names refer to plain LCOV, even if a source archive used ZIP.
     (destination / 'coverage.lcov').write_bytes(data)
@@ -208,11 +218,29 @@ def docs_plan(workspace, entry, rows):
             selected = eligible[0]['id'] if eligible else ''
         else:
             selected = entry[key]
-        if not isinstance(selected, str):
-            raise ValueError(f'docs.{key}: expected a row ID')
-        candidates = [row for row in rows if row['id'] == selected]
-        if selected and (len(candidates) != 1 or candidates[0]['working-directory'] != '.' or
-                         not (candidates[0]['has-tests'] if key == 'tests' else 'coverage' in candidates[0])):
-            raise ValueError(f'docs.{key}: select a root workspace row with {key}')
+        if isinstance(selected, list) and any(not value for value in selected):
+            raise ValueError(f'docs.{key}: list entries must be nonempty row IDs')
+        selections = selected if key == 'tests' and isinstance(selected, list) else [selected]
+        if any(not isinstance(value, str) for value in selections) or len(set(selections)) != len(selections):
+            raise ValueError(f'docs.{key}: expected unique row IDs')
+        for selection in selections:
+            candidates = [row for row in rows if row['id'] == selection]
+            if selection and (len(candidates) != 1 or candidates[0]['working-directory'] != '.' or
+                              not (candidates[0]['has-tests'] if key == 'tests' else 'coverage' in candidates[0])):
+                raise ValueError(f'docs.{key}: select a root workspace row with {key}')
         result[key] = selected
     return result
+
+
+def normalized_lcov(report):
+    """Bazel toolchains may emit either plain LCOV or a ZIP container."""
+    if zipfile.is_zipfile(report):
+        with zipfile.ZipFile(report) as archive:
+            if 'lcov_report/lcov.dat' not in archive.namelist():
+                raise ValueError('Coverage ZIP does not contain lcov_report/lcov.dat')
+            data = archive.read('lcov_report/lcov.dat')
+    else:
+        data = report.read_bytes()
+    if b'SF:' not in data or b'end_of_record' not in data:
+        raise ValueError('Coverage report does not contain LCOV records')
+    return data
