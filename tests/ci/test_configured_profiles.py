@@ -22,7 +22,7 @@ from test_configured_checks import workspace as workspace, write_config
 
 def test_batches_inherit_policy_but_select_their_own_targets(workspace):
     document = {'schema-version': 2, 'tests': {'target': {
-        'os': 'qnx', 'bazel-configs': 'target', 'test-type': 'component',
+        'os': 'qnx', 'bazel-configs': 'target',
         'bazel-build-targets': '//:all_target_images',
         'bazel-test-custom-cli-args': '--test_timeout=3600 --nocache_test_results --test_arg=-x',
         'batches': [{'batch-name': 'one', 'bazel-test-targets': '//a:tests'},
@@ -31,7 +31,7 @@ def test_batches_inherit_policy_but_select_their_own_targets(workspace):
     before = deepcopy(document)
     rows = checks.plan(workspace, write_config(workspace, document))
     assert document == before
-    assert [r['id'] for r in rows] == ['target-tests-component-one', 'target-tests-component-two']
+    assert [r['id'] for r in rows] == ['target-tests-one', 'target-tests-two']
     assert [c[1] for c in rows[0]['commands']] == ['test']
     assert [c[1] for c in rows[1]['commands']] == ['build', 'test']
     assert all(r['execution'] == 'qnx-vm' for r in rows)
@@ -294,3 +294,19 @@ def test_docs_rejects_invalid_download_names(tmp_path, monkeypatch, names):
 def test_docs_rejects_empty_row_in_explicit_list(workspace):
     with pytest.raises(ValueError, match='nonempty row IDs'):
         docs_plan(workspace, {'tests': ['']}, [])
+
+
+def test_producer_facts_preserve_ambiguous_profile_and_batch_names(workspace):
+    # A row ID cannot distinguish these profile/batch boundaries. Consumers need
+    # the original values even when a profile contains another check's name.
+    document = {'schema-version': 2, 'tests': {'host-tests-unit': {
+        'os': 'qnx', 'architecture': 'aarch64', 'bazel-configs': 'target',
+        'batches': [
+            {'batch-name': 'ut-core', 'bazel-test-targets': '//a:tests'},
+        ],
+    }}}
+    row = checks.plan(workspace, write_config(workspace, document))[0]
+    assert row['metadata'] == {
+        'profile': 'host-tests-unit', 'platform': {'os': 'qnx', 'architecture': 'aarch64'},
+        'check': 'tests', 'working-directory': '.', 'batch': 'ut-core',
+    }

@@ -63,9 +63,10 @@ use named `builds` profiles with `bazel-configs`; `bazel-build-targets` defaults
 Each named profile selects one OS and architecture; schema 2 defaults to Linux x86_64. This POC supports Linux x86_64
 builds/tests, Linux aarch64 builds and explicit aarch64 tests under QEMU on
 x86_64 runners, plus QNX builds and VM tests with optional SDK credentials. Profile names must be unique across `tests` and `builds`. An optional `name`
-identifies the check within a profile; otherwise it defaults to the test type or `build`.
-Supported test types are `unit`, `component`, `integration`, and `sanitizer`;
-these identify checks and do not install services or change Bazel semantics.
+identifies a check within a profile when needed. Row IDs are `<profile>-tests`
+or `<profile>-builds`, followed by an explicit check name or batch name when
+present. SCORE does not classify tests: Bazel configs and targets determine
+what runs, including sanitizer settings.
 
 The shared workflow owns checkout, Bazel setup/cache, diagnostic flags, and
 artifacts containing command reports, Bazel build events and available test logs.
@@ -73,6 +74,11 @@ The module owns its Bazel platforms, toolchains, configs and target selection.
 Success requires both successful commands and build/test evidence. Cached test
 passes count; an empty or entirely skipped test selection fails.
 `configured-results` reports the verified checkout and per-row command outcomes.
+Each job in `configured-results` and `quality-results` includes `metadata` with
+`profile`, `platform` (`os`, `architecture`), `check`, `working-directory`,
+`batch`. Unbatched jobs use an empty batch. These execution facts are verified against preparation.
+Consumers should use them instead of parsing row IDs, which remain opaque
+identifiers. Presentation paths and publication policy belong to the consumer.
 
 Downstream jobs can consume the `configured-artifacts` JSON output, keyed by the
 configured row ID. Each value has a `report` artifact name and a `testlogs`
@@ -84,7 +90,7 @@ docs:
   needs: checks
   uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
   with:
-    tests-report-artifact: ${{ fromJSON(needs.checks.outputs.configured-artifacts)['linux-native-tests-unit'].testlogs }}
+    tests-report-artifact: ${{ fromJSON(needs.checks.outputs.configured-artifacts)['linux-native-tests'].testlogs }}
 ```
 
 The archive names include an invocation-specific prefix. Use the output rather
@@ -112,7 +118,6 @@ tests:
     bazel-configs: score-linux-aarch64
     execution: qemu-user
   integration:
-    test-type: integration
     bazel-configs: x86_64-linux
     working-directory: examples/integration
 ```
@@ -142,7 +147,7 @@ execution. Explicit values override defaults; invalid or null values are errors.
 | Key | Default |
 | --- | --- |
 | Profile `os`, `architecture` (schema 2) | `linux`, `x86_64` |
-| Test `test-type`, `bazel-test-targets` (schema 2) | `unit`, `//...` |
+| Test `bazel-test-targets` (schema 2) | `//...` |
 | Build-only `bazel-build-targets` (schema 2) | `//...` |
 | LLVM `bazel-configs`, `bazel-targets` | `llvm_cov`, `//score/...` |
 | LLVM `justifications-yaml` | `tools/coverage/coverage_justifications.yaml` |
@@ -227,8 +232,7 @@ docs: {}
 ```
 
 `tests` and `coverage` can select root-workspace row IDs explicitly. By default,
-Docs selects the sole native root unit-test row and the sole root coverage row.
-If no unique unit-test row exists, a sole other native test row is also suitable. No
+Docs selects the sole native root test row and the sole root coverage row. No
 candidate means no report; multiple candidates require an explicit row ID and
 fail preparation otherwise. Set a selector to `""` to disable that report. The workflow validates references before
 execution and resolves artifact names automatically. Repository context is supplied
@@ -249,7 +253,6 @@ steps are required:
 ```yaml
 tests:
   asan:
-    test-type: sanitizer
     bazel-configs: x86_64-linux,asan_ubsan_lsan
 clippy: {}
 gitlint: true
@@ -299,7 +302,7 @@ quality reports are verified against that revision and the configuration hash.
 
 ### Test profiles and batches
 
-The configured build/test contract above continues to apply. Profiles default to Linux x86_64, root workspace and unit tests.
+The configured build/test contract above continues to apply. Profiles default to Linux x86_64 and the root workspace.
 Only explicitly configured families run. Add batches when one test profile needs
 several independently scheduled selections:
 
@@ -320,8 +323,8 @@ tests:
 
 Batches inherit configs and test options but select their own targets. A parent
 build/test target selection is removed; a batch may explicitly request a build.
-Names must be unique. The resulting row IDs are `target-tests-unit-core` and
-`target-tests-unit-integration`.
+Names must be unique. The resulting row IDs are `target-tests-core` and
+`target-tests-integration`.
 
 `bazel-pre-test-targets` optionally declares Bazel run labels, executed with the
 profile configs after its build and before tests. A failed precheck stops tests.

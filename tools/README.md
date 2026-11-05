@@ -114,7 +114,7 @@ uv run --locked python tools/configured_checks.py plan \
 
 uv run --locked python tools/configured_checks.py run \
   --workspace ../score_baselibs-ci-poc --config .github/ci.yml \
-  --job linux-native-tests-unit --reports /tmp/poc-baselibs
+  --job linux-native-tests --reports /tmp/poc-baselibs
 
 uv run --locked python tools/configured_checks.py run \
   --workspace ../score_lifecycle-ci-poc --config .github/ci.yml \
@@ -187,7 +187,7 @@ Configuration conventions are centralized in `configured_coverage.py` and the
 schema 2 planner defaults. Consumers omit standard platform/test fields, report
 paths, generator labels and retention values. Defaults are merged before type
 and path validation, so explicit invalid/null overrides still fail. Docs resolves
-unique native-root unit-test and root coverage sources; ambiguity fails preparation
+unique native-root test and root coverage sources; ambiguity fails preparation
 instead of choosing by variant order. Explicit empty selectors disable a report.
 The consumer migration comparison must continue to produce identical commands,
 coverage metadata and Docs plans when redundant configuration is removed.
@@ -266,3 +266,25 @@ metadata is additive. Regression tests cover QNX selection, batches, test option
 precheck failures, SCA findings, missing/invalid analysis and SBOM outputs, and Docs
 merge conflicts. These checks establish local contracts, not remote execution of
 the QNX SDK or a module analyzer.
+
+
+Verified result metadata records the original profile, platform, check family,
+workspace and exact batch name. Both executors emit the same contract;
+aggregation rejects missing or changed facts against the frozen plan. Preserve
+batch names during expansion rather than reconstructing them from row IDs.
+Downstream adapters can derive their own layouts without module-specific aliases
+for execution facts already known to the planner.
+
+The schema-1 compatibility reader preserves its old `test-type` value solely as
+an opaque row name. Schema 2 rejects that field. Test categories never enter
+result metadata, execution policy or Docs source selection. Multiple native test
+profiles require `docs.tests` to select the intended report explicitly.
+
+
+The Docs publisher can select a completed build for a manual publishing dispatch
+through `source-workflow` and optional `source-run-id`. Selection and validation
+run before any site mutation; the artifact download uses that verified run ID
+directly. Existing workflow-run and same-run downloads retain their fallback.
+`test_docs_publish.py` executes the actual workflow shell against controlled GitHub
+responses, including explicit/discovered runs, source mismatches, quoted refs,
+PR/fork rejection and existing publishing metadata contexts.
