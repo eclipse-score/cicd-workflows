@@ -14,8 +14,8 @@
 # Optional overrides document repository-specific exceptions inline, for example:
 #   overrides:
 #     format-target:
-#       value: //tools:format.check
-#       reason: The repository exposes its formatter only from //tools.
+#       value: //tools/format:verify
+#       reason: The repository exposes a custom formatting entry point.
 #     skip-python-tests:
 #       value: true
 #       reason: These tests need a service that the common PR runner lacks.
@@ -66,47 +66,27 @@ consumers:
     ref: e91b840c7832e4fcfdb98e1aae1a1604c4ad6425
     required-checks: [format, copyright, module-tidy, lockfile]
 
-  # C++ foundations: checks live in //tools; match its existing PR configuration.
+  # C++ foundations: discover //tools targets while retaining the auto-fix hook policy.
   - name: baselibs
     repository: eclipse-score/baselibs
     ref: 785365e679c78f5d18d039da537d74c19501c0bb
     required-checks: [format, copyright, module-tidy, lockfile]
     overrides:
-      format-target:
-        value: //tools:format.check
-        reason: The formatter is exposed from //tools, as configured in the consumer PR workflow.
-      copyright-target:
-        value: //tools:copyright-check
-        reason: The copyright checker is exposed from //tools, as configured in the consumer PR workflow.
       skip-pre-commit:
         value: true
         reason: The consumer PR workflow skips its auto-fixing hooks and uses the explicit Bazel checks instead.
 
-  # Time module: formatting and copyright entry points live in //tools.
+  # Time module: discover formatting and copyright entry points under //tools.
   - name: time
     repository: eclipse-score/time
     ref: 6833c113ccf15f1fdca6950bf654fc5100fcf0b6
     required-checks: [format, copyright, module-tidy, lockfile]
-    overrides:
-      format-target:
-        value: //tools:format.check
-        reason: The formatter is exposed only from the //tools package.
-      copyright-target:
-        value: //tools:copyright-check
-        reason: The copyright checker is exposed only from the //tools package.
 
-  # SBOM tooling: checks live in //tools rather than the root package.
+  # SBOM tooling: discover checks under //tools rather than the root package.
   - name: sbom-tool
     repository: eclipse-score/sbom-tool
     ref: b343f785db50d2aa19830ad9ec7264986e220383
     required-checks: [format, copyright, module-tidy, lockfile]
-    overrides:
-      format-target:
-        value: //tools:format.check
-        reason: The formatter is exposed only from the //tools package.
-      copyright-target:
-        value: //tools:copyright-check
-        reason: The copyright checker is exposed only from the //tools package.
 
   # Process documentation: exercises a Bazel workspace with lockfile checks only.
   - name: process-description

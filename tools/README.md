@@ -189,3 +189,27 @@ unique native-root test and root coverage sources; ambiguity fails preparation
 instead of choosing by variant order. Explicit empty selectors disable a report.
 The consumer migration comparison must continue to produce identical commands,
 coverage metadata and Docs plans when redundant configuration is removed.
+
+## Module-facing configuration
+
+The compact schema 2 layout names profiles directly under `tests` and `builds`,
+with top-level `llvm-coverage`/`coverage` and `docs`. Platform, workspace and
+execution options live on the profile rather than under `variants` and
+`workflow-config`. `normalize()` adapts it to the existing planner so command
+execution, workspace validation, evidence and artifact contracts remain shared.
+The variants layout remains compatible; mixing the two forms is rejected.
+
+Common check discovery now resolves standard root and `//tools` targets without
+consumer overrides. Root labels have priority; an explicit override selects only
+that label. Consumer catalog scenarios exercise discovery with their existing
+required checks and pins. Baselibs retains only its explicit pre-commit skip:
+its hooks auto-fix the same formatting/copyright already checked directly.
+Its Python skip was redundant because it has no uv project. Configured workspaces
+already require lockfiles, making a second lockfile requirement input redundant.
+
+`test_common_target_detection.py` executes the workflow's actual shell script
+against a controlled Bazel CLI, checking root/tools preference, absent targets
+and explicit overrides. Compact-layout regression tests compare complete plans,
+IDs and Docs selection with the variants form. Local consumer comparison also
+covers both complete configurations, including ARM, integration and module-owned
+coverage, rather than only the small reference example.

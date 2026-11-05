@@ -81,12 +81,83 @@ def words(value, pattern, path):
     return result
 
 
+def normalize(document):
+    """Translate the module-facing schema 2 layout into platform/check rows.
+
+    Named profiles carry their platform and workspace directly. Keeping one
+    normalized representation preserves execution, evidence and artifact IDs
+    for callers using the existing variants layout. The two layouts cannot be
+    mixed, since that would create two sources of truth for the same profiles.
+    """
+    compact = {'tests', 'builds', 'llvm-coverage', 'coverage'}
+    if not isinstance(document, dict) or not compact.intersection(document):
+        return document
+    fields(document, compact | {'schema-version', 'docs'}, {'schema-version'}, '$')
+    if type(document['schema-version']) is not int or document['schema-version'] != 2:
+        raise ValueError('The compact layout requires schema-version: 2')
+    variants = []
+    names = set()
+    for family in ('tests', 'builds'):
+        if family not in document:
+            continue
+        profiles = document[family]
+        if not isinstance(profiles, dict) or not profiles:
+            raise ValueError(f'{family}: expected a nonempty mapping of named profiles')
+        for name, entry in profiles.items():
+            if name in names:
+                raise ValueError(f'Duplicate profile name: {name}')
+            names.add(name)
+            if not isinstance(entry, dict):
+                raise ValueError(f'{family}.{name}: expected a mapping')
+            entry = dict(entry)
+            variant = {'name': name, 'checks': {family: [entry]}}
+            for dimension in ('os', 'architecture'):
+                if dimension in entry:
+                    variant[dimension] = [{'name': entry.pop(dimension)}]
+            # The public layout puts execution options beside the Bazel config.
+            # The normalized legacy layout retains workflow-config internally.
+            options = {key: entry.pop(key) for key in
+                       ('working-directory', 'execution', 'bazel-test-custom-cli-args') if key in entry}
+            if 'workflow-config' in entry:
+                raise ValueError(f'{family}.{name}: place execution options directly in the profile')
+            if options:
+                entry['workflow-config'] = options
+            variants.append(variant)
+
+    # Coverage belongs to the sole native root profile when one is present.
+    # This preserves existing row IDs; otherwise it gets its own native row.
+    native = [variant for variant in variants if variant.get('architecture', [{'name': 'x86_64'}]) == [{'name': 'x86_64'}]
+              and variant.get('os', [{'name': 'linux'}]) == [{'name': 'linux'}]
+              and next(iter(variant['checks'].values()))[0].get('workflow-config', {}).get('working-directory', '.') == '.']
+    for family in ('llvm-coverage', 'coverage'):
+        if family not in document:
+            continue
+        entry = document[family]
+        if not isinstance(entry, dict):
+            raise ValueError(f'{family}: expected a mapping')
+        entry = dict(entry)
+        if 'workflow-config' in entry:
+            raise ValueError(f'{family}: place report options directly in the coverage mapping')
+        options = {key: entry.pop(key) for key in ('working-directory', 'artifact-name', 'retention-days') if key in entry}
+        if options:
+            entry['workflow-config'] = options
+        if len(native) == 1:
+            native[0]['checks'][family] = entry
+        else:
+            if family in names:
+                raise ValueError(f'Duplicate profile name: {family}')
+            names.add(family)
+            variants.append({'name': family, 'checks': {family: entry}})
+    return {'schema-version': 2, 'variants': variants,
+            **({'docs': document['docs']} if 'docs' in document else {})}
+
+
 def plan(workspace, config):
     """Translate schema 1's supported subset and schema 2 into identical job rows."""
     workspace = Path(workspace).resolve()
     source = inside(workspace, config)
     content = source.read_text(encoding='utf-8')
-    document = yaml.load(content, Loader=Loader)
+    document = normalize(yaml.load(content, Loader=Loader))
     fields(document, {'schema-version', 'variants', 'docs'}, {'schema-version', 'variants'}, '$')
     version = document['schema-version']
     if type(version) is not int or version not in (1, 2):

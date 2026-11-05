@@ -578,3 +578,62 @@ def test_compiler_defaults_still_require_an_explicit_config(workspace, document,
     document['variants'][0]['checks'] = {family: [{}]}
     with pytest.raises(ValueError, match='bazel-configs'):
         plan(workspace, write_config(workspace, document))
+
+
+def test_compact_profiles_preserve_platform_commands_ids_and_docs(workspace, coverage_document):
+    """A simpler module document must preserve the executor and artifact contract."""
+    from configured_coverage import docs_plan
+    old = coverage_document
+    variant = old['variants'][0]
+    test = variant['checks']['tests'][0]
+    compact = {'schema-version': 2,
+               'tests': {'native': deepcopy(test)},
+               'llvm-coverage': deepcopy(variant['checks']['llvm-coverage']),
+               'docs': {}}
+    old_rows = plan(workspace, write_config(workspace, old))
+    new_rows = plan(workspace, write_config(workspace, compact))
+    by_id = lambda rows: {row['id']: {key: value for key, value in row.items() if key != 'config-sha256'} for row in rows}
+    assert by_id(old_rows) == by_id(new_rows)
+    assert docs_plan(workspace, old['docs'], old_rows) == docs_plan(workspace, {}, new_rows)
+
+
+def test_compact_nested_and_arm_profiles_keep_workspace_and_emulation(workspace):
+    nested = workspace / 'nested'
+    nested.mkdir()
+    (nested / 'MODULE.bazel').touch()
+    (nested / 'MODULE.bazel.lock').write_text('{}')
+    compact = {'schema-version': 2, 'tests': {
+        'arm': {'bazel-configs': 'cross', 'architecture': 'aarch64', 'execution': 'qemu-user'},
+        'integration': {'bazel-configs': 'native', 'working-directory': 'nested', 'test-type': 'integration'},
+    }}
+    rows = plan(workspace, write_config(workspace, compact))
+    arm = next(row for row in rows if row['id'] == 'arm-tests-unit')
+    nested_row = next(row for row in rows if row['id'] == 'integration-tests-integration')
+    assert arm['execution'] == 'qemu-user'
+    assert '--test_timeout=180,900,2700,10800' in arm['commands'][0]
+    assert nested_row['working-directory'] == 'nested'
+    assert all(command[1] == 'test' for row in rows for command in row['commands'])
+
+
+@pytest.mark.parametrize('compact', [
+    {'schema-version': 2, 'tests': {}, 'variants': []},
+    {'schema-version': 2, 'tests': []},
+    {'schema-version': 1, 'tests': {'native': {'bazel-configs': 'linux'}}},
+    {'schema-version': 2, 'tests': {'native': {'bazel-configs': 'linux', 'workflow-config': {}}}},
+    {'schema-version': 2, 'tests': {'native': {'bazel-configs': 'linux', 'execution': 'shell'}}},
+    {'schema-version': 2, 'tests': {'native': {'bazel-configs': 'linux', 'os': 'windows'}}},
+    {'schema-version': 2, 'tests': {'native': {'bazel-configs': 'linux'}},
+     'builds': {'native': {'bazel-configs': 'linux'}}},
+    {'schema-version': 2, 'coverage': {'bazel-target': '//:coverage', 'workflow-config': {}}},
+])
+def test_compact_layout_rejects_mixed_ambiguous_and_invalid_profiles(workspace, compact):
+    with pytest.raises(ValueError):
+        plan(workspace, write_config(workspace, compact))
+
+
+def test_compact_module_coverage_without_tests_still_requires_reports(workspace):
+    compact = {'schema-version': 2, 'coverage': {'bazel-target': '//quality:coverage'}, 'docs': {}}
+    row = plan(workspace, write_config(workspace, compact))[0]
+    assert row['commands'] == [['bazel', 'run', '--lockfile_mode=error', '//quality:coverage', '--']]
+    assert row['coverage']['output-directory'] == 'coverage_artifacts'
+    assert not row['has-tests']
