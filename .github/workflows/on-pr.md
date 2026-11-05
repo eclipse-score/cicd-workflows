@@ -151,7 +151,7 @@ execution. Explicit values override defaults; invalid or null values are errors.
 | Module coverage `output-directory` | `coverage_artifacts` |
 | Enabled scope check `scope-target` | `//tools/coverage:coverage_scope` |
 | Enabled scope check `universe`, `exclusions` | `//score/...`, `tools/coverage/scope_exclusions.txt` |
-| Docs `bazel-target`, retention, `github-context` | `//:docs`, 5 days, `false` |
+| Docs `bazel-target`, retention | `//:docs`, 5 days |
 | Docs `tests`, `coverage` | Unique suitable root-workspace row, if present |
 
 Compiler configs for build/test entries stay required because they select the
@@ -226,11 +226,12 @@ docs: {}
 ```
 
 `tests` and `coverage` can select root-workspace row IDs explicitly. By default,
-Docs selects the sole native root test row and the sole root coverage row. No
+Docs selects the sole native root unit-test row and the sole root coverage row.
+If no unique unit-test row exists, a sole other native test row is also suitable. No
 candidate means no report; multiple candidates require an explicit row ID and
 fail preparation otherwise. Set a selector to `""` to disable that report. The workflow validates references before
-execution and resolves artifact names automatically. Set `github-context: true`
-to pass `--github_user` and `--github_repo` for the selected repository. Docs
+execution and resolves artifact names automatically. Repository context is supplied
+automatically through the environment read by the Docs CLI. Docs
 always checks out the preparation commit and runs after every configured row
 has passed verification. It uploads `github-pages`; deployment remains separate.
 The existing `docs.yml` command-string interface remains supported for callers
@@ -238,6 +239,62 @@ that do not use this configuration.
 
 This is an experimental POC. See the [maintainer notes](../../tools/README.md)
 for its bootstrap references, consumer examples and remaining validation.
+
+### Additional quality checks
+
+Select these checks in the same `.github/ci.yml`; no module actions or execution
+steps are required:
+
+```yaml
+tests:
+  asan:
+    test-type: sanitizer
+    bazel-configs: x86_64-linux,asan_ubsan_lsan
+clippy: {}
+gitlint: true
+codeql:
+  bazel-configs: x86_64-linux
+  reports: [cert-cpp-l1, cert-c-l1, cpp-code-scanning, code-complexity]
+  fail-on-findings: true
+docs:
+  check: true
+  link-check: true
+```
+
+Sanitizers are ordinary test profiles. Omitting `bazel-build-targets` keeps them
+test-only. Docs verification runs `//:docs_check` and `//:docs_link_check` with
+Graphviz installed; both must succeed before the documentation build starts.
+
+Clippy reads the pinned version from `rust-toolchain.toml`, installs the minimal
+Rust toolchain with Clippy, and runs Cargo with `--locked --all-features
+--all-targets --workspace -- -D warnings`. It requires `Cargo.toml`, `Cargo.lock`
+and evidence that Cargo checked workspace targets. No Rust version is duplicated
+in CI configuration. Cargo JSON diagnostics are retained and rendered in logs.
+
+Gitlint checks PR commits from the event's base SHA to head SHA, using the shared
+`eclipse-score/score` `.gitlint` policy. It does not lint a synthetic merge commit.
+Other events record it as not applicable. History and policy checkout are central.
+
+CodeQL uses the module's Bazel analysis target, not a replacement GitHub ruleset.
+Defaults are `//quality/static_analysis:codeql_lint`, production universe
+`//score/...`, the four reports above, and failure on unsuppressed findings.
+`bazel-target`, `target-universe`, `reports` and `fail-on-findings` can override
+these defaults. Target queries must be nonempty; analysis and SARIF merge require
+Bazel evidence. Suppression semantics match the module pipeline: any SARIF
+suppression exempts that result from the failure gate.
+
+CodeQL retains `codeql-sarif-results` and `codeql-compliance-reports` for 30 days,
+including available diagnostics after failures. GitHub code-scanning upload is
+best effort; the local findings gate remains required even on fork PRs. Callers
+with CodeQL grant `contents: read`, `actions: read` and `security-events: write`.
+Analysis jobs themselves use only `contents: read`; publication inherits the
+caller grants. Callers without CodeQL keep their existing read-only permissions.
+
+Scheduled/manual callers can use `configured-quality.yml` with `only-codeql:
+true`. `fetch-only: true` fetches dependencies without claiming analysis success.
+The optional string `fail-on-findings: "false"` overrides the configured failure
+policy for a reporting-only nightly run. The source revision is frozen and all
+quality reports are verified against that revision and the configuration hash.
 
 ## Private Bazel dependencies
 
@@ -414,7 +471,8 @@ jobs:
 
 ## Permissions
 
-No additional permissions required. Standard `contents: read` is sufficient.
+Standard checks need only `contents: read`. Opted-in CodeQL publication also
+uses `actions: read` and `security-events: write`; analysis jobs stay read-only.
 
 ```yaml
 permissions:

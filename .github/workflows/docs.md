@@ -179,6 +179,7 @@ resolves report artifacts automatically and leaves publishing separate.
 Direct callers may also set `repository` and `ref` to select a checkout.
 Omitting them preserves the caller event defaults. `bazel-label` selects one
 Bazel run target with `--lockfile_mode=error`, using argv instead of the legacy
-`bazel-target` command string. With `github-context: true`, it passes
-`--github_user` and `--github_repo` for the selected repository. Existing
+`bazel-target` command string. Repository context is always supplied through
+`GITHUB_REPOSITORY` in the Docs subprocess environment. The deprecated
+`github-context` boolean is accepted for compatibility; it adds no CLI arguments. Existing
 `bazel-target` callers keep their established behavior when `bazel-label` is empty.

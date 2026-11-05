@@ -1,0 +1,229 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+name: Configured quality checks
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: Checkout-relative module CI configuration
+        type: string
+        default: .github/ci.yml
+      repository:
+        description: Selected repository; defaults to caller
+        type: string
+        default: ""
+      ref:
+        description: Frozen source revision; defaults to caller event
+        type: string
+        default: ""
+      only-codeql:
+        description: Run only CodeQL (scheduled or manual analysis)
+        type: boolean
+        default: false
+      fetch-only:
+        description: Fetch CodeQL dependencies without claiming an analysis result
+        type: boolean
+        default: false
+      fail-on-findings:
+        description: Optional true/false override for scheduled CodeQL policy
+        type: string
+        default: ""
+      runner-labels:
+        description: Optional JSON runner labels
+        type: string
+        default: ""
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      expected: ${{ steps.plan.outputs.expected }}
+      has-checks: ${{ steps.plan.outputs.has-checks }}
+      has-codeql: ${{ steps.plan.outputs.has-codeql }}
+      artifact-prefix: ${{ steps.plan.outputs.artifact-prefix }}
+      source-commit: ${{ steps.checkout.outputs.commit }}
+    steps:
+      - name: Require unprivileged analysis event
+        if: ${{ github.event_name == 'pull_request_target' }}
+        run: |
+          echo "::error::Configured analysis must use pull_request, not pull_request_target."
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: checkout
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
+      - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
+        id: plan
+        env:
+          ONLY_CODEQL: ${{ inputs.only-codeql }}
+          FETCH_ONLY: ${{ inputs.fetch-only }}
+          FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        with:
+          engine: quality
+          repository: ${{ inputs.repository || github.repository }}
+          mode: plan
+          config: ${{ inputs.config }}
+          reports: ${{ runner.temp }}/quality
+
+  checks:
+    name: Quality / ${{ matrix.id }}
+    needs: prepare
+    if: ${{ needs.prepare.outputs.has-checks == 'true' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
+        if: ${{ matrix.id == 'codeql' }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ needs.prepare.outputs.source-commit }}
+          fetch-depth: 0
+          lfs: true
+      - uses: eclipse-score/cicd-actions/setup-bazel-cache@ee1eb410c572e2a97ae27488f8401887ec331de3
+        if: ${{ matrix.id != 'clippy' && matrix.id != 'gitlint' }}
+        with:
+          disk-cache-key: ${{ format('quality-{0}-{1}', inputs.repository || github.repository, matrix.id) }}
+          disk-cache-restore: 'true'
+          repository-cache-restore: 'true'
+          report-test-cache-hits: 'false'
+      - uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
+        if: ${{ startsWith(matrix.id, 'docs-') }}
+        with:
+          packages: graphviz
+          cache: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: ${{ matrix.id == 'clippy' }}
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-quality-clippy-${{ matrix.toolchain }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-quality-clippy-${{ matrix.toolchain }}-
+      # Use the same shared policy source as the former module action. Checkout
+      # freezes that policy's observed revision; module code cannot replace it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ matrix.id == 'gitlint' && github.event_name == 'pull_request' }}
+        with:
+          repository: eclipse-score/score
+          path: .central-gitlint-policy
+          sparse-checkout: .gitlint
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
+        env:
+          ONLY_CODEQL: ${{ inputs.only-codeql }}
+          FETCH_ONLY: ${{ inputs.fetch-only }}
+          FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITLINT_POLICY: ${{ github.workspace }}/.central-gitlint-policy/.gitlint
+        with:
+          engine: quality
+          repository: ${{ inputs.repository || github.repository }}
+          mode: run
+          config: ${{ inputs.config }}
+          job: ${{ matrix.id }}
+          reports: ${{ runner.temp }}/quality
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: ${{ needs.prepare.outputs.artifact-prefix }}-report-${{ matrix.id }}
+          path: |
+            ${{ runner.temp }}/quality/${{ matrix.id }}/report.json
+            ${{ runner.temp }}/quality/${{ matrix.id }}/*.bep.jsonl
+            ${{ runner.temp }}/quality/${{ matrix.id }}/cargo.jsonl
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && matrix.id == 'codeql' && !inputs.fetch-only }}
+        with:
+          name: codeql-sarif-results
+          path: ${{ runner.temp }}/quality/codeql/publish/codeql-nightly.sarif
+          retention-days: 30
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && matrix.id == 'codeql' && !inputs.fetch-only }}
+        with:
+          name: codeql-compliance-reports
+          path: ${{ runner.temp }}/quality/codeql/linux/analysis_reports/
+          retention-days: 30
+          if-no-files-found: warn
+
+  verify:
+    name: Verify quality checks
+    needs: [prepare, checks]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Require preparation and execution
+        env:
+          PREPARATION: ${{ needs.prepare.result }}
+          CHECKS: ${{ needs.checks.result }}
+          HAS_CHECKS: ${{ needs.prepare.outputs.has-checks }}
+        run: |
+          test "$PREPARATION" = success
+          if [ "$HAS_CHECKS" = true ]; then
+            test "$CHECKS" = success
+          fi
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: ${{ needs.prepare.outputs.has-checks == 'true' }}
+        with:
+          pattern: ${{ needs.prepare.outputs.artifact-prefix }}-report-*
+          path: ${{ runner.temp }}/quality
+      - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
+        if: ${{ needs.prepare.outputs.has-checks == 'true' }}
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          engine: quality
+          mode: verify
+          expected: ${{ needs.prepare.outputs.expected }}
+          source-commit: ${{ needs.prepare.outputs.source-commit }}
+          reports: ${{ runner.temp }}/quality
+
+  # Inherit caller permissions only in this publication job. Baselibs and other
+  # read-only consumers need no additional token grants when CodeQL is disabled.
+  publish-sarif:
+    name: Publish CodeQL findings
+    needs: [prepare, checks]
+    if: ${{ !cancelled() && needs.prepare.outputs.has-codeql == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ needs.prepare.outputs.source-commit }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        id: download
+        continue-on-error: true
+        with:
+          name: codeql-sarif-results
+          path: ${{ runner.temp }}/sarif
+      # Fork PRs may lack code-scanning write permissions. The required gate is
+      # the local SARIF finding check, independent of this best-effort upload.
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        if: ${{ steps.download.outcome == 'success' }}
+        continue-on-error: true
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/codeql-nightly.sarif
+          category: codeql-nightly

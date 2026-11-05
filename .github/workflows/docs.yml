@@ -29,7 +29,7 @@ on:
         type: string
         default: ""
       github-context:
-        description: Pass repository owner and name to the structured Docs target
+        description: Deprecated compatibility input; repository context is supplied automatically
         type: boolean
         default: false
       retention-days:
@@ -154,7 +154,6 @@ jobs:
         if: inputs.bazel-label != ''
         env:
           BAZEL_LABEL: ${{ inputs.bazel-label }}
-          WITH_GITHUB_CONTEXT: ${{ inputs.github-context }}
           DOCS_REPOSITORY: ${{ inputs.repository || github.repository }}
         shell: python
         run: |
@@ -162,10 +161,9 @@ jobs:
           import subprocess
 
           argv = ['bazel', 'run', '--lockfile_mode=error', os.environ['BAZEL_LABEL'], '--']
-          if os.environ['WITH_GITHUB_CONTEXT'] == 'true':
-              owner, repo = os.environ['DOCS_REPOSITORY'].split('/')
-              argv += [f'--github_user={owner}', f'--github_repo={repo}']
-          subprocess.run(argv, check=True)
+          # The Docs CLI reads repository context from its environment.
+          environment = dict(os.environ, GITHUB_REPOSITORY=os.environ['DOCS_REPOSITORY'])
+          subprocess.run(argv, env=environment, check=True)
 
       - name: Build documentation
         if: inputs.bazel-label == ''

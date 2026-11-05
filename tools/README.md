@@ -38,7 +38,7 @@ complete rows rather than narrowing the old CI to the initial smoke-test targets
 | Consumer | Removed local execution | Retained module execution |
 | --- | --- | --- |
 | baselibs | Standalone common-check workflow and complete Linux execution matrix | QNX and lint |
-| lifecycle | Native and ARM64 rows and their build/test steps in `on-pr.yml` | Test-only sanitizer matrix, docs verification/link checks, QNX, Clippy and CodeQL |
+| lifecycle | Native/ARM64 rows, sanitizers, Clippy, CodeQL, Gitlint and Docs checks | QNX; thin nightly CodeQL caller |
 
 The central documentation job resolves reports from `configured-artifacts`.
 Report/BEP artifacts are separate from package-rooted test-log archives, because
@@ -159,8 +159,7 @@ scope-check script remains available for developer use. Lifecycle keeps its
 module-owned coverage target, including the combined C++/Rust orchestration.
 Both consumers keep their release artifact names and ten-day retention. Their
 local coverage workflows are replaced by configuration; baselibs' Linux entry
-point also supports manual dispatch. Lifecycle's Docs verification and link-check
-jobs remain independent. The central call includes coverage and Docs in its
+point also supports manual dispatch. Lifecycle's Docs verification and link checks are configured centrally. The central call includes coverage and Docs in its
 success result, so the caller's merge/release gates cover them too.
 
 Coverage collection stages HTML, plain LCOV at both supported root filenames,
@@ -169,8 +168,10 @@ centrally locked dependency). ZIP input uses only `lcov_report/lcov.dat` and is
 never extracted as a directory tree. Missing/invalid reports fail execution.
 Threshold failures retain available reports without turning the row green.
 
-`docs.yml` adds optional `repository`, `ref`, `bazel-label` and `github-context`
-inputs. The central caller uses argv execution and the preparation SHA, retaining
+`docs.yml` provides optional `repository`, `ref` and `bazel-label` inputs.
+The deprecated `github-context` boolean remains accepted for compatibility; the
+Docs subprocess always receives repository context through its environment.
+The central caller uses argv execution and the preparation SHA, retaining
 the legacy command-string path for existing callers. It reuses existing artifact
 download/normalization, Graphviz and `github-pages` upload. No publishing job or
 write permissions are added.
@@ -185,7 +186,7 @@ Configuration conventions are centralized in `configured_coverage.py` and the
 schema 2 planner defaults. Consumers omit standard platform/test fields, report
 paths, generator labels and retention values. Defaults are merged before type
 and path validation, so explicit invalid/null overrides still fail. Docs resolves
-unique native-root test and root coverage sources; ambiguity fails preparation
+unique native-root unit-test and root coverage sources; ambiguity fails preparation
 instead of choosing by variant order. Explicit empty selectors disable a report.
 The consumer migration comparison must continue to produce identical commands,
 coverage metadata and Docs plans when redundant configuration is removed.
@@ -213,3 +214,30 @@ and explicit overrides. Compact-layout regression tests compare complete plans,
 IDs and Docs selection with the variants form. Local consumer comparison also
 covers both complete configurations, including ARM, integration and module-owned
 coverage, rather than only the small reference example.
+
+## Typed quality execution
+
+`configured_quality.py` plans and executes Docs verification, Cargo Clippy,
+PR-only Gitlint and module-owned Bazel CodeQL. `configured-quality.yml` freezes
+its checkout, executes independent profiles with read-only tokens and verifies
+all reports. The main entry passes its already frozen SHA and requires quality
+verification before Docs build. A setup or post-step failure also fails the gate.
+
+Command recipes are shared by execution and verification. Reports must match the
+full plan and commit, include all commands, and contain profile-specific evidence:
+Bazel target events, Cargo workspace compiler artifacts, PR commits/policy hash,
+or a nonempty queried CodeQL target set and parsed merged SARIF. Fetch-only CodeQL
+is a distinct planned mode and cannot claim SARIF analysis. Gitlint records event
+base/head SHAs; a not-applicable report cannot pass PR verification.
+
+Only the separate SARIF publication job inherits caller write permissions. Fork
+upload failures remain best effort as in the module workflow; unsuppressed finding
+failures remain required. Scheduled CodeQL uses the same configuration and helper,
+with an explicit reporting-only override. QNX keeps its existing secret-bearing
+pull_request_target workflow. New check names require branch-protection review.
+
+Local regression tests cover failure propagation, empty selections, suppression
+policy, source/config mismatches, missing/duplicate reports, command completeness,
+real Gitlint success/failure, sanitizer scope and automatic Docs report selection.
+Remote permissions, CodeQL tool execution and artifact transfers still need a
+GitHub run after review.
