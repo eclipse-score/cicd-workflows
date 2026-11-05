@@ -3,9 +3,12 @@
 
 # Keep the parser and executor at the action's revision. The checked-out
 # workspace belongs to the consumer and must not supply the central scripts.
-name: Configured Bazel checks
-description: Plan, execute or verify the opt-in configured Bazel POC
+name: Configured CI checks
+description: Plan, execute or verify configured Bazel and typed quality checks
 inputs:
+  engine:
+    description: Typed execution engine (bazel or quality)
+    default: bazel
   mode:
     description: Operation to perform (plan, run or verify)
     required: true
@@ -28,6 +31,12 @@ inputs:
     description: Observed preparation checkout, required for verify
     default: ""
 outputs:
+  has-checks:
+    description: Whether the quality plan contains checks
+    value: ${{ steps.execute.outputs.has-checks }}
+  has-codeql:
+    description: Whether the quality plan contains SARIF analysis
+    value: ${{ steps.execute.outputs.has-codeql }}
   matrix:
     description: GitHub matrix with one row per configured check
     value: ${{ steps.execute.outputs.matrix }}
@@ -56,6 +65,7 @@ runs:
       shell: bash
       env:
         ACTION_DIRECTORY: ${{ github.action_path }}
+        ENGINE: ${{ inputs.engine }}
         MODE: ${{ inputs.mode }}
         CONFIG_PATH: ${{ inputs.config }}
         JOB_ID: ${{ inputs.job }}
@@ -72,7 +82,12 @@ runs:
 
         # uv uses the central action's locked project, not the consumer's Python
         # environment. A consumer needs neither Python dependencies nor uv.lock.
+        case "$ENGINE" in
+          bazel) implementation=configured_checks.py ;;
+          quality) implementation=configured_quality.py ;;
+          *) echo "Unknown configured engine: $ENGINE" >&2; exit 1 ;;
+        esac
         project="$(realpath "$ACTION_DIRECTORY/../../..")"
         uv run --locked --no-dev --project "$project" python \
-          "$project/tools/configured_checks.py" "$MODE" \
+          "$project/tools/$implementation" "$MODE" \
           --workspace "$GITHUB_WORKSPACE" --reports "$REPORTS"

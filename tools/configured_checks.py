@@ -92,7 +92,7 @@ def normalize(document):
     compact = {'tests', 'builds', 'llvm-coverage', 'coverage'}
     if not isinstance(document, dict) or not compact.intersection(document):
         return document
-    fields(document, compact | {'schema-version', 'docs'}, {'schema-version'}, '$')
+    fields(document, compact | {'schema-version', 'docs', 'clippy', 'codeql', 'gitlint'}, {'schema-version'}, '$')
     if type(document['schema-version']) is not int or document['schema-version'] != 2:
         raise ValueError('The compact layout requires schema-version: 2')
     variants = []
@@ -124,11 +124,13 @@ def normalize(document):
                 entry['workflow-config'] = options
             variants.append(variant)
 
-    # Coverage belongs to the sole native root profile when one is present.
-    # This preserves existing row IDs; otherwise it gets its own native row.
+    # Coverage attaches to a unique ordinary native root profile. Sanitizer
+    # profiles do not compete for this association or change existing row IDs.
+    # Ambiguous selections give coverage its own native row.
     native = [variant for variant in variants if variant.get('architecture', [{'name': 'x86_64'}]) == [{'name': 'x86_64'}]
               and variant.get('os', [{'name': 'linux'}]) == [{'name': 'linux'}]
-              and next(iter(variant['checks'].values()))[0].get('workflow-config', {}).get('working-directory', '.') == '.']
+              and next(iter(variant['checks'].values()))[0].get('workflow-config', {}).get('working-directory', '.') == '.'
+              and next(iter(variant['checks'].values()))[0].get('test-type', 'unit') == 'unit']
     for family in ('llvm-coverage', 'coverage'):
         if family not in document:
             continue
@@ -149,7 +151,7 @@ def normalize(document):
             names.add(family)
             variants.append({'name': family, 'checks': {family: entry}})
     return {'schema-version': 2, 'variants': variants,
-            **({'docs': document['docs']} if 'docs' in document else {})}
+            **{key: document[key] for key in ('docs', 'clippy', 'codeql', 'gitlint') if key in document}}
 
 
 def plan(workspace, config):
@@ -158,7 +160,7 @@ def plan(workspace, config):
     source = inside(workspace, config)
     content = source.read_text(encoding='utf-8')
     document = normalize(yaml.load(content, Loader=Loader))
-    fields(document, {'schema-version', 'variants', 'docs'}, {'schema-version', 'variants'}, '$')
+    fields(document, {'schema-version', 'variants', 'docs', 'clippy', 'codeql', 'gitlint'}, {'schema-version', 'variants'}, '$')
     version = document['schema-version']
     if type(version) is not int or version not in (1, 2):
         raise ValueError('schema-version: expected 1 or 2')
@@ -295,7 +297,7 @@ def plan(workspace, config):
                     raise ValueError(f'{where}: test arguments on a build-only job')
                 rows.append({'id': identity, 'config-sha256': digest,
                              'working-directory': directory.relative_to(workspace).as_posix(),
-                             'execution': execution, 'has-tests': family == 'tests', 'commands': commands})
+                             'execution': execution, 'has-tests': family == 'tests', 'test-type': kind, 'commands': commands})
     if not 1 <= len(rows) <= 256:
         raise ValueError('Expected between 1 and 256 configured jobs')
     names = [row['coverage']['artifact-name'] for row in rows
@@ -303,6 +305,8 @@ def plan(workspace, config):
     if len(names) != len(set(names)):
         raise ValueError('Coverage artifact names must be unique within a plan')
     docs_plan(workspace, document.get('docs'), rows)
+    from configured_quality import plan as quality_plan
+    quality_plan(workspace, document, digest)
     return rows
 
 

@@ -736,11 +736,21 @@ jobs:
           echo "::error::At least one configured job failed. See its setup, execution and post-step logs."
           exit 1
 
+  configured-quality:
+    name: Configured quality
+    needs: prepare-configured
+    uses: ./.github/workflows/configured-quality.yml
+    with:
+      config: ${{ inputs.workflow-config-yaml }}
+      repository: ${{ inputs.repository || github.repository }}
+      ref: ${{ needs.prepare-configured.outputs.source-commit }}
+      runner-labels: ${{ inputs.runner-labels }}
+
   # Documentation consumes only verified reports and the same frozen checkout.
   # Publishing remains a separate consumer decision with separate permissions.
   configured-docs:
     name: Configured documentation
-    needs: [prepare-configured, verify-configured]
+    needs: [prepare-configured, verify-configured, configured-quality]
     if: ${{ needs.prepare-configured.outputs.docs != '{}' && needs.prepare-configured.outputs.docs != '' }}
     uses: ./.github/workflows/docs.yml
     permissions:
@@ -749,7 +759,6 @@ jobs:
       repository: ${{ inputs.repository || github.repository }}
       ref: ${{ needs.prepare-configured.outputs.source-commit }}
       bazel-label: ${{ fromJSON(needs.prepare-configured.outputs.docs).bazel-target }}
-      github-context: ${{ fromJSON(needs.prepare-configured.outputs.docs).github-context }}
       retention-days: ${{ fromJSON(needs.prepare-configured.outputs.docs).retention-days }}
       tests-report-artifact: ${{ fromJSON(needs.prepare-configured.outputs.docs).tests-artifact }}
       coverage-report-artifact: ${{ fromJSON(needs.prepare-configured.outputs.docs).coverage-artifact }}

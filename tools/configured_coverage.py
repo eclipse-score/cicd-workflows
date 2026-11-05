@@ -27,7 +27,7 @@ SCOPE_DEFAULTS = {
     'universe': '//score/...',
     'exclusions': 'tools/coverage/scope_exclusions.txt',
 }
-DOCS_DEFAULTS = {'bazel-target': '//:docs', 'retention-days': 5, 'github-context': False}
+DOCS_DEFAULTS = {'bazel-target': '//:docs', 'retention-days': 5}
 
 
 def label(value, path):
@@ -182,21 +182,27 @@ def docs_plan(workspace, entry, rows):
     from configured_checks import fields
     if entry is None:
         return {}
-    fields(entry, {'bazel-target', 'tests', 'coverage', 'retention-days', 'github-context'}, set(), 'docs')
+    fields(entry, {'bazel-target', 'tests', 'coverage', 'retention-days', 'github-context', 'check', 'link-check'}, set(), 'docs')
     entry = {**DOCS_DEFAULTS, **entry}
     result = {'bazel-target': label(entry['bazel-target'], 'docs.bazel-target'),
-              'retention-days': retention(entry['retention-days']),
-              'github-context': entry['github-context']}
-    if type(result['github-context']) is not bool:
+              'retention-days': retention(entry['retention-days'])}
+    # Accept the deprecated boolean for old callers, but never emit unused CLI
+    # options. The Docs workflow always supplies repository context via env.
+    if 'github-context' in entry and type(entry['github-context']) is not bool:
         raise ValueError('docs.github-context: expected boolean')
     for key in ('tests', 'coverage'):
         # Root documentation can consume one native test row and one coverage
-        # row. Ambiguity requires an explicit selection instead of relying on
+        # row. Prefer the unique unit-test row over additional sanitizer profiles.
+        # Ambiguity requires an explicit selection instead of relying on
         # variant order; an explicit empty string disables that report.
         if key not in entry:
             eligible = [row for row in rows if row['working-directory'] == '.' and
                         (row['has-tests'] and row['execution'] == 'native' and 'coverage' not in row
                          if key == 'tests' else 'coverage' in row)]
+            if key == 'tests' and len(eligible) > 1:
+                units = [row for row in eligible if row.get('test-type', 'unit') == 'unit']
+                if len(units) == 1:
+                    eligible = units
             if len(eligible) > 1:
                 raise ValueError(f'docs.{key}: ambiguous report sources; select a row ID')
             selected = eligible[0]['id'] if eligible else ''
