@@ -59,7 +59,8 @@ A test entry runs its optional `bazel-build-targets` first, then its required
 use `checks.builds` entries with `bazel-configs` and `bazel-build-targets`.
 
 Each variant declares one OS and architecture. This POC supports Linux x86_64
-builds/tests and Linux aarch64 builds on x86_64 runners. Each entry can declare
+builds/tests, Linux aarch64 builds and explicit aarch64 tests under QEMU on
+x86_64 runners. Each entry can declare
 an optional unique `name`; otherwise it defaults to the test type or `build`.
 Supported test types are `unit`, `component`, `integration`, and `sanitizer`;
 these identify checks and do not install services or change Bazel semantics.
@@ -87,8 +88,31 @@ docs:
 The archive names include an invocation-specific prefix. Use the output rather
 than constructing names or relying on a fixed artifact shared by all rows.
 
-Only root Bazel workspaces with `MODULE.bazel` and `MODULE.bazel.lock` are
-supported. The optional `workflow-config.bazel-test-custom-cli-args` accepts only
+Each selected Bazel workspace must contain `MODULE.bazel` and
+`MODULE.bazel.lock`. In schema 2, `workflow-config.working-directory` selects a
+checkout-relative workspace such as `examples/integration`; it defaults to `.`.
+Paths must remain inside the checkout, including after symlink resolution.
+Checkout stays at the repository root; cache setup, build/test and log collection
+all use the selected workspace.
+
+`workflow-config.execution` defaults to `native`. Set it to `qemu-user` for
+Linux aarch64 tests on the shared x86_64 runner. This profile installs QEMU,
+allows up to six hours for the job and applies
+`--test_timeout=180,900,2700,10800`. Native rows have a two-hour job budget.
+Your Bazel config must select the cross-toolchain and its `run_under` wrapper;
+installing QEMU alone cannot configure a module's tests. Build-only ARM rows
+need no execution override. Example ARM test entry:
+
+```yaml
+test-type: unit
+bazel-configs: score-linux-aarch64
+bazel-build-targets: //...
+bazel-test-targets: //...
+workflow-config:
+  execution: qemu-user
+```
+
+The optional `workflow-config.bazel-test-custom-cli-args` accepts only
 `--test_tag_filters=...` and `--build_tag_filters=...`. Arbitrary flags, shell
 hooks and unrecognized fields fail explicitly. The supported schema 1 subset
 accepts `quality-gates.tests` and adapts it to the same execution plan.
