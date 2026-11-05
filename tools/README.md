@@ -25,26 +25,37 @@ Three isolated worktrees use the local branch `central-workflow`:
 | Repository | Local worktree | POC graph |
 | --- | --- | --- |
 | cicd-workflows | `score_cicd-workflows-ci-build` | Planner, executor, verifier, helper action and `on-pr.yml` |
-| baselibs | `score_baselibs-ci-poc` | `score/result` native build/unit tests and ARM64 compilation |
-| lifecycle | `score_lifecycle-ci-poc` | Health-monitor C++ native build/unit tests and ARM64 compilation |
+| baselibs | `score_baselibs-ci-poc` | Full native `//...` build/test selection |
+| lifecycle | `score_lifecycle-ci-poc` | Full native build/test selection and ARM64 compilation |
 
-Both consumer repositories add `.github/ci.yml` and a manual
-`poc-configured-checks.yml`. The focused graphs exercise actual toolchains and
-tests; they do not establish full module coverage. Existing module workflows
-remain in place, including sanitizer, integration, coverage and documentation jobs.
+Both consumer repositories select `.github/ci.yml` from their existing CI entry
+points. The temporary manual POC workflows are removed. The migration replaces
+complete rows rather than narrowing the old CI to the initial smoke-test targets.
+
+| Consumer | Removed local execution | Retained module execution |
+| --- | --- | --- |
+| baselibs | Standalone common-check workflow and native root row in `build_linux.yml` | ARM64 build/runtime tests with QEMU, nested integration workspace, coverage, docs, QNX and lint |
+| lifecycle | Native and ARM64 rows and their build/test steps in `on-pr.yml` | Test-only sanitizer matrix, coverage, docs, QNX, Clippy and CodeQL |
+
+The documentation jobs consume the central `configured-artifacts` output.
+Report/BEP artifacts are separate from package-rooted test-log archives, because
+the docs source linker derives Bazel labels from those relative XML paths.
+`cicd-workflows` itself has no module compiler matrix to replace; its existing
+common/consumer tests remain. Other users still rely on `tests.yml`, so that
+public reusable workflow is retained.
 
 The workflow and action references currently use
 `eclipse-score/cicd-workflows@central-workflow`. They deliberately select the
-experimental upstream branch for both workflow and helper action. GitHub execution
-requires a way to trigger the consumer workflow from its branch.
-A workflow_dispatch file normally must exist on the default branch to expose its
-manual trigger. Do not merge this bootstrap wiring as a production release.
+experimental upstream branch for both workflow and helper action. Consumer PRs
+exercise the existing pull_request/merge_group entry points; main/tag pushes and
+release callers keep their existing event coverage. Do not merge this branch
+wiring as a production release.
 A release must pin the central helper action and reusable workflow to the same
 reviewed implementation rather than fetching a moving main branch.
 
 ## Local execution evidence
 
-Both consumer configurations were executed from the local worktrees on
+The initial focused consumer configurations were executed from the local worktrees on
 2026-11-04 using the central executor and Bazel 8.8.2. All four rows and six
 commands passed aggregate verification against their checkout and config hash.
 The selected native tests passed: two Bazel test targets in baselibs and one in
@@ -54,7 +65,8 @@ Base revisions were baselibs `19cab2bef2ff260ad5837dabd4f5cc75b22961bd` and
 lifecycle `ff939fe2fc6bc118b434be3d5f7cc332597d7e14`, with the uncommitted POC
 configurations. Local runs used isolated Bazel output roots and bounded compiler
 parallelism. These results cover the planner/executor/verifier and selected
-module graphs; GitHub cache setup and artifact transfer have not run yet.
+module graphs; they do not establish execution of the expanded full-module
+configurations. GitHub cache setup and artifact transfer have not run yet.
 
 ## Limits to assess before migration
 
@@ -72,6 +84,8 @@ module graphs; GitHub cache setup and artifact transfer have not run yet.
   `checks.builds` and explicit entry names. Unknown fields and duplicate keys fail.
 - Workflow permissions, remote action/cache integration and artifact handoff need
   GitHub validation after review. Local executor tests cannot establish these.
+- Review branch-protection check names before adoption: the removed local native
+  matrix rows and baselibs common-check workflow no longer publish their old names.
 
 ## Reproduce locally
 
@@ -91,11 +105,12 @@ uv run --locked python tools/configured_checks.py run \
   --job linux-native-tests-unit --reports /tmp/poc-baselibs
 
 uv run --locked python tools/configured_checks.py run \
-  --workspace ../score_baselibs-ci-poc --config .github/ci.yml \
-  --job linux-cross-builds-compiler --reports /tmp/poc-baselibs
+  --workspace ../score_lifecycle-ci-poc --config .github/ci.yml \
+  --job linux-cross-builds-compiler --reports /tmp/poc-lifecycle
 ```
 
-Repeat with the lifecycle worktree and a distinct reports directory. Plan output
+The baselibs config has only the native row; lifecycle also has a cross-build row.
+Use a distinct reports directory per consumer. Plan output
 lists exact argv before any build starts. For local verification, import `plan`
 and `verify` from `configured_checks`, passing the planned rows, reports directory
 and the checkout's observed `git rev-parse HEAD`. The CLI verification mode reads

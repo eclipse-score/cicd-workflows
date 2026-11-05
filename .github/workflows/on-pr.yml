@@ -51,6 +51,9 @@ on:
       configured-results:
         description: JSON containing verified configured Bazel command outcomes
         value: ${{ jobs.verify-configured.outputs.results }}
+      configured-artifacts:
+        description: JSON mapping configured job identifiers to report and test-log artifact names
+        value: ${{ jobs.prepare-configured.outputs.artifacts }}
     inputs:
       # No config means no compiler/test jobs. Existing callers keep their
       # capability-based common checks without an implicit bare Bazel build.
@@ -556,6 +559,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       expected: ${{ steps.plan.outputs.expected }}
       artifact-prefix: ${{ steps.plan.outputs.artifact-prefix }}
+      artifacts: ${{ steps.plan.outputs.artifacts }}
       source-commit: ${{ steps.checkout.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -628,9 +632,24 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
-          name: ${{ needs.prepare-configured.outputs.artifact-prefix }}-${{ matrix.id }}
-          path: ${{ runner.temp }}/configured-checks/${{ matrix.id }}
+          name: ${{ needs.prepare-configured.outputs.artifact-prefix }}-report-${{ matrix.id }}
+          path: |
+            ${{ runner.temp }}/configured-checks/${{ matrix.id }}/report.json
+            ${{ runner.temp }}/configured-checks/${{ matrix.id }}/*.bep.jsonl
           if-no-files-found: error
+          retention-days: 7
+
+      # Keep package-relative XML/log paths at the archive root. Documentation
+      # derives Bazel labels from those paths, so a report/testlogs prefix would
+      # change the meaning of otherwise identical test results.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && matrix.has-tests }}
+        with:
+          name: ${{ needs.prepare-configured.outputs.artifact-prefix }}-testlogs-${{ matrix.id }}
+          path: ${{ runner.temp }}/configured-checks/${{ matrix.id }}/testlogs/
+          # Setup/build failures may prevent any tests from starting. Their
+          # failed job/report remains authoritative; no empty log archive is made.
+          if-no-files-found: ignore
           retention-days: 7
 
   verify-configured:
@@ -656,7 +675,7 @@ jobs:
       # fail verification rather than silently overwriting each other.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: ${{ needs.prepare-configured.outputs.artifact-prefix }}-*
+          pattern: ${{ needs.prepare-configured.outputs.artifact-prefix }}-report-*
           path: ${{ runner.temp }}/configured-checks
 
       - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow

@@ -71,6 +71,22 @@ Success requires both successful commands and build/test evidence. Cached test
 passes count; an empty or entirely skipped test selection fails.
 `configured-results` reports the verified checkout and per-row command outcomes.
 
+Downstream jobs can consume the `configured-artifacts` JSON output, keyed by the
+configured row ID. Each value has a `report` artifact name and a `testlogs`
+artifact name (null for build-only rows). Test-log archives contain package paths
+at their root, so existing documentation workflows can reconstruct Bazel labels:
+
+```yaml
+docs:
+  needs: checks
+  uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
+  with:
+    tests-report-artifact: ${{ fromJSON(needs.checks.outputs.configured-artifacts)['linux-native-tests-unit'].testlogs }}
+```
+
+The archive names include an invocation-specific prefix. Use the output rather
+than constructing names or relying on a fixed artifact shared by all rows.
+
 Only root Bazel workspaces with `MODULE.bazel` and `MODULE.bazel.lock` are
 supported. The optional `workflow-config.bazel-test-custom-cli-args` accepts only
 `--test_tag_filters=...` and `--build_tag_filters=...`. Arbitrary flags, shell
