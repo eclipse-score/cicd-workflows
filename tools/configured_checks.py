@@ -20,6 +20,8 @@ import subprocess
 import sys
 import uuid
 
+from configured_coverage import coverage_row, collect_coverage, check_scope, docs_plan
+
 import yaml
 
 
@@ -85,7 +87,7 @@ def plan(workspace, config):
     source = inside(workspace, config)
     content = source.read_text(encoding='utf-8')
     document = yaml.load(content, Loader=Loader)
-    fields(document, {'schema-version', 'variants'}, {'schema-version', 'variants'}, '$')
+    fields(document, {'schema-version', 'variants', 'docs'}, {'schema-version', 'variants'}, '$')
     version = document['schema-version']
     if type(version) is not int or version not in (1, 2):
         raise ValueError('schema-version: expected 1 or 2')
@@ -99,19 +101,19 @@ def plan(workspace, config):
     rows, variant_names = [], set()
     gate_key = 'quality-gates' if version == 1 else 'checks'
 
-    # Keep dimensions explicit rather than producing a Cartesian product. One
-    # variant describes one platform; each entry describes one independent row.
+    # Each variant describes one platform, with native Linux as the default.
+    # Dimensions never produce an implicit Cartesian product.
     for index, variant in enumerate(variants):
         path = f'variants[{index}]'
         fields(variant, {'name', 'architecture', 'os', gate_key},
-               {'name', 'architecture', 'os', gate_key}, path)
+               ({'name', 'architecture', 'os', gate_key} if version == 1 else {'name', gate_key}), path)
         name = variant['name']
         if not isinstance(name, str) or not NAME.fullmatch(name) or name in variant_names:
             raise ValueError(f'{path}.name: invalid or duplicate name')
         variant_names.add(name)
         platform = {}
         for dimension in ('architecture', 'os'):
-            value = variant[dimension]
+            value = variant.get(dimension, [{'name': 'linux' if dimension == 'os' else 'x86_64'}])
             if not isinstance(value, list) or len(value) != 1:
                 raise ValueError(f'{path}.{dimension}: expected exactly one named value')
             fields(value[0], {'name'}, {'name'}, f'{path}.{dimension}')
@@ -120,10 +122,14 @@ def plan(workspace, config):
             raise ValueError(f'{path}: POC supports Linux x86_64 and aarch64 builds only')
 
         families = variant[gate_key]
-        fields(families, {'tests'} if version == 1 else {'builds', 'tests'}, set(), f'{path}.{gate_key}')
+        fields(families, {'tests', 'llvm-coverage'} if version == 1 else
+               {'builds', 'tests', 'llvm-coverage', 'coverage'}, set(), f'{path}.{gate_key}')
         if not families:
             raise ValueError(f'{path}.{gate_key}: no jobs configured')
         for family, entries in families.items():
+            if family in ('llvm-coverage', 'coverage'):
+                rows.append(coverage_row(workspace, entries, family, name, platform, digest))
+                continue
             if not isinstance(entries, list) or not entries:
                 raise ValueError(f'{path}.{family}: expected a nonempty list')
             for offset, entry in enumerate(entries):
@@ -134,12 +140,20 @@ def plan(workspace, config):
                     allowed.add('name')
                 if family == 'tests':
                     allowed |= {'test-type', 'bazel-test-targets'}
-                    required |= {'test-type', 'bazel-test-targets'}
-                else:
+                    if version == 1:
+                        required |= {'test-type', 'bazel-test-targets'}
+                elif version == 1:
                     required.add('bazel-build-targets')
                 if version == 1:
                     allowed.add('bazel-test-custom-cli-args')
                 fields(entry, allowed, required, where)
+                if version == 2:
+                    # Defaults apply only to opted-in rows with an explicit
+                    # compiler config. A test row still builds first only when
+                    # bazel-build-targets is supplied.
+                    defaults = ({'test-type': 'unit', 'bazel-test-targets': '//...'} if family == 'tests'
+                                else {'bazel-build-targets': '//...'})
+                    entry = {**defaults, **entry}
                 options = entry.get('workflow-config', {})
                 fields(options, {'working-directory', 'execution', 'bazel-test-custom-cli-args'} if version == 2
                        else {'bazel-test-custom-cli-args'}, set(), f'{where}.workflow-config')
@@ -213,6 +227,11 @@ def plan(workspace, config):
                              'execution': execution, 'has-tests': family == 'tests', 'commands': commands})
     if not 1 <= len(rows) <= 256:
         raise ValueError('Expected between 1 and 256 configured jobs')
+    names = [row['coverage']['artifact-name'] for row in rows
+             if row.get('coverage', {}).get('artifact-name')]
+    if len(names) != len(set(names)):
+        raise ValueError('Coverage artifact names must be unique within a plan')
+    docs_plan(workspace, document.get('docs'), rows)
     return rows
 
 
@@ -234,7 +253,7 @@ def evidence(path, command):
             completed += 1
         if event.get('testSummary', {}).get('overallStatus') in ('PASSED', 'FLAKY'):
             passed += 1
-    count = passed if command == 'test' else completed
+    count = passed if command in ('test', 'coverage') else completed
     if not count:
         raise ValueError(f'{command}: no successful target/test evidence')
     return count
@@ -256,6 +275,8 @@ def execute(workspace, config, job_id, reports):
               'config-sha256': row['config-sha256'], 'commands': []}
     success = True
     try:
+        if row.get('coverage', {}).get('scope-check'):
+            check_scope(directory, row['coverage']['scope-check'])
         for number, command in enumerate(row['commands']):
             observed = {'argv': command, 'outcome': 'failure', 'evidence-count': 0}
             report['commands'].append(observed)
@@ -265,13 +286,21 @@ def execute(workspace, config, job_id, reports):
             separator = command.index('--')
             argv = [*command[:separator], f'--build_event_json_file={bep}', *command[separator:]]
             print(shlex.join(argv), flush=True)
-            observed['exit-code'] = subprocess.run(argv, cwd=directory, check=False).returncode
+            environment = dict(os.environ)
+            if 'coverage' in row:
+                environment['COVERAGE_THRESHOLD'] = str(row['coverage']['threshold'])
+            observed['exit-code'] = subprocess.run(argv, cwd=directory, env=environment, check=False).returncode
             if observed['exit-code']:
                 success = False
                 break
             observed['evidence-count'] = evidence(bep, command[1])
             observed['outcome'] = 'success'
-    except (OSError, ValueError) as error:
+        # Threshold failures can still produce useful HTML and LCOV. Stage
+        # those reports while retaining the failed command as gate evidence.
+        if 'coverage' in row:
+            collect_coverage(directory, destination / 'coverage', row['coverage'])
+            report['coverage'] = row['coverage']
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
         report['error'] = str(error)
         success = False
     finally:
@@ -314,6 +343,8 @@ def verify(expected, reports, source_commit):
             raise ValueError(f'{row["id"]}: checkout or config differs from preparation')
         if report.get('working-directory') != row['working-directory']:
             raise ValueError(f'{row["id"]}: workspace differs from preparation')
+        if 'coverage' in row and report.get('coverage') != row['coverage']:
+            raise ValueError(f'{row["id"]}: coverage collection did not succeed as planned')
         observations = report['commands']
         if [entry['argv'] for entry in observations] != row['commands']:
             raise ValueError(f'{row["id"]}: planned commands were skipped or changed')
@@ -324,7 +355,7 @@ def verify(expected, reports, source_commit):
     return {'commit': source_commit, 'jobs': actual}
 
 
-def artifact_names(rows, prefix):
+def artifact_names(rows, prefix, repository=''):
     """Expose report and test-log artifacts without leaking matrix internals.
 
     Documentation reconstructs Bazel labels from XML paths. Test logs therefore
@@ -332,13 +363,25 @@ def artifact_names(rows, prefix):
     report directory. Distinct namespaces also keep log archives out of report
     verification downloads.
     """
-    return {
+    result = {
         row['id']: {
             'report': f"{prefix}-report-{row['id']}",
             'testlogs': f"{prefix}-testlogs-{row['id']}" if row['has-tests'] else None,
         }
         for row in rows
     }
+    for row in rows:
+        if 'coverage' in row:
+            name = row['coverage']['artifact-name'] or f"{prefix}-coverage-{row['id']}"
+            if '{repository}' in name:
+                if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
+                    raise ValueError('Coverage artifact template requires owner/name repository')
+                name = name.replace('{repository}', repository.split('/')[1])
+            result[row['id']]['coverage'] = name
+    names = [entry['coverage'] for entry in result.values() if 'coverage' in entry]
+    if len(names) != len(set(names)):
+        raise ValueError('Resolved coverage artifact names must be unique')
+    return result
 
 
 def output(name, value):
@@ -354,6 +397,7 @@ def main():
     parser.add_argument('--workspace', type=Path, default=Path.cwd())
     parser.add_argument('--config', default=os.environ.get('CONFIG_PATH'))
     parser.add_argument('--job', default=os.environ.get('JOB_ID'))
+    parser.add_argument('--repository', default=os.environ.get('SOURCE_REPOSITORY', os.environ.get('GITHUB_REPOSITORY', '')))
     parser.add_argument('--reports', type=Path, required=True)
     args = parser.parse_args()
     if args.mode == 'plan':
@@ -362,7 +406,15 @@ def main():
         output('expected', json.dumps(rows, separators=(',', ':')))
         prefix = f'configured-{uuid.uuid4().hex}'
         output('artifact-prefix', prefix)
-        output('artifacts', json.dumps(artifact_names(rows, prefix), separators=(',', ':')))
+        artifacts = artifact_names(rows, prefix, args.repository)
+        output('artifacts', json.dumps(artifacts, separators=(',', ':')))
+        document = yaml.load(inside(args.workspace.resolve(), args.config).read_text(), Loader=Loader)
+        docs = docs_plan(args.workspace.resolve(), document.get('docs'), rows)
+        if docs:
+            tests, coverage = docs.pop('tests'), docs.pop('coverage')
+            docs['tests-artifact'] = artifacts[tests]['testlogs'] if tests else ''
+            docs['coverage-artifact'] = artifacts[coverage]['coverage'] if coverage else ''
+        output('docs', json.dumps(docs, separators=(',', ':')))
         print(json.dumps(rows, indent=2))
         return 0
     if args.mode == 'run':

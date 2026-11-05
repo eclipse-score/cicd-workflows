@@ -37,10 +37,10 @@ complete rows rather than narrowing the old CI to the initial smoke-test targets
 
 | Consumer | Removed local execution | Retained module execution |
 | --- | --- | --- |
-| baselibs | Standalone common-check workflow and complete Linux execution matrix | Coverage, docs, QNX and lint |
-| lifecycle | Native and ARM64 rows and their build/test steps in `on-pr.yml` | Test-only sanitizer matrix, coverage, docs, QNX, Clippy and CodeQL |
+| baselibs | Standalone common-check workflow and complete Linux execution matrix | QNX and lint |
+| lifecycle | Native and ARM64 rows and their build/test steps in `on-pr.yml` | Test-only sanitizer matrix, docs verification/link checks, QNX, Clippy and CodeQL |
 
-The documentation jobs consume the central `configured-artifacts` output.
+The central documentation job resolves reports from `configured-artifacts`.
 Report/BEP artifacts are separate from package-rooted test-log archives, because
 the docs source linker derives Bazel labels from those relative XML paths.
 `cicd-workflows` itself has no module compiler matrix to replace; its existing
@@ -90,8 +90,8 @@ transfer have not run yet.
   do not establish native ARM hardware coverage. QNX needs a separate environment.
 - Module configs may themselves use module-specific Bazel behavior. The POC
   deliberately offers no arbitrary shell hooks or package-installation options.
-- Schema 1 compatibility covers the implemented tests subset only. Schema 2 adds
-  `checks.builds` and explicit entry names. Unknown fields and duplicate keys fail.
+- Schema 1 compatibility covers the implemented tests and LLVM coverage subset.
+  Schema 2 adds `checks.builds`, module-orchestrated `checks.coverage` and explicit entry names. Unknown fields and duplicate keys fail.
 - Workflow permissions, remote action/cache integration and artifact handoff need
   GitHub validation after review. Local executor tests cannot establish these.
 - Review branch-protection check names before adoption: the removed local native
@@ -108,7 +108,8 @@ uv run --locked python -m pytest -v
 uv run --locked ruff check tests/ci tools
 
 uv run --locked python tools/configured_checks.py plan \
-  --workspace ../score_baselibs-ci-poc --config .github/ci.yml --reports /tmp/poc-baselibs
+  --workspace ../score_baselibs-ci-poc --repository eclipse-score/baselibs \
+  --config .github/ci.yml --reports /tmp/poc-baselibs
 
 uv run --locked python tools/configured_checks.py run \
   --workspace ../score_baselibs-ci-poc --config .github/ci.yml \
@@ -140,3 +141,51 @@ It installs only the standard emulator package through the shared apt action.
 The module supplies its Bazel toolchain and run_under wrapper. The workflow owns
 the longer test timeout classes and six-hour runner budget. No package lists,
 setup commands or arbitrary shell hooks are accepted from consumer YAML.
+
+## Coverage and Docs integration
+
+`configured_coverage.py` owns the two coverage contracts and Docs selection.
+LLVM coverage preserves the template's `bazel-configs`, `bazel-targets`,
+`justifications-yaml`, `coverage-html-bazel-target`, `coverage-threshold` and
+`generate-artifacts-archive` fields as one object per variant. The SCORE report
+CLI uses `--archive-dir`; the template's script hooks are deliberately absent.
+The default threshold is report-only; both migrated consumers set their intended
+values explicitly. `checks.coverage` is a distinct module Bazel orchestrator
+contract, not an adapter for the template's GCOV options.
+
+The built-in scope policy preserves baselibs' production universe query,
+configured dependency query and missing/stale exclusion comparisons. The local
+scope-check script remains available for developer use. Lifecycle keeps its
+module-owned coverage target, including the combined C++/Rust orchestration.
+Both consumers keep their release artifact names and ten-day retention. Their
+local coverage workflows are replaced by configuration; baselibs' Linux entry
+point also supports manual dispatch. Lifecycle's Docs verification and link-check
+jobs remain independent. The central call includes coverage and Docs in its
+success result, so the caller's merge/release gates cover them too.
+
+Coverage collection stages HTML, plain LCOV at both supported root filenames,
+and Cobertura (preserving the generator's `coverage.xml` or converting via the
+centrally locked dependency). ZIP input uses only `lcov_report/lcov.dat` and is
+never extracted as a directory tree. Missing/invalid reports fail execution.
+Threshold failures retain available reports without turning the row green.
+
+`docs.yml` adds optional `repository`, `ref`, `bazel-label` and `github-context`
+inputs. The central caller uses argv execution and the preparation SHA, retaining
+the legacy command-string path for existing callers. It reuses existing artifact
+download/normalization, Graphviz and `github-pages` upload. No publishing job or
+write permissions are added.
+
+Local unit tests cover planning, scope differences, execution evidence, missing
+reports, threshold propagation and plain/ZIP LCOV normalization. The local
+consumer comparison checks the complete pre-existing build/test selections and
+coverage exclusions/thresholds. Full module coverage and documentation builds,
+GitHub artifact handoff and release downloads still need end-to-end validation.
+
+Configuration conventions are centralized in `configured_coverage.py` and the
+schema 2 planner defaults. Consumers omit standard platform/test fields, report
+paths, generator labels and retention values. Defaults are merged before type
+and path validation, so explicit invalid/null overrides still fail. Docs resolves
+unique native-root test and root coverage sources; ambiguity fails preparation
+instead of choosing by variant order. Explicit empty selectors disable a report.
+The consumer migration comparison must continue to produce identical commands,
+coverage metadata and Docs plans when redundant configuration is removed.

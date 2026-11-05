@@ -135,11 +135,17 @@ if mode == 'fail':
     sys.exit(1)
 bep = next(a.split('=', 1)[1] for a in sys.argv if a.startswith('--build_event_json_file='))
 event = ({'id': {'targetCompleted': {}}, 'completed': {'success': True}}
-         if sys.argv[1] == 'build' else {'testSummary': {'overallStatus': 'PASSED'}})
+         if sys.argv[1] in ('build', 'run') else {'testSummary': {'overallStatus': 'PASSED'}})
 Path(bep).write_text('' if mode == 'empty' else json.dumps(event) + '\\n')
 logs = Path('bazel-testlogs/lib/test')
 logs.mkdir(parents=True, exist_ok=True)
 (logs / 'test.xml').write_text('<testsuite/>')
+if os.environ.get('FAKE_COVERAGE') and 'COVERAGE_THRESHOLD' in os.environ:
+    assert os.environ['COVERAGE_THRESHOLD'] == '0'
+    output = Path('coverage-report')
+    output.mkdir(exist_ok=True)
+    (output / 'index.html').write_text('<html/>')
+    (output / 'coverage.lcov').write_text('SF:lib/file.cc\\nDA:1,1\\nend_of_record\\n')
 ''')
     executable.chmod(0o755)
     import os
@@ -301,4 +307,274 @@ def test_nested_working_directory_cannot_escape_through_a_symlink(workspace, doc
     (workspace / 'link').symlink_to(outside, target_is_directory=True)
     document['variants'][0]['checks']['tests'][0]['workflow-config'] = {'working-directory': 'link'}
     with pytest.raises(ValueError, match='escapes checkout'):
+        plan(workspace, write_config(workspace, document))
+
+
+@pytest.fixture
+def coverage_document(workspace, document):
+    """A report-only LLVM pipeline shares its variant with ordinary tests."""
+    (workspace / 'justifications.yml').write_text('{}')
+    document['variants'][0]['checks']['llvm-coverage'] = {
+        'bazel-configs': 'llvm_cov', 'bazel-targets': '//lib/... -//lib:excluded',
+        'justifications-yaml': 'justifications.yml', 'coverage-threshold': 0,
+        'generate-artifacts-archive': True,
+    }
+    document['docs'] = {'bazel-target': '//:docs', 'tests': 'native-tests-unit',
+                        'coverage': 'native-llvm-coverage'}
+    return document
+
+
+def test_llvm_and_module_orchestrator_have_distinct_contracts(workspace, coverage_document):
+    rows = plan(workspace, write_config(workspace, coverage_document))
+    llvm = next(row for row in rows if 'coverage' in row)
+    assert [argv[1] for argv in llvm['commands']] == ['coverage', 'run']
+    assert llvm['commands'][0][-2:] == ['//lib/...', '-//lib:excluded']
+    assert llvm['commands'][1][-2:] == ['--archive-dir', 'coverage-report']
+    gates = coverage_document['variants'][0]['checks']
+    del gates['llvm-coverage']
+    gates['coverage'] = {'bazel-target': '//quality:coverage', 'output-directory': 'reports',
+                         'coverage-threshold': 66}
+    coverage_document['docs']['coverage'] = 'native-coverage'
+    row = next(row for row in plan(workspace, write_config(workspace, coverage_document)) if 'coverage' in row)
+    assert row['commands'] == [['bazel', 'run', '--lockfile_mode=error', '//quality:coverage', '--']]
+    assert row['coverage']['threshold'] == 66
+
+
+@pytest.mark.parametrize('mutation, message', [
+    ({'coverage-threshold': True}, 'coverage-threshold'),
+    ({'coverage-threshold': 101}, 'coverage-threshold'),
+    ({'coverage-threshold': float('nan')}, 'coverage-threshold'),
+    ({'bazel-configs': None}, 'bazel-configs'),
+    ({'generate-artifacts-archive': 'false'}, 'expected boolean'),
+    ({'coverage-html-bazel-target': '//...'}, 'one positive'),
+    ({'justifications-yaml': '../private.yml'}, 'escapes checkout'),
+    ({'workflow-config': {'pre-coverage-script': 'anything'}}, 'unsupported fields'),
+    ({'workflow-config': {'retention-days': 0}}, 'retention-days'),
+    ({'workflow-config': {'artifact-name': 'bad/name'}}, 'artifact-name'),
+])
+def test_invalid_coverage_is_rejected_before_execution(workspace, coverage_document, mutation, message):
+    coverage_document['variants'][0]['checks']['llvm-coverage'].update(mutation)
+    with pytest.raises(ValueError, match=message):
+        plan(workspace, write_config(workspace, coverage_document))
+
+
+@pytest.mark.parametrize('key, value', [('tests', 'missing'), ('tests', 'native-coverage'),
+                                        ('coverage', 'native-tests-unit'), ('coverage', []),
+                                        ('github-context', 'true')])
+def test_docs_references_are_validated_during_preparation(workspace, coverage_document, key, value):
+    coverage_document['docs'][key] = value
+    with pytest.raises(ValueError, match='docs'):
+        plan(workspace, write_config(workspace, coverage_document))
+
+
+def test_coverage_executor_collects_and_verifies_reports(workspace, coverage_document, tmp_path, fake_bazel, monkeypatch):
+    monkeypatch.setenv('FAKE_COVERAGE', '1')
+    config = write_config(workspace, coverage_document)
+    rows = plan(workspace, config)
+    reports = tmp_path / 'reports'
+    for row in rows:
+        assert execute(workspace, config, row['id'], reports) == 0
+    sha = subprocess.check_output(['git', '-C', str(workspace), 'rev-parse', 'HEAD'], text=True).strip()
+    verify(rows, reports, sha)
+    coverage = next(row for row in rows if 'coverage' in row)
+    artifact = reports / coverage['id'] / 'coverage'
+    assert (artifact / 'coverage_report.dat').read_text().startswith('SF:')
+    assert (artifact / 'index.html').is_file()
+    manifest = artifact_names(rows, 'invocation')
+    assert manifest[coverage['id']]['coverage'] == 'invocation-coverage-native-llvm-coverage'
+    report_path = reports / coverage['id'] / 'report.json'
+    report = json.loads(report_path.read_text())
+    del report['coverage']
+    report_path.write_text(json.dumps(report))
+    with pytest.raises(ValueError, match='coverage collection'):
+        verify(rows, reports, sha)
+
+
+def test_green_coverage_commands_without_reports_fail(workspace, coverage_document, tmp_path, fake_bazel):
+    config = write_config(workspace, coverage_document)
+    row = next(row for row in plan(workspace, config) if 'coverage' in row)
+    reports = tmp_path / 'reports'
+    assert execute(workspace, config, row['id'], reports) == 1
+    report = json.loads((reports / row['id'] / 'report.json').read_text())
+    assert 'HTML report' in report['error']
+
+
+@pytest.mark.parametrize('zipped', [False, True])
+def test_coverage_normalizes_plain_and_zip_lcov_for_docs(tmp_path, zipped):
+    from configured_coverage import collect_coverage
+    import zipfile
+    output = tmp_path / 'coverage-report'
+    output.mkdir()
+    (output / 'index.html').write_text('<html/>')
+    raw = tmp_path / 'bazel-out/_coverage/_coverage_report.dat'
+    raw.parent.mkdir(parents=True)
+    data = b'SF:lib/file.cc\nDA:1,1\nend_of_record\n'
+    if zipped:
+        with zipfile.ZipFile(raw, 'w') as archive:
+            archive.writestr('lcov_report/lcov.dat', data)
+    else:
+        raw.write_bytes(data)
+    collect_coverage(tmp_path, tmp_path / 'staged', {'output-directory': 'coverage-report'})
+    assert (tmp_path / 'staged/coverage_report.dat').read_bytes() == data
+    assert (tmp_path / 'staged/coverage.lcov').read_bytes() == data
+
+
+def test_scope_check_requires_complete_production_scope_and_current_exclusions():
+    from configured_coverage import scope_difference
+    production = {'//score:a', '//score:b'}
+    scope_difference(production, {'//score:a'}, {'//score:b'})
+    with pytest.raises(ValueError, match='missing=.*score:b'):
+        scope_difference(production, {'//score:a'}, set())
+    with pytest.raises(ValueError, match='stale exclusions=.*score:b'):
+        scope_difference(production, production, {'//score:b'})
+
+
+def test_docs_output_uses_resolved_artifacts_and_validated_targets(workspace, coverage_document, tmp_path, monkeypatch):
+    """The CLI hands Docs concrete artifacts from the same invocation's plan."""
+    import sys
+    from configured_checks import main
+    config = write_config(workspace, coverage_document)
+    output = tmp_path / 'outputs'
+    monkeypatch.setenv('GITHUB_OUTPUT', str(output))
+    monkeypatch.setattr(sys, 'argv', ['configured_checks', 'plan', '--workspace', str(workspace),
+                                    '--config', config, '--reports', str(tmp_path / 'reports')])
+    assert main() == 0
+    values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+    docs, artifacts = json.loads(values['docs']), json.loads(values['artifacts'])
+    assert docs['tests-artifact'] == artifacts['native-tests-unit']['testlogs']
+    assert docs['coverage-artifact'] == artifacts['native-llvm-coverage']['coverage']
+    assert docs['bazel-target'] == '//:docs'
+    assert 'tests' not in docs and 'coverage' not in docs
+
+
+def test_scope_query_failure_stops_coverage_and_retains_failure_report(workspace, coverage_document, tmp_path, monkeypatch):
+    """A failed completeness query cannot silently permit coverage to proceed."""
+    import configured_coverage
+    (workspace / 'exclusions.txt').write_text('//lib:excluded\n')
+    coverage_document['variants'][0]['checks']['llvm-coverage']['scope-check'] = {
+        'scope-target': '//tools:scope', 'universe': '//lib/...', 'exclusions': 'exclusions.txt'}
+    calls = []
+    def fail_query(argv, **kwargs):
+        calls.append(argv)
+        raise subprocess.CalledProcessError(1, argv)
+    monkeypatch.setattr(configured_coverage.subprocess, 'check_output', fail_query)
+    # Observe the commit before mocking the process boundary shared by both modules.
+    import configured_checks
+    monkeypatch.setattr(configured_checks, 'commit', lambda _: 'frozen-commit')
+    config = write_config(workspace, coverage_document)
+    row = next(row for row in plan(workspace, config) if 'coverage' in row)
+    reports = tmp_path / 'reports'
+    assert execute(workspace, config, row['id'], reports) == 1
+    report = json.loads((reports / row['id'] / 'report.json').read_text())
+    assert report['commands'] == []
+    assert report['error']
+    assert len(calls) == 1 and calls[0][1] == 'query'
+
+
+def test_threshold_failure_keeps_reports_but_fails_verification(workspace, coverage_document, tmp_path, fake_bazel, monkeypatch):
+    """Report generation may finish before its coverage threshold rejects the row."""
+    import os
+    from pathlib import Path
+    executable = Path(os.environ['PATH'].split(os.pathsep)[0]) / 'bazel'
+    executable.write_text(executable.read_text() + "\nif sys.argv[1] == 'run':\n    sys.exit(1)\n")
+    monkeypatch.setenv('FAKE_COVERAGE', '1')
+    config = write_config(workspace, coverage_document)
+    row = next(row for row in plan(workspace, config) if 'coverage' in row)
+    reports = tmp_path / 'reports'
+    assert execute(workspace, config, row['id'], reports) == 1
+    assert (reports / row['id'] / 'coverage/index.html').is_file()
+    sha = subprocess.check_output(['git', '-C', str(workspace), 'rev-parse', 'HEAD'], text=True).strip()
+    with pytest.raises(ValueError, match='Bazel evidence'):
+        verify([row], reports, sha)
+
+
+def test_release_artifact_template_tracks_selected_repository_including_forks(workspace, coverage_document):
+    coverage_document['variants'][0]['checks']['llvm-coverage']['workflow-config'] = {
+        'artifact-name': '{repository}_cpp_coverage_report'}
+    rows = plan(workspace, write_config(workspace, coverage_document))
+    for repo in ('eclipse-score/baselibs', 'contributor/renamed-fork'):
+        manifest = artifact_names(rows, 'invocation', repo)
+        assert manifest['native-llvm-coverage']['coverage'] == repo.split('/')[1] + '_cpp_coverage_report'
+    with pytest.raises(ValueError, match='owner/name'):
+        artifact_names(rows, 'invocation')
+
+
+@pytest.mark.parametrize('report', ['missing', 'invalid', 'wrong-zip-member'])
+def test_html_without_usable_lcov_cannot_be_published(tmp_path, report):
+    from configured_coverage import collect_coverage
+    import zipfile
+    source = tmp_path / 'coverage-report'
+    source.mkdir()
+    (source / 'index.html').write_text('<html/>')
+    if report == 'invalid':
+        (source / 'coverage_report.dat').write_text('not LCOV')
+    elif report == 'wrong-zip-member':
+        with zipfile.ZipFile(source / 'coverage_report.dat', 'w') as archive:
+            archive.writestr('../escape.dat', 'SF:invalid')
+    with pytest.raises(ValueError, match='LCOV|lcov_report'):
+        collect_coverage(tmp_path, tmp_path / 'staged', {'output-directory': 'coverage-report'})
+    assert not (tmp_path / 'escape.dat').exists()
+
+
+def test_native_test_defaults_preserve_explicit_plan(workspace, document):
+    """Omitting convention fields must retain the same job IDs and argv."""
+    entry = document['variants'][0]['checks']['tests'][0]
+    entry['bazel-test-targets'] = '//...'
+    explicit = plan(workspace, write_config(workspace, document))
+    variant = document['variants'][0]
+    del variant['os'], variant['architecture']
+    del entry['test-type'], entry['bazel-test-targets']
+    defaulted = plan(workspace, write_config(workspace, document))
+    assert [{k: v for k, v in row.items() if k != 'config-sha256'} for row in explicit] == [
+        {k: v for k, v in row.items() if k != 'config-sha256'} for row in defaulted]
+
+
+def test_coverage_and_docs_defaults_match_explicit_configuration(workspace, coverage_document):
+    from configured_coverage import LLVM_DEFAULTS, SCOPE_DEFAULTS, docs_plan
+    directory = workspace / 'tools/coverage'
+    directory.mkdir(parents=True)
+    (directory / 'coverage_justifications.yaml').write_text('{}')
+    (directory / 'scope_exclusions.txt').write_text('//lib:excluded\n')
+    entry = {**LLVM_DEFAULTS, 'scope-check': dict(SCOPE_DEFAULTS)}
+    coverage_document['variants'][0]['checks']['llvm-coverage'] = entry
+    explicit = plan(workspace, write_config(workspace, coverage_document))
+    docs = docs_plan(workspace, coverage_document['docs'], explicit)
+    coverage_document['variants'][0]['checks']['llvm-coverage'] = {'scope-check': {}}
+    coverage_document['docs'] = {}
+    defaulted = plan(workspace, write_config(workspace, coverage_document))
+    assert [{k: v for k, v in row.items() if k != 'config-sha256'} for row in explicit] == [
+        {k: v for k, v in row.items() if k != 'config-sha256'} for row in defaulted]
+    assert docs_plan(workspace, {}, defaulted) == docs
+    assert defaulted[0]['id'] == explicit[0]['id']
+
+
+@pytest.mark.parametrize('key', ['tests', 'coverage'])
+def test_docs_default_selection_rejects_ambiguity_and_can_be_disabled(workspace, coverage_document, key):
+    from configured_coverage import docs_plan
+    rows = plan(workspace, write_config(workspace, coverage_document))
+    selected = next(row for row in rows if ('coverage' in row) == (key == 'coverage'))
+    rows.append({**selected, 'id': 'another-source'})
+    with pytest.raises(ValueError, match=f'docs.{key}: ambiguous'):
+        docs_plan(workspace, {}, rows)
+    assert docs_plan(workspace, {key: ''}, rows)[key] == ''
+    assert docs_plan(workspace, {key: selected['id']}, rows)[key] == selected['id']
+
+
+def test_explicit_coverage_values_override_defaults(workspace, coverage_document):
+    entry = coverage_document['variants'][0]['checks']['llvm-coverage']
+    entry.update({'generate-artifacts-archive': False, 'coverage-threshold': 80,
+                  'coverage-html-bazel-target': '//reports:html',
+                  'workflow-config': {'retention-days': 2}})
+    row = next(row for row in plan(workspace, write_config(workspace, coverage_document)) if 'coverage' in row)
+    assert row['coverage']['threshold'] == 80
+    assert row['coverage']['retention-days'] == 2
+    assert '//reports:html' in row['commands'][1]
+    assert '--archive-dir' not in row['commands'][1]
+    assert row['commands'][1][-1] == 'coverage-report'
+
+
+@pytest.mark.parametrize('family', ['tests', 'builds'])
+def test_compiler_defaults_still_require_an_explicit_config(workspace, document, family):
+    document['variants'][0]['checks'] = {family: [{}]}
+    with pytest.raises(ValueError, match='bazel-configs'):
         plan(workspace, write_config(workspace, document))

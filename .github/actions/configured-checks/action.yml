@@ -12,6 +12,9 @@ inputs:
   config:
     description: Checkout-relative configuration file for plan and run
     default: ""
+  repository:
+    description: Selected owner/name used to resolve repository artifact templates
+    default: ${{ github.repository }}
   job:
     description: Planned matrix row to execute
     default: ""
@@ -35,8 +38,11 @@ outputs:
     description: Unique namespace for this invocation's matrix artifacts
     value: ${{ steps.execute.outputs.artifact-prefix }}
   artifacts:
-    description: JSON mapping row identifiers to report and test-log artifact names
+    description: JSON mapping row identifiers to report, test-log and coverage artifact names
     value: ${{ steps.execute.outputs.artifacts }}
+  docs:
+    description: Planned Docs build with resolved report artifacts
+    value: ${{ steps.execute.outputs.docs }}
   results:
     description: Verified checkout and per-job command observations
     value: ${{ steps.execute.outputs.results }}
@@ -53,6 +59,7 @@ runs:
         MODE: ${{ inputs.mode }}
         CONFIG_PATH: ${{ inputs.config }}
         JOB_ID: ${{ inputs.job }}
+        SOURCE_REPOSITORY: ${{ inputs.repository }}
         REPORTS: ${{ inputs.reports }}
         EXPECTED: ${{ inputs.expected }}
         SOURCE_COMMIT: ${{ inputs.source-commit }}

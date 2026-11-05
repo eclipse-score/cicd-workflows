@@ -174,3 +174,17 @@ as `/main/`. Pull requests are published under `/pr-<number>/`; a link to that
 preview is added to the pull request. Tags and releases are published under the
 tag name, such as `/v1.2.3/`. The workflow initializes the `gh-pages` branch
 when necessary and maintains its `versions.json` file.
+
+## Configured central builds
+
+`on-pr.yml` can orchestrate this workflow after configured tests and coverage.
+See [coverage and documentation configuration](on-pr.md#add-coverage-and-documentation)
+for a complete example. This path checks out the observed preparation commit,
+resolves report artifacts automatically and leaves publishing separate.
+
+Direct callers may also set `repository` and `ref` to select a checkout.
+Omitting them preserves the caller event defaults. `bazel-label` selects one
+Bazel run target with `--lockfile_mode=error`, using argv instead of the legacy
+`bazel-target` command string. With `github-context: true`, it passes
+`--github_user` and `--github_repo` for the selected repository. Existing
+`bazel-target` callers keep their established behavior when `bazel-label` is empty.
