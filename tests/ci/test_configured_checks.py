@@ -89,11 +89,19 @@ def test_cross_build_does_not_implicitly_schedule_tests(workspace, document):
     assert [command[1] for command in rows[0]['commands']] == ['build']
 
 
-def test_nested_workspace_is_rejected_until_cache_action_supports_it(workspace, document):
-    (workspace / 'nested').mkdir()
-    document['variants'][0]['checks']['tests'][0]['workflow-config'] = {'working-directory': 'nested'}
-    with pytest.raises(ValueError, match='cache-action support'):
+def test_nested_workspace_uses_its_own_module_and_lockfile(workspace, document):
+    nested = workspace / 'examples/integration'
+    nested.mkdir(parents=True)
+    (nested / 'MODULE.bazel').touch()
+    entry = document['variants'][0]['checks']['tests'][0]
+    entry['workflow-config'] = {'working-directory': 'examples/integration'}
+    with pytest.raises(ValueError, match='lockfile'):
         plan(workspace, write_config(workspace, document))
+    (nested / 'MODULE.bazel.lock').write_text('{}')
+    rows = plan(workspace, write_config(workspace, document))
+    assert rows[0]['working-directory'] == 'examples/integration'
+    assert rows[0]['execution'] == 'native'
+
 
 
 def test_configuration_must_stay_inside_checkout_even_through_symlinks(workspace, tmp_path):
@@ -240,3 +248,57 @@ def test_artifact_manifest_separates_reports_from_docs_test_logs(workspace, docu
     }
     other = artifact_names(rows, 'another-invocation')
     assert manifest[native['id']]['testlogs'] != other[native['id']]['testlogs']
+
+
+def test_qemu_profile_is_explicit_and_owns_emulation_timeout(workspace, document):
+    variant = document['variants'][0]
+    variant['architecture'][0]['name'] = 'aarch64'
+    entry = variant['checks']['tests'][0]
+    entry['workflow-config'] = {'execution': 'qemu-user'}
+    rows = plan(workspace, write_config(workspace, document))
+    assert rows[0]['execution'] == 'qemu-user'
+    assert '--test_timeout=180,900,2700,10800' in rows[0]['commands'][1]
+    assert not any('test_timeout' in arg for arg in rows[0]['commands'][0])
+
+
+@pytest.mark.parametrize('architecture, execution', [('x86_64', 'qemu-user'), ('aarch64', 'native'), ('aarch64', 'custom-script')])
+def test_execution_profile_must_match_test_architecture(workspace, document, architecture, execution):
+    document['variants'][0]['architecture'][0]['name'] = architecture
+    document['variants'][0]['checks']['tests'][0]['workflow-config'] = {'execution': execution}
+    with pytest.raises(ValueError):
+        plan(workspace, write_config(workspace, document))
+
+
+def test_nested_execution_and_log_collection_use_the_selected_workspace(workspace, document, tmp_path, fake_bazel):
+    """Root and nested workspaces have identical labels but separate test logs."""
+    nested = workspace / 'nested'
+    nested.mkdir()
+    (nested / 'MODULE.bazel').touch()
+    (nested / 'MODULE.bazel.lock').write_text('{}')
+    document['variants'][0]['checks']['tests'][0]['workflow-config'] = {'working-directory': 'nested'}
+    rows, reports, status, sha = run_fixture(workspace, document, tmp_path)
+    assert status == 0
+    assert (nested / 'bazel-testlogs/lib/test/test.xml').exists()
+    assert not (workspace / 'bazel-testlogs').exists()
+    report = verify(rows, reports, sha)['jobs'][rows[0]['id']]
+    assert report['working-directory'] == 'nested'
+    assert (reports / rows[0]['id'] / 'testlogs/lib/test/test.xml').exists()
+
+
+def test_verification_rejects_evidence_from_the_wrong_workspace(workspace, document, tmp_path, fake_bazel):
+    rows, reports, _, sha = run_fixture(workspace, document, tmp_path)
+    path = reports / rows[0]['id'] / 'report.json'
+    report = json.loads(path.read_text())
+    report['working-directory'] = 'different-workspace'
+    path.write_text(json.dumps(report))
+    with pytest.raises(ValueError, match='workspace differs'):
+        verify(rows, reports, sha)
+
+
+def test_nested_working_directory_cannot_escape_through_a_symlink(workspace, document, tmp_path):
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (workspace / 'link').symlink_to(outside, target_is_directory=True)
+    document['variants'][0]['checks']['tests'][0]['workflow-config'] = {'working-directory': 'link'}
+    with pytest.raises(ValueError, match='escapes checkout'):
+        plan(workspace, write_config(workspace, document))

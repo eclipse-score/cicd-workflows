@@ -57,9 +57,9 @@ runs:
         EXPECTED: ${{ inputs.expected }}
         SOURCE_COMMIT: ${{ inputs.source-commit }}
       run: |
-        # The POC cross-compiles ARM targets on the same native Linux runner.
-        # Architecture metadata must not accidentally make an ARM runner execute
-        # a plan that promises native x86_64 test evidence.
+        # Native x86_64, ARM cross-compilation and QEMU user-mode tests share
+        # Linux x86_64 runners. The plan selects emulation explicitly; the
+        # module Bazel config supplies the target toolchain and test wrapper.
         test "$(uname -s)" = Linux
         test "$(uname -m)" = x86_64
 

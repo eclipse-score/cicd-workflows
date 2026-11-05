@@ -141,7 +141,7 @@ def plan(workspace, config):
                     allowed.add('bazel-test-custom-cli-args')
                 fields(entry, allowed, required, where)
                 options = entry.get('workflow-config', {})
-                fields(options, {'working-directory', 'bazel-test-custom-cli-args'} if version == 2
+                fields(options, {'working-directory', 'execution', 'bazel-test-custom-cli-args'} if version == 2
                        else {'bazel-test-custom-cli-args'}, set(), f'{where}.workflow-config')
                 options = dict(options)
                 # Legacy schemas permit this option directly on the gate too.
@@ -154,12 +154,14 @@ def plan(workspace, config):
                 directory = inside(workspace, options.get('working-directory', '.'))
                 if not directory.is_dir():
                     raise ValueError(f'{where}: working directory does not exist')
-                # The current public setup-bazel-cache action discovers its
-                # workspace from GITHUB_WORKSPACE and has no directory input.
-                # Reject nested workspaces until that contract is supported;
-                # do not fake a different GITHUB_WORKSPACE or cache the wrong lock.
-                if directory != workspace:
-                    raise ValueError(f'{where}: nested workspace needs cache-action support; POC is root-only')
+                # Execution profiles describe runner requirements, not arbitrary
+                # hooks. The QEMU profile installs user-mode emulation centrally;
+                # Bazel configs still select the toolchain and run_under wrapper.
+                execution = options.get('execution', 'native')
+                if execution not in ('native', 'qemu-user'):
+                    raise ValueError(f'{where}: execution must be native or qemu-user')
+                if execution == 'qemu-user' and (platform['architecture'] != 'aarch64' or family != 'tests'):
+                    raise ValueError(f'{where}: qemu-user requires Linux aarch64 tests')
                 if not (directory / 'MODULE.bazel').is_file() or not (directory / 'MODULE.bazel.lock').is_file():
                     raise ValueError(f'{where}: configured builds require MODULE.bazel and its lockfile')
 
@@ -172,8 +174,11 @@ def plan(workspace, config):
                 if not all(CONFIG.fullmatch(value) for value in configs):
                     raise ValueError(f'{where}.bazel-configs: expected nonempty config names')
                 kind = entry.get('test-type', 'build')
-                if family == 'tests' and (not isinstance(kind, str) or kind not in TYPES or platform['architecture'] != 'x86_64'):
-                    raise ValueError(f'{where}: tests need a supported type and a native x86_64 runner')
+                if family == 'tests':
+                    if not isinstance(kind, str) or kind not in TYPES:
+                        raise ValueError(f'{where}: tests need a supported type')
+                    if platform['architecture'] != 'x86_64' and execution != 'qemu-user':
+                        raise ValueError(f'{where}: tests need native x86_64 or explicit qemu-user execution')
                 job_name = entry.get('name', kind)
                 if not isinstance(job_name, str) or not NAME.fullmatch(job_name):
                     raise ValueError(f'{where}.name: invalid job name')
@@ -195,12 +200,17 @@ def plan(workspace, config):
                     extra = shlex.split(raw)
                     if any(not re.fullmatch(r'--(?:test|build)_tag_filters=[A-Za-z0-9_,+.-]+', value) for value in extra):
                         raise ValueError(f'{where}: POC supports tag-filter arguments only')
+                    # Emulation is slower than native execution. Keep this
+                    # timeout policy in the shared profile, not in every caller.
+                    if execution == 'qemu-user':
+                        extra.insert(0, '--test_timeout=180,900,2700,10800')
                     targets = words(entry['bazel-test-targets'], TARGET, f'{where}.bazel-test-targets')
                     commands.append(['bazel', 'test', *flags, '--test_output=errors', *extra, '--', *targets])
                 elif options.get('bazel-test-custom-cli-args'):
                     raise ValueError(f'{where}: test arguments on a build-only job')
                 rows.append({'id': identity, 'config-sha256': digest,
-                             'working-directory': '.', 'has-tests': family == 'tests', 'commands': commands})
+                             'working-directory': directory.relative_to(workspace).as_posix(),
+                             'execution': execution, 'has-tests': family == 'tests', 'commands': commands})
     if not 1 <= len(rows) <= 256:
         raise ValueError('Expected between 1 and 256 configured jobs')
     return rows
@@ -238,9 +248,12 @@ def execute(workspace, config, job_id, reports):
     if len(selected) != 1:
         raise ValueError(f'Unknown job: {job_id}')
     row = selected[0]
+    directory = inside(workspace, row['working-directory'])
     destination = Path(reports).resolve() / job_id
     destination.mkdir(parents=True, exist_ok=True)
-    report = {'commit': commit(workspace), 'id': job_id, 'config-sha256': row['config-sha256'], 'commands': []}
+    report = {'commit': commit(workspace), 'id': job_id,
+              'working-directory': row['working-directory'],
+              'config-sha256': row['config-sha256'], 'commands': []}
     success = True
     try:
         for number, command in enumerate(row['commands']):
@@ -252,7 +265,7 @@ def execute(workspace, config, job_id, reports):
             separator = command.index('--')
             argv = [*command[:separator], f'--build_event_json_file={bep}', *command[separator:]]
             print(shlex.join(argv), flush=True)
-            observed['exit-code'] = subprocess.run(argv, cwd=workspace, check=False).returncode
+            observed['exit-code'] = subprocess.run(argv, cwd=directory, check=False).returncode
             if observed['exit-code']:
                 success = False
                 break
@@ -266,7 +279,7 @@ def execute(workspace, config, job_id, reports):
         # lets the parent verify missing/skipped commands rather than trusting a
         # matrix's last reusable-workflow output.
         (destination / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
-        logs = workspace / 'bazel-testlogs'
+        logs = directory / 'bazel-testlogs'
         if logs.is_dir():
             for source in logs.rglob('*'):
                 if source.is_file() and source.name in ('test.xml', 'test.log'):
@@ -299,6 +312,8 @@ def verify(expected, reports, source_commit):
         report = actual[row['id']]
         if report['commit'] != source_commit or report['config-sha256'] != row['config-sha256']:
             raise ValueError(f'{row["id"]}: checkout or config differs from preparation')
+        if report.get('working-directory') != row['working-directory']:
+            raise ValueError(f'{row["id"]}: workspace differs from preparation')
         observations = report['commands']
         if [entry['argv'] for entry in observations] != row['commands']:
             raise ValueError(f'{row["id"]}: planned commands were skipped or changed')

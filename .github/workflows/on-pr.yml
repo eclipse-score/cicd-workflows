@@ -580,7 +580,9 @@ jobs:
 
   configured:
     name: Bazel / ${{ matrix.id }}
-    timeout-minutes: 45
+    # Full module graphs and emulation need more time than focused smoke tests.
+    # QEMU's longest test timeout fits within GitHub's six-hour job budget.
+    timeout-minutes: ${{ matrix.execution == 'qemu-user' && 360 || 120 }}
     needs: prepare-configured
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
@@ -609,9 +611,11 @@ jobs:
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
 
-      - uses: eclipse-score/cicd-actions/setup-bazel-cache@e2a2a587a759b681632040ec1e1294015a0405f5 # setup-bazel-cache/v0.1.0
+      # Nested-workspace support, merged in eclipse-score/cicd-actions#74.
+      - uses: eclipse-score/cicd-actions/setup-bazel-cache@ee1eb410c572e2a97ae27488f8401887ec331de3
         with:
           disk-cache-key: ${{ format('configured-{0}-{1}', inputs.repository || github.repository, matrix.id) }}
+          working-directory: ${{ matrix.working-directory }}
           # The pinned preparation SHA is independent of caller event history.
           disk-cache-restore: 'true'
           repository-cache-restore: 'true'
@@ -619,6 +623,15 @@ jobs:
           # The action's test-hit reporter would otherwise inject a second BEP
           # destination and overwrite the executor's evidence flag.
           report-test-cache-hits: 'false'
+
+      # The declared execution profile owns its runner prerequisites. Consumers
+      # cannot inject setup commands or arbitrary package lists through YAML.
+      - name: Install QEMU user-mode emulation
+        if: ${{ matrix.execution == 'qemu-user' }}
+        uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
+        with:
+          packages: qemu-user
+          cache: false
 
       - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
         with:
