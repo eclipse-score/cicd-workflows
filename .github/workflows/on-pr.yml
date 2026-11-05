@@ -45,6 +45,12 @@ on:
     # Propagate the job output through the reusable workflow boundary so each
     # scenario can assert its own checkout and capability-dependent outcomes.
     outputs:
+      quality-results:
+        description: Verified analysis, SBOM and other quality evidence
+        value: ${{ jobs.configured-quality.outputs.results }}
+      quality-artifacts:
+        description: Quality artifact names by profile ID
+        value: ${{ jobs.configured-quality.outputs.artifacts }}
       check-results:
         description: JSON containing the checked-out commit and individual check outcomes
         value: ${{ jobs.pr-checks.outputs.check-results }}
@@ -55,6 +61,18 @@ on:
         description: JSON mapping configured job identifiers to report, test-log and coverage artifact names
         value: ${{ jobs.prepare-configured.outputs.artifacts }}
     inputs:
+      artifact-server-url:
+        description: Optional HTTPS server for authenticated dependency downloads
+        type: string
+        default: ""
+      qnx-license-server:
+        description: Optional QNX license server
+        type: string
+        default: ""
+      qnx-runner-labels:
+        description: Optional JSON labels for QNX runners; defaults to shared runner selection
+        type: string
+        default: ""
       # No config means no compiler/test jobs. Existing callers keep their
       # capability-based common checks without an implicit bare Bazel build.
       workflow-config-yaml:
@@ -129,6 +147,21 @@ on:
         default: ""
         type: string
     secrets:
+      artifact-server-user:
+        description: Optional artifact server login
+        required: false
+      artifact-server-token:
+        description: Optional artifact server token
+        required: false
+      qnx-license:
+        description: Optional QNX license
+        required: false
+      qnx-user:
+        description: Optional QNX portal user
+        required: false
+      qnx-password:
+        description: Optional QNX portal password
+        required: false
       github-app-private-key:
         description: GitHub App private key used with `github-app-client-id` to access private Bazel dependencies
         required: false
@@ -276,17 +309,15 @@ jobs:
       # This is the common, opt-in credential handoff used by workflows that
       # need private Bazel dependencies. It must run before pre-commit because
       # pre-commit hooks may invoke Bazel.
-      - name: Configure access to private Bazel dependencies
-        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
-        # An `if` condition cannot access secrets, so expose only their presence.
-        env:
-          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
-          HAS_TOKEN: ${{ secrets.token != '' }}
-        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' && (env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.github-app-client-id != '') }}
+      - uses: eclipse-score/cicd-workflows/.github/actions/build-environment@central-workflow
+        if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
         with:
           token: ${{ secrets.token }}
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
+          artifact-server-url: ${{ inputs.artifact-server-url }}
+          artifact-server-user: ${{ secrets.artifact-server-user }}
+          artifact-server-token: ${{ secrets.artifact-server-token }}
 
       - name: ⚙️ Setup Bazel with shared caching
         if: ${{ !cancelled() && steps.detect.outputs.has_bazel == 'true' }}
@@ -566,8 +597,8 @@ jobs:
   # branch must not produce a plan from one commit and evidence from another.
   prepare-configured:
     name: Plan configured Bazel checks
-    timeout-minutes: 10
     if: ${{ inputs.workflow-config-yaml != '' && github.event_name != 'pull_request_target' }}
+    timeout-minutes: 10
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
@@ -576,6 +607,7 @@ jobs:
       expected: ${{ steps.plan.outputs.expected }}
       artifact-prefix: ${{ steps.plan.outputs.artifact-prefix }}
       artifacts: ${{ steps.plan.outputs.artifacts }}
+      has-checks: ${{ steps.plan.outputs.has-checks }}
       docs: ${{ steps.plan.outputs.docs }}
       source-commit: ${{ steps.checkout.outputs.commit }}
     steps:
@@ -600,9 +632,10 @@ jobs:
     name: Bazel / ${{ matrix.id }}
     # Full module graphs and emulation need more time than focused smoke tests.
     # QEMU's longest test timeout fits within GitHub's six-hour job budget.
-    timeout-minutes: ${{ matrix.execution == 'qemu-user' && 360 || 120 }}
+    timeout-minutes: ${{ matrix.execution != 'native' && 360 || 120 }}
     needs: prepare-configured
-    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    if: ${{ needs.prepare-configured.outputs.has-checks == 'true' }}
+    runs-on: ${{ matrix.platform.os == 'qnx' && (inputs.qnx-runner-labels && fromJSON(inputs.qnx-runner-labels) || vars.runner_labels_ghub24_large_x64 && fromJSON(vars.runner_labels_ghub24_large_x64)) || inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub24_standard_x64 && fromJSON(vars.runner_labels_ghub24_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
     strategy:
@@ -617,17 +650,22 @@ jobs:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ needs.prepare-configured.outputs.source-commit }}
 
-      # Share the existing credential contract with common checks. No additional
-      # secret is needed for public consumers or fork pull requests.
-      - uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
-        env:
-          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
-          HAS_TOKEN: ${{ secrets.token != '' }}
-        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.github-app-client-id != '' }}
+      - uses: eclipse-score/cicd-workflows/.github/actions/build-environment@central-workflow
         with:
           token: ${{ secrets.token }}
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
+          artifact-server-url: ${{ inputs.artifact-server-url }}
+          artifact-server-user: ${{ secrets.artifact-server-user }}
+          artifact-server-token: ${{ secrets.artifact-server-token }}
+          qnx: ${{ matrix.platform.os == 'qnx' }}
+          qnx-license: ${{ secrets.qnx-license }}
+          qnx-user: ${{ secrets.qnx-user }}
+          qnx-password: ${{ secrets.qnx-password }}
+          qnx-license-server: ${{ inputs.qnx-license-server }}
+          execution: ${{ matrix.execution }}
+          architecture: ${{ matrix.platform.architecture }}
+          profile: ${{ matrix.prerequisites || '' }}
 
       # Nested-workspace support, merged in eclipse-score/cicd-actions#74.
       - uses: eclipse-score/cicd-actions/setup-bazel-cache@ee1eb410c572e2a97ae27488f8401887ec331de3
@@ -641,15 +679,6 @@ jobs:
           # The action's test-hit reporter would otherwise inject a second BEP
           # destination and overwrite the executor's evidence flag.
           report-test-cache-hits: 'false'
-
-      # The declared execution profile owns its runner prerequisites. Consumers
-      # cannot inject setup commands or arbitrary package lists through YAML.
-      - name: Install QEMU user-mode emulation
-        if: ${{ matrix.execution == 'qemu-user' }}
-        uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
-        with:
-          packages: qemu-user
-          cache: false
 
       - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
         with:
@@ -716,12 +745,14 @@ jobs:
       # Separate download directories preserve duplicate reports, which must
       # fail verification rather than silently overwriting each other.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: ${{ needs.prepare-configured.outputs.has-checks == 'true' }}
         with:
           pattern: ${{ needs.prepare-configured.outputs.artifact-prefix }}-report-*
           path: ${{ runner.temp }}/configured-checks
 
       - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
         id: verify
+        if: ${{ needs.prepare-configured.outputs.has-checks == 'true' }}
         with:
           mode: verify
           expected: ${{ needs.prepare-configured.outputs.expected }}
@@ -731,7 +762,7 @@ jobs:
       # Cache/action post steps can fail after successful command reports were
       # uploaded. Keep that failure visible in the stable verification gate.
       - name: Require successful matrix jobs
-        if: ${{ !cancelled() && needs.configured.result != 'success' }}
+        if: ${{ !cancelled() && needs.prepare-configured.outputs.has-checks == 'true' && needs.configured.result != 'success' }}
         run: |
           echo "::error::At least one configured job failed. See its setup, execution and post-step logs."
           exit 1
@@ -741,10 +772,23 @@ jobs:
     needs: prepare-configured
     uses: ./.github/workflows/configured-quality.yml
     with:
+      artifact-server-url: ${{ inputs.artifact-server-url }}
+      qnx-license-server: ${{ inputs.qnx-license-server }}
+      qnx-runner-labels: ${{ inputs.qnx-runner-labels }}
+      github-app-client-id: ${{ inputs.github-app-client-id }}
       config: ${{ inputs.workflow-config-yaml }}
       repository: ${{ inputs.repository || github.repository }}
       ref: ${{ needs.prepare-configured.outputs.source-commit }}
       runner-labels: ${{ inputs.runner-labels }}
+
+    secrets:
+      token: ${{ secrets.token }}
+      github-app-private-key: ${{ secrets.github-app-private-key }}
+      artifact-server-user: ${{ secrets.artifact-server-user }}
+      artifact-server-token: ${{ secrets.artifact-server-token }}
+      qnx-license: ${{ secrets.qnx-license }}
+      qnx-user: ${{ secrets.qnx-user }}
+      qnx-password: ${{ secrets.qnx-password }}
 
   # Documentation consumes only verified reports and the same frozen checkout.
   # Publishing remains a separate consumer decision with separate permissions.
@@ -756,14 +800,18 @@ jobs:
     permissions:
       contents: read
     with:
+      artifact-server-url: ${{ inputs.artifact-server-url }}
       repository: ${{ inputs.repository || github.repository }}
       ref: ${{ needs.prepare-configured.outputs.source-commit }}
       bazel-label: ${{ fromJSON(needs.prepare-configured.outputs.docs).bazel-target }}
       retention-days: ${{ fromJSON(needs.prepare-configured.outputs.docs).retention-days }}
       tests-report-artifact: ${{ fromJSON(needs.prepare-configured.outputs.docs).tests-artifact }}
+      tests-report-artifacts: ${{ toJSON(fromJSON(needs.prepare-configured.outputs.docs).tests-artifacts) }}
       coverage-report-artifact: ${{ fromJSON(needs.prepare-configured.outputs.docs).coverage-artifact }}
       runner-labels: ${{ inputs.runner-labels }}
       gh_app_client_id: ${{ inputs.github-app-client-id }}
     secrets:
+      artifact-server-user: ${{ secrets.artifact-server-user }}
+      artifact-server-token: ${{ secrets.artifact-server-token }}
       token: ${{ secrets.token }}
       gh_app_private_key: ${{ secrets.github-app-private-key }}
