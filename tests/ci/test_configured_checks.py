@@ -9,7 +9,7 @@ import subprocess
 import pytest
 import yaml
 
-from configured_checks import execute, plan, verify
+from configured_checks import artifact_names, execute, plan, verify
 
 
 @pytest.fixture
@@ -223,3 +223,20 @@ def test_no_reports_cannot_verify_an_empty_plan(tmp_path):
     """A missing workflow output must never turn into vacuous success."""
     with pytest.raises(ValueError, match='nonempty plan'):
         verify([], tmp_path, 'unused')
+
+
+def test_artifact_manifest_separates_reports_from_docs_test_logs(workspace, document):
+    """Docs consume the package tree; aggregation consumes only execution reports."""
+    rows = plan(workspace, write_config(workspace, document))
+    native = rows[0]
+    cross = {**native, 'id': 'cross-build', 'has-tests': False}
+    manifest = artifact_names([native, cross], 'invocation')
+    assert manifest[native['id']] == {
+        'report': f"invocation-report-{native['id']}",
+        'testlogs': f"invocation-testlogs-{native['id']}",
+    }
+    assert manifest['cross-build'] == {
+        'report': 'invocation-report-cross-build', 'testlogs': None,
+    }
+    other = artifact_names(rows, 'another-invocation')
+    assert manifest[native['id']]['testlogs'] != other[native['id']]['testlogs']

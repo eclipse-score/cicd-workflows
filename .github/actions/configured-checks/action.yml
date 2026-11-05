@@ -34,6 +34,9 @@ outputs:
   artifact-prefix:
     description: Unique namespace for this invocation's matrix artifacts
     value: ${{ steps.execute.outputs.artifact-prefix }}
+  artifacts:
+    description: JSON mapping row identifiers to report and test-log artifact names
+    value: ${{ steps.execute.outputs.artifacts }}
   results:
     description: Verified checkout and per-job command observations
     value: ${{ steps.execute.outputs.results }}

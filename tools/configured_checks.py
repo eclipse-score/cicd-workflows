@@ -200,7 +200,7 @@ def plan(workspace, config):
                 elif options.get('bazel-test-custom-cli-args'):
                     raise ValueError(f'{where}: test arguments on a build-only job')
                 rows.append({'id': identity, 'config-sha256': digest,
-                             'working-directory': '.', 'commands': commands})
+                             'working-directory': '.', 'has-tests': family == 'tests', 'commands': commands})
     if not 1 <= len(rows) <= 256:
         raise ValueError('Expected between 1 and 256 configured jobs')
     return rows
@@ -309,6 +309,23 @@ def verify(expected, reports, source_commit):
     return {'commit': source_commit, 'jobs': actual}
 
 
+def artifact_names(rows, prefix):
+    """Expose report and test-log artifacts without leaking matrix internals.
+
+    Documentation reconstructs Bazel labels from XML paths. Test logs therefore
+    need their own artifact rooted at the package tree, not inside the executor's
+    report directory. Distinct namespaces also keep log archives out of report
+    verification downloads.
+    """
+    return {
+        row['id']: {
+            'report': f"{prefix}-report-{row['id']}",
+            'testlogs': f"{prefix}-testlogs-{row['id']}" if row['has-tests'] else None,
+        }
+        for row in rows
+    }
+
+
 def output(name, value):
     """Write compact JSON outputs without multiline workflow-command injection."""
     if os.environ.get('GITHUB_OUTPUT'):
@@ -328,7 +345,9 @@ def main():
         rows = plan(args.workspace, args.config)
         output('matrix', json.dumps({'include': rows}, separators=(',', ':')))
         output('expected', json.dumps(rows, separators=(',', ':')))
-        output('artifact-prefix', f'configured-{uuid.uuid4().hex}')
+        prefix = f'configured-{uuid.uuid4().hex}'
+        output('artifact-prefix', prefix)
+        output('artifacts', json.dumps(artifact_names(rows, prefix), separators=(',', ':')))
         print(json.dumps(rows, indent=2))
         return 0
     if args.mode == 'run':
