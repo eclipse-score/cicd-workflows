@@ -16,6 +16,22 @@ name: Documentation Build
 on:
   workflow_call:
     inputs:
+      repository:
+        description: Repository to document; defaults to the caller repository
+        type: string
+        default: ""
+      ref:
+        description: Checkout revision; defaults to the caller event
+        type: string
+        default: ""
+      bazel-label:
+        description: Structured Bazel run target; overrides the legacy bazel-target command string
+        type: string
+        default: ""
+      github-context:
+        description: Pass repository owner and name to the structured Docs target
+        type: boolean
+        default: false
       retention-days:
         description: "Number of days to retain the artifact"
         required: false
@@ -90,11 +106,15 @@ jobs:
         with:
           # Reuse the token from inter-repo-access action to ensure access to private repos
           persist-credentials: false
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
 
       - name: Setup Bazel
         uses: eclipse-score/cicd-actions/setup-bazel-cache@e2a2a587a759b681632040ec1e1294015a0405f5 # setup-bazel-cache/v0.1.0
         with:
-          disk-cache-key: ${{ github.job }}
+          disk-cache-key: ${{ inputs.repository != '' && format('{0}-{1}', github.job, inputs.repository) || github.job }}
+          disk-cache-restore: ${{ (inputs.repository != '' || inputs.ref != '') && 'true' || 'auto' }}
+          repository-cache-restore: ${{ (inputs.repository != '' || inputs.ref != '') && 'true' || 'auto' }}
 
       - name: Install Graphviz
         uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
@@ -128,7 +148,27 @@ jobs:
             mv coverage-report/coverage.lcov coverage-report/coverage_report.dat
           fi
 
+      # Keep the established command-string interface for existing callers.
+      # Configured builds use argv and the checked-out repository identity.
+      - name: Build configured documentation
+        if: inputs.bazel-label != ''
+        env:
+          BAZEL_LABEL: ${{ inputs.bazel-label }}
+          WITH_GITHUB_CONTEXT: ${{ inputs.github-context }}
+          DOCS_REPOSITORY: ${{ inputs.repository || github.repository }}
+        shell: python
+        run: |
+          import os
+          import subprocess
+
+          argv = ['bazel', 'run', '--lockfile_mode=error', os.environ['BAZEL_LABEL'], '--']
+          if os.environ['WITH_GITHUB_CONTEXT'] == 'true':
+              owner, repo = os.environ['DOCS_REPOSITORY'].split('/')
+              argv += [f'--github_user={owner}', f'--github_repo={repo}']
+          subprocess.run(argv, check=True)
+
       - name: Build documentation
+        if: inputs.bazel-label == ''
         run: bazel run ${{ inputs.bazel-target }}
 
       - name: Upload documentation artifact

@@ -52,7 +52,7 @@ on:
         description: JSON containing verified configured Bazel command outcomes
         value: ${{ jobs.verify-configured.outputs.results }}
       configured-artifacts:
-        description: JSON mapping configured job identifiers to report and test-log artifact names
+        description: JSON mapping configured job identifiers to report, test-log and coverage artifact names
         value: ${{ jobs.prepare-configured.outputs.artifacts }}
     inputs:
       # No config means no compiler/test jobs. Existing callers keep their
@@ -560,6 +560,7 @@ jobs:
       expected: ${{ steps.plan.outputs.expected }}
       artifact-prefix: ${{ steps.plan.outputs.artifact-prefix }}
       artifacts: ${{ steps.plan.outputs.artifacts }}
+      docs: ${{ steps.plan.outputs.docs }}
       source-commit: ${{ steps.checkout.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -575,6 +576,7 @@ jobs:
         id: plan
         with:
           mode: plan
+          repository: ${{ inputs.repository || github.repository }}
           config: ${{ inputs.workflow-config-yaml }}
           reports: ${{ runner.temp }}/configured-checks
 
@@ -665,6 +667,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # Coverage archives retain their consumer-facing names when required by
+      # release workflows. Execution evidence remains invocation-specific.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && matrix.coverage }}
+        with:
+          name: ${{ fromJSON(needs.prepare-configured.outputs.artifacts)[matrix.id].coverage }}
+          path: ${{ runner.temp }}/configured-checks/${{ matrix.id }}/coverage/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: ${{ matrix.coverage.retention-days }}
+
   verify-configured:
     name: Verify configured Bazel checks
     timeout-minutes: 10
@@ -706,3 +719,26 @@ jobs:
         run: |
           echo "::error::At least one configured job failed. See its setup, execution and post-step logs."
           exit 1
+
+  # Documentation consumes only verified reports and the same frozen checkout.
+  # Publishing remains a separate consumer decision with separate permissions.
+  configured-docs:
+    name: Configured documentation
+    needs: [prepare-configured, verify-configured]
+    if: ${{ needs.prepare-configured.outputs.docs != '{}' && needs.prepare-configured.outputs.docs != '' }}
+    uses: ./.github/workflows/docs.yml
+    permissions:
+      contents: read
+    with:
+      repository: ${{ inputs.repository || github.repository }}
+      ref: ${{ needs.prepare-configured.outputs.source-commit }}
+      bazel-label: ${{ fromJSON(needs.prepare-configured.outputs.docs).bazel-target }}
+      github-context: ${{ fromJSON(needs.prepare-configured.outputs.docs).github-context }}
+      retention-days: ${{ fromJSON(needs.prepare-configured.outputs.docs).retention-days }}
+      tests-report-artifact: ${{ fromJSON(needs.prepare-configured.outputs.docs).tests-artifact }}
+      coverage-report-artifact: ${{ fromJSON(needs.prepare-configured.outputs.docs).coverage-artifact }}
+      runner-labels: ${{ inputs.runner-labels }}
+      gh_app_client_id: ${{ inputs.github-app-client-id }}
+    secrets:
+      token: ${{ secrets.token }}
+      gh_app_private_key: ${{ secrets.github-app-private-key }}

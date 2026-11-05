@@ -39,14 +39,9 @@ An invalid or missing configuration fails preparation.
 schema-version: 2
 variants:
   - name: linux-native
-    architecture:
-      - name: x86_64
-    os:
-      - name: linux
     checks:
       tests:
-        - test-type: unit
-          bazel-configs: score-linux-x86_64
+        - bazel-configs: score-linux-x86_64
           bazel-build-targets: //my/library:library
           bazel-test-targets: //my/library:unit_tests
 ```
@@ -54,11 +49,12 @@ variants:
 Use the Bazel config names and labels defined by your module. `bazel-configs` is
 an explicit comma-separated list, applied in order. Target strings are split
 into arguments without a shell and may include exclusions such as `-//pkg:test`.
-A test entry runs its optional `bazel-build-targets` first, then its required
-`bazel-test-targets`. A failed build stops that row. For compilation alone,
-use `checks.builds` entries with `bazel-configs` and `bazel-build-targets`.
+A test entry runs its optional `bazel-build-targets` first, then its
+`bazel-test-targets` (default `//...` in schema 2). A failed build stops that row. For compilation alone,
+use `checks.builds` entries with `bazel-configs`; `bazel-build-targets` defaults to
+`//...` in schema 2. Compiler config names always remain required.
 
-Each variant declares one OS and architecture. This POC supports Linux x86_64
+Each variant selects one OS and architecture; schema 2 defaults to Linux x86_64. This POC supports Linux x86_64
 builds/tests, Linux aarch64 builds and explicit aarch64 tests under QEMU on
 x86_64 runners. Each entry can declare
 an optional unique `name`; otherwise it defaults to the test type or `build`.
@@ -117,6 +113,113 @@ The optional `workflow-config.bazel-test-custom-cli-args` accepts only
 hooks and unrecognized fields fail explicitly. The supported schema 1 subset
 accepts `quality-gates.tests` and adapts it to the same execution plan.
 Unsupported legacy options are errors rather than silently ignored settings.
+
+### Configuration defaults
+
+Defaults are central and apply only to configured checks. An absent
+`workflow-config-yaml` still runs no configured jobs. A missing check family is
+disabled; `llvm-coverage: {}` and `docs: {}` explicitly enable convention-based
+execution. Explicit values override defaults; invalid or null values are errors.
+
+| Key | Default |
+| --- | --- |
+| Variant `os`, `architecture` (schema 2) | `linux`, `x86_64` |
+| Test `test-type`, `bazel-test-targets` (schema 2) | `unit`, `//...` |
+| Build-only `bazel-build-targets` (schema 2) | `//...` |
+| LLVM `bazel-configs`, `bazel-targets` | `llvm_cov`, `//score/...` |
+| LLVM `justifications-yaml` | `tools/coverage/coverage_justifications.yaml` |
+| LLVM `coverage-html-bazel-target` | `@score_coverage//:generate_coverage_html` |
+| LLVM `generate-artifacts-archive` | `true` |
+| Coverage `coverage-threshold`, retention | `0` (report-only), 10 days |
+| Module coverage `output-directory` | `coverage_artifacts` |
+| Enabled scope check `scope-target` | `//tools/coverage:coverage_scope` |
+| Enabled scope check `universe`, `exclusions` | `//score/...`, `tools/coverage/scope_exclusions.txt` |
+| Docs `bazel-target`, retention, `github-context` | `//:docs`, 5 days, `false` |
+| Docs `tests`, `coverage` | Unique suitable root-workspace row, if present |
+
+Compiler configs for build/test entries stay required because they select the
+module's toolchain. Tests build first only if `bazel-build-targets` is supplied.
+ARM emulation stays opt-in via `architecture` and `workflow-config.execution`.
+Scope checking stays opt-in via `scope-check`; its files must exist. Fixed
+release artifact names, exclusions and nonzero coverage thresholds remain
+module policy and need explicit configuration.
+
+### Add coverage and documentation
+
+Add a single `checks.llvm-coverage` object to a native x86_64 variant for a
+standard LLVM pipeline. It runs Bazel coverage, generates HTML and stages plain
+LCOV plus Cobertura with the HTML report:
+
+```yaml
+checks:
+  llvm-coverage:
+    bazel-targets: //my/library/... -//my/library:excluded_test
+    justifications-yaml: tools/coverage/justifications.yaml
+    coverage-threshold: 0
+```
+
+Your module must define the LLVM Bazel config and report generator. Target
+exclusions remain ordinary Bazel target arguments. The generator must support
+`--yaml`, an optional `--testlogs-subdir`, and `--archive-dir` when
+`generate-artifacts-archive` is true. Otherwise it receives `coverage-report` as
+its positional output directory. Coverage runs with `--build_tests_only` and
+requires successful test summaries. The report generator requires successful
+Bazel target evidence. A successful exit without HTML and LCOV fails the gate.
+
+For an existing module-owned Bazel orchestrator, use a single `checks.coverage`
+object instead:
+
+```yaml
+checks:
+  coverage:
+    bazel-target: //quality/coverage:run_coverage
+    coverage-threshold: 66
+```
+
+This form executes that Bazel target without imposing configs or test targets on
+its internal pipeline. It requires successful Bazel target evidence and HTML/LCOV
+output. Both forms pass `COVERAGE_THRESHOLD` to Bazel and the report generator;
+the module must honor it. The default is **0 (report-only)**, so set the desired
+threshold explicitly. Thresholds must be numbers from 0 to 100. Shell scripts and
+arbitrary CLI hooks are not configuration fields.
+
+Both forms support `workflow-config.working-directory`, `artifact-name` and
+`retention-days` (default 10, range 1–90). Leave `artifact-name` unset for a unique
+invocation-specific name. Set a fixed name only when another consumer, such as a
+release workflow, requires that interface; names must be unique in the plan.
+`{repository}` in a fixed name expands to the selected repository name (without
+the owner), preserving release interfaces in forks and external checkouts.
+`configured-artifacts[row-id].coverage` exposes the resolved name.
+Row IDs are `<variant>-llvm-coverage` and `<variant>-coverage`.
+
+An optional `llvm-coverage.scope-check` preserves production-scope completeness:
+
+```yaml
+scope-check: {}
+```
+
+Before coverage, the workflow queries non-testonly, non-QNX `cc_library` and
+`rust_library` targets in the universe. Each must be reachable from the scope's
+configured dependencies or explicitly excluded. Exclusions use one label per
+line with optional comments. Excluded targets that become reachable fail as
+stale exclusions. This is a built-in policy, with no consumer shell hook.
+
+To build Docs after verification, add a top-level `docs` object:
+
+```yaml
+docs: {}
+```
+
+`tests` and `coverage` can select root-workspace row IDs explicitly. By default,
+Docs selects the sole native root test row and the sole root coverage row. No
+candidate means no report; multiple candidates require an explicit row ID and
+fail preparation otherwise. Set a selector to `""` to disable that report. The workflow validates references before
+execution and resolves artifact names automatically. Set `github-context: true`
+to pass `--github_user` and `--github_repo` for the selected repository. Docs
+always checks out the preparation commit and runs after every configured row
+has passed verification. It uploads `github-pages`; deployment remains separate.
+The existing `docs.yml` command-string interface remains supported for callers
+that do not use this configuration.
 
 This is an experimental POC. See the [maintainer notes](../../tools/README.md)
 for its bootstrap references, consumer examples and remaining validation.
