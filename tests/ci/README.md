@@ -31,6 +31,7 @@ check in the catalog.
 Review changes to minimum requirements separately from routine pin updates so
 that a failing consumer cannot silently weaken its compatibility contract.
 
+Standard root and `//tools` format/copyright targets are discovered automatically.
 Repository-specific exceptions belong in the same catalog. Optional `overrides`
 accepts `format-target`, `copyright-target` and the existing `skip-*` inputs;
 every override requires a `value` and a nonempty `reason`. For example:
@@ -38,8 +39,8 @@ every override requires a `value` and a nonempty `reason`. For example:
 ```yaml
 overrides:
   format-target:
-    value: //tools:format.check
-    reason: The repository exposes its formatter only from //tools.
+    value: //tools/format:verify
+    reason: The repository exposes a custom formatting entry point.
 ```
 
 Explicit skip switches cannot disable a required check. Leave `overrides` absent

@@ -37,27 +37,32 @@ An invalid or missing configuration fails preparation.
 
 ```yaml
 schema-version: 2
-variants:
-  - name: linux-native
-    checks:
-      tests:
-        - bazel-configs: score-linux-x86_64
-          bazel-build-targets: //my/library:library
-          bazel-test-targets: //my/library:unit_tests
+tests:
+  linux-native:
+    bazel-configs: score-linux-x86_64
+    bazel-build-targets: //...
+llvm-coverage:
+  coverage-threshold: 0
+docs: {}
 ```
+
+This builds all native targets, runs all native tests, collects LLVM coverage
+using the standard module paths, and builds Docs with the verified reports.
+Only declare families you want to run. The LLVM config and justification file
+must exist in the module.
 
 Use the Bazel config names and labels defined by your module. `bazel-configs` is
 an explicit comma-separated list, applied in order. Target strings are split
 into arguments without a shell and may include exclusions such as `-//pkg:test`.
 A test entry runs its optional `bazel-build-targets` first, then its
 `bazel-test-targets` (default `//...` in schema 2). A failed build stops that row. For compilation alone,
-use `checks.builds` entries with `bazel-configs`; `bazel-build-targets` defaults to
+use named `builds` profiles with `bazel-configs`; `bazel-build-targets` defaults to
 `//...` in schema 2. Compiler config names always remain required.
 
-Each variant selects one OS and architecture; schema 2 defaults to Linux x86_64. This POC supports Linux x86_64
+Each named profile selects one OS and architecture; schema 2 defaults to Linux x86_64. This POC supports Linux x86_64
 builds/tests, Linux aarch64 builds and explicit aarch64 tests under QEMU on
-x86_64 runners. Each entry can declare
-an optional unique `name`; otherwise it defaults to the test type or `build`.
+x86_64 runners. Profile names must be unique across `tests` and `builds`. An optional `name`
+identifies the check within a profile; otherwise it defaults to the test type or `build`.
 Supported test types are `unit`, `component`, `integration`, and `sanitizer`;
 these identify checks and do not install services or change Bazel semantics.
 
@@ -85,34 +90,46 @@ The archive names include an invocation-specific prefix. Use the output rather
 than constructing names or relying on a fixed artifact shared by all rows.
 
 Each selected Bazel workspace must contain `MODULE.bazel` and
-`MODULE.bazel.lock`. In schema 2, `workflow-config.working-directory` selects a
+`MODULE.bazel.lock`. In the compact schema 2 layout, `working-directory` selects a
 checkout-relative workspace such as `examples/integration`; it defaults to `.`.
 Paths must remain inside the checkout, including after symlink resolution.
 Checkout stays at the repository root; cache setup, build/test and log collection
 all use the selected workspace.
 
-`workflow-config.execution` defaults to `native`. Set it to `qemu-user` for
+`execution` defaults to `native`. Set it to `qemu-user` for
 Linux aarch64 tests on the shared x86_64 runner. This profile installs QEMU,
 allows up to six hours for the job and applies
 `--test_timeout=180,900,2700,10800`. Native rows have a two-hour job budget.
 Your Bazel config must select the cross-toolchain and its `run_under` wrapper;
 installing QEMU alone cannot configure a module's tests. Build-only ARM rows
-need no execution override. Example ARM test entry:
+need no execution override. Example with ARM tests and a separate integration workspace:
 
 ```yaml
-test-type: unit
-bazel-configs: score-linux-aarch64
-bazel-build-targets: //...
-bazel-test-targets: //...
-workflow-config:
-  execution: qemu-user
+tests:
+  linux-arm:
+    architecture: aarch64
+    bazel-configs: score-linux-aarch64
+    execution: qemu-user
+  integration:
+    test-type: integration
+    bazel-configs: x86_64-linux
+    working-directory: examples/integration
 ```
 
-The optional `workflow-config.bazel-test-custom-cli-args` accepts only
+The optional `bazel-test-custom-cli-args` accepts only
 `--test_tag_filters=...` and `--build_tag_filters=...`. Arbitrary flags, shell
 hooks and unrecognized fields fail explicitly. The supported schema 1 subset
 accepts `quality-gates.tests` and adapts it to the same execution plan.
 Unsupported legacy options are errors rather than silently ignored settings.
+
+The existing schema 2 `variants` layout remains supported for advanced callers,
+including multiple checks per platform or per-variant coverage. It uses
+`checks.tests`/`checks.builds` lists, lists of named OS/architecture values, and
+`workflow-config` for execution/report options. Both layouts normalize to the
+same execution plan. Do not mix `variants` with the compact top-level families.
+The compact layout uses scalar `os`/`architecture` and direct execution options;
+its top-level coverage attaches to the unique native root profile when present,
+preserving existing job/artifact IDs. Otherwise coverage gets its own native row.
 
 ### Configuration defaults
 
@@ -123,7 +140,7 @@ execution. Explicit values override defaults; invalid or null values are errors.
 
 | Key | Default |
 | --- | --- |
-| Variant `os`, `architecture` (schema 2) | `linux`, `x86_64` |
+| Profile `os`, `architecture` (schema 2) | `linux`, `x86_64` |
 | Test `test-type`, `bazel-test-targets` (schema 2) | `unit`, `//...` |
 | Build-only `bazel-build-targets` (schema 2) | `//...` |
 | LLVM `bazel-configs`, `bazel-targets` | `llvm_cov`, `//score/...` |
@@ -139,23 +156,22 @@ execution. Explicit values override defaults; invalid or null values are errors.
 
 Compiler configs for build/test entries stay required because they select the
 module's toolchain. Tests build first only if `bazel-build-targets` is supplied.
-ARM emulation stays opt-in via `architecture` and `workflow-config.execution`.
+ARM emulation stays opt-in via `architecture` and `execution`.
 Scope checking stays opt-in via `scope-check`; its files must exist. Fixed
 release artifact names, exclusions and nonzero coverage thresholds remain
 module policy and need explicit configuration.
 
 ### Add coverage and documentation
 
-Add a single `checks.llvm-coverage` object to a native x86_64 variant for a
+Add a top-level `llvm-coverage` object to a native x86_64 variant for a
 standard LLVM pipeline. It runs Bazel coverage, generates HTML and stages plain
 LCOV plus Cobertura with the HTML report:
 
 ```yaml
-checks:
-  llvm-coverage:
-    bazel-targets: //my/library/... -//my/library:excluded_test
-    justifications-yaml: tools/coverage/justifications.yaml
-    coverage-threshold: 0
+llvm-coverage:
+  bazel-targets: //my/library/... -//my/library:excluded_test
+  justifications-yaml: tools/coverage/justifications.yaml
+  coverage-threshold: 0
 ```
 
 Your module must define the LLVM Bazel config and report generator. Target
@@ -166,14 +182,13 @@ its positional output directory. Coverage runs with `--build_tests_only` and
 requires successful test summaries. The report generator requires successful
 Bazel target evidence. A successful exit without HTML and LCOV fails the gate.
 
-For an existing module-owned Bazel orchestrator, use a single `checks.coverage`
+For an existing module-owned Bazel orchestrator, use a top-level `coverage`
 object instead:
 
 ```yaml
-checks:
-  coverage:
-    bazel-target: //quality/coverage:run_coverage
-    coverage-threshold: 66
+coverage:
+  bazel-target: //quality/coverage:run_coverage
+  coverage-threshold: 66
 ```
 
 This form executes that Bazel target without imposing configs or test targets on
@@ -183,14 +198,14 @@ the module must honor it. The default is **0 (report-only)**, so set the desired
 threshold explicitly. Thresholds must be numbers from 0 to 100. Shell scripts and
 arbitrary CLI hooks are not configuration fields.
 
-Both forms support `workflow-config.working-directory`, `artifact-name` and
+Both forms support `working-directory`, `artifact-name` and
 `retention-days` (default 10, range 1–90). Leave `artifact-name` unset for a unique
 invocation-specific name. Set a fixed name only when another consumer, such as a
 release workflow, requires that interface; names must be unique in the plan.
 `{repository}` in a fixed name expands to the selected repository name (without
 the owner), preserving release interfaces in forks and external checkouts.
 `configured-artifacts[row-id].coverage` exposes the resolved name.
-Row IDs are `<variant>-llvm-coverage` and `<variant>-coverage`.
+Row IDs use the normalized profile name: `<profile>-llvm-coverage` or `<profile>-coverage`.
 
 An optional `llvm-coverage.scope-check` preserves production-scope completeness:
 
@@ -292,8 +307,8 @@ Callers can override the check targets with optional string inputs:
 
 | Input              | Default               | Command                  |
 | ------------------ | --------------------- | ------------------------ |
-| `format-target`    | `//:format.check`      | `bazel test <target>`    |
-| `copyright-target` | `//:copyright.check`   | `bazel run <target>`     |
+| `format-target`    | Automatic discovery   | `bazel test <target>`    |
+| `copyright-target` | Automatic discovery   | `bazel run <target>`     |
 
 ```yaml
 jobs:
@@ -308,7 +323,15 @@ jobs:
 
 Each input accepts one Bazel target label, not a command or a list of targets.
 Both detection and execution use the configured label. A check is skipped if
-its target cannot be queried. Omitting these inputs preserves the default targets.
+its target cannot be queried. Explicit overrides never fall back to another
+label. When an input is empty (the default), discovery tries these labels in order:
+
+- Formatting: `//:format.check`, then `//tools:format.check`.
+- Copyright: `//:copyright.check`, `//tools:copyright.check`, `//:copyright-check`, then `//tools:copyright-check`.
+
+Existing root entry points keep priority. Standard `//tools` layouts need no
+caller override. The selected label is printed in discovery logs and used by
+the execution step.
 
 ## Skipping checks
 

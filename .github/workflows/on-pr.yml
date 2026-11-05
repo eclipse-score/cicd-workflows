@@ -119,14 +119,14 @@ on:
         default: ""
         type: string
       format-target:
-        description: "Bazel target to test for formatting"
+        description: "Formatting target override; empty discovers standard root/tools targets"
         required: false
-        default: "//:format.check"
+        default: ""
         type: string
       copyright-target:
-        description: "Bazel target to run for copyright checks"
+        description: "Copyright target override; empty discovers standard root/tools targets"
         required: false
-        default: "//:copyright.check"
+        default: ""
         type: string
     secrets:
       github-app-private-key:
@@ -387,19 +387,35 @@ jobs:
 
           echo "Detected Bazel targets:"
 
-          # Returns success if the given Bazel label can be queried from the repo root.
-          has_bazel_target() {
-            bazel query "$1" >/dev/null 2>&1
+          # Explicit overrides select one target. Otherwise discover the public
+          # entry points used by SCORE modules, preferring root targets. Query
+          # each candidate independently so one absent label cannot mask another.
+          select_target() {
+            local output="$1" configured="$2"
+            shift 2
+            local candidates=("$@") target
+            if [[ -n "$configured" ]]; then
+              candidates=("$configured")
+            fi
+            for target in "${candidates[@]}"; do
+              if bazel query "$target" >/dev/null 2>&1; then
+                printf '%s=%s\n' "$output" "$target" >> "$GITHUB_OUTPUT"
+                printf '  %s=%s\n' "$output" "$target"
+                return
+              fi
+            done
+            printf '%s=\n' "$output" >> "$GITHUB_OUTPUT"
           }
 
-          emit_output has_copyright_check has_bazel_target "$COPYRIGHT_TARGET"
-          emit_output has_format_check has_bazel_target "$FORMAT_TARGET"
+          select_target format-target "$FORMAT_TARGET" //:format.check //tools:format.check
+          select_target copyright-target "$COPYRIGHT_TARGET" \
+            //:copyright.check //tools:copyright.check //:copyright-check //tools:copyright-check
 
       - name: 🖌️ Run bazel formatting check
         id: format
-        if: ${{ !cancelled() && steps.bazel.outputs.has_format_check == 'true' && !inputs.skip-format }}
+        if: ${{ !cancelled() && steps.bazel.outputs.format-target != '' && !inputs.skip-format }}
         env:
-          FORMAT_TARGET: ${{ inputs.format-target }}
+          FORMAT_TARGET: ${{ steps.bazel.outputs.format-target }}
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
 
@@ -419,9 +435,9 @@ jobs:
 
       - name: © Run bazel copyright check
         id: copyright
-        if: ${{ !cancelled() && steps.bazel.outputs.has_copyright_check == 'true' && !inputs.skip-copyright }}
+        if: ${{ !cancelled() && steps.bazel.outputs.copyright-target != '' && !inputs.skip-copyright }}
         env:
-          COPYRIGHT_TARGET: ${{ inputs.copyright-target }}
+          COPYRIGHT_TARGET: ${{ steps.bazel.outputs.copyright-target }}
         run: |
           source "$RUNNER_TEMP/pr-check-lib.sh"
 
