@@ -110,6 +110,12 @@ the same version twice is intended.
 | `coverage-report-artifact` | empty | Optional artifact containing plain LCOV as `coverage.lcov` or `coverage_report.dat` at its root, downloaded to `coverage-report` before the docs build. |
 | `deployment_type` | `workflow` | Deprecated compatibility input; publishing is always handled by `docs-publish.yml`. |
 
+## Build outputs
+
+| Output | Description |
+| ------ | ----------- |
+| `artifact-name` | Name of the uploaded documentation artifact (`github-pages`). Use it to process the built documentation in the calling workflow, for example to attach it to a release. |
+
 ## Coverage in documentation
 
 To display line and branch coverage in module verification reports, pass a

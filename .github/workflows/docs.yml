@@ -61,9 +61,15 @@ on:
       token:
         description: "GitHub Token for inter-repo access (not used in public S-CORE)"
         required: false
+    outputs:
+      artifact-name:
+        description: "Name of the uploaded documentation artifact; docs-publish.yml downloads it by this name"
+        value: ${{ jobs.docs-build.outputs.artifact-name }}
 
 env:
   CACHE_KEY_PREFIX: bazel-cache
+  # docs-publish.yml downloads the artifact by this name; keep both in sync.
+  DOCS_ARTIFACT_NAME: github-pages
 
 jobs:
   docs-build:
@@ -71,6 +77,8 @@ jobs:
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
+    outputs:
+      artifact-name: ${{ env.DOCS_ARTIFACT_NAME }}
     steps:
       - uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
         # Hint: if condition cannot access secrets, so we pass them via env
@@ -134,7 +142,7 @@ jobs:
       - name: Upload documentation artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: github-pages
+          name: ${{ env.DOCS_ARTIFACT_NAME }}
           path: _build
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
