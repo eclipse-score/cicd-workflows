@@ -72,12 +72,10 @@ jobs:
     steps:
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
 
-      - name: Checkout repository (Handle all events)
+      - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           lfs: true
-          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Configure access to private dependencies
         uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
