@@ -62,7 +62,7 @@ on:
         default: ""
         type: string
       skip-gitlint:
-        description: "Skip PR commit-message checks against the shared SCORE Gitlint policy"
+        description: "Skip PR commit-message checks even if .gitlint exists"
         required: false
         default: false
         type: boolean
@@ -252,13 +252,14 @@ jobs:
             return 0
           }
 
+          # A repository opts into Gitlint with its own root .gitlint file.
           # Event commits apply only to the caller's unmodified PR checkout.
           # An explicit ref/repository selects independent source history.
-          has_pr_commits() {
-            [[ "$EVENT_NAME" == pull_request && -z "$CHECK_REF" &&
+          has_gitlint() {
+            [[ -f .gitlint && "$EVENT_NAME" == pull_request && -z "$CHECK_REF" &&
                ( -z "$CHECK_REPOSITORY" || "$CHECK_REPOSITORY" == "$CALLER_REPOSITORY" ) ]]
           }
-          emit_output has_pr_commits has_pr_commits
+          emit_output has_gitlint has_gitlint
 
           emit_output has_bazel any_file_exists \
             "MODULE.bazel" \
@@ -304,12 +305,12 @@ jobs:
           repository-cache-restore: ${{ (inputs.repository != '' || inputs.ref != '') && 'true' || 'auto' }}
 
       - name: ⚙️ Setup uv
-        if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true' || steps.detect.outputs.has_pr_commits == 'true') }}
+        if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true' || steps.detect.outputs.has_gitlint == 'true') }}
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       - name: 💬 Check PR commit messages
         id: gitlint
-        if: ${{ !cancelled() && steps.detect.outputs.has_pr_commits == 'true' && !inputs.skip-gitlint }}
+        if: ${{ !cancelled() && steps.detect.outputs.has_gitlint == 'true' && !inputs.skip-gitlint }}
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -332,19 +333,12 @@ jobs:
           MD
           fi
 
-          # Pin the shared policy independently of the checked-out module.
-          # Keeping it outside the checkout avoids changing other checks' inputs.
-          policy="$RUNNER_TEMP/score.gitlint"
-          curl --fail --silent --show-error \
-            https://raw.githubusercontent.com/eclipse-score/score/edda15d1b9e2ad0bd258eb89f559a0b715fc4d7e/.gitlint \
-            --output "$policy"
-          if ! run_grouped "PR commit messages" uvx --from gitlint==0.19.1 gitlint --config "$policy" --commits "$commit_range"; then
-            report_failure "PR commit messages do not follow the SCORE policy" <<'MD'
-              Review the Gitlint errors above and the commit-message guidelines:
-              https://eclipse-score.github.io/score/main/contribute/general/git.html#commit-message-format
+          if ! run_grouped "PR commit messages" uvx --from gitlint==0.19.1 gitlint --config .gitlint --commits "$commit_range"; then
+            report_failure "PR commit messages do not follow the repository Gitlint configuration" <<'MD'
+              Review the Gitlint errors above and this repository's `.gitlint` configuration.
 
               **Reproduce locally**
-              Run `uvx --from gitlint==0.19.1 gitlint --config <SCORE .gitlint> --commits <base-sha>..<head-sha>`.
+              Run `uvx --from gitlint==0.19.1 gitlint --config .gitlint --commits <base-sha>..<head-sha>`.
 
               **Fix**
               Edit the affected commit messages and update your PR branch.

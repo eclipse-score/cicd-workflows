@@ -67,7 +67,7 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 
 | Check           | Runs when                                | Command                                   |
 | --------------- | ---------------------------------------- | ----------------------------------------- |
-| Gitlint         | Calling PR checkout with no explicit ref | Pinned Gitlint and shared SCORE policy |
+| Gitlint         | Root `.gitlint` exists and PR context applies | Pinned Gitlint with repository configuration |
 | pre-commit      | `.pre-commit-config.yaml` exists         | `uvx pre-commit run --all-files`          |
 | Python tests    | `pyproject.toml` **and** `uv.lock` exist | `uv run --frozen python -m pytest`        |
 | Bazel format    | `//:format.check` target exists          | `bazel test //:format.check`              |
@@ -78,7 +78,7 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 
 Capability detection looks for:
 
-- **PR commits** — `pull_request` for the caller repository, without an explicit `ref`
+- **Gitlint** — root `.gitlint` file and `pull_request` for the caller repository, without an explicit `ref`
 
 - **Bazel** — `MODULE.bazel`, `WORKSPACE`, or `WORKSPACE.bazel`
 - **Bazel lockfile** — `MODULE.bazel.lock`
@@ -95,10 +95,13 @@ actually exists.
 
 ## Commit-message checks
 
-On `pull_request`, Gitlint automatically checks the event's base-to-head commit
-range against the shared [`eclipse-score/score` policy](https://github.com/eclipse-score/score/blob/edda15d1b9e2ad0bd258eb89f559a0b715fc4d7e/.gitlint).
-No module configuration file is needed. The policy and Gitlint version are pinned
-centrally; a module's local `.gitlint` does not override the SCORE policy.
+On `pull_request`, Gitlint runs only when the checked-out repository contains a
+`.gitlint` file at its root. It checks the event's base-to-head commit range using
+that file. Repositories own their commit-message rules; no shared policy is
+fetched or supplied. Repositories without `.gitlint` skip the check.
+
+No entry in a CI configuration file is needed. The Gitlint version is pinned
+in the workflow; `skip-gitlint: true` disables the check even when `.gitlint` exists.
 
 The check supports fork PRs and excludes checkout's synthetic merge commit.
 Pushes, merge-queue events and other events skip it. An explicit `ref` or a
@@ -145,7 +148,7 @@ to `true`:
 | `skip-copyright`    | configured Bazel copyright check        |
 | `skip-bzlmod-lock`  | both the bzlmod tidy and lockfile checks |
 
-All skip inputs default to `false`. Gitlint runs automatically for applicable PRs.
+All skip inputs default to `false`. Gitlint runs automatically for applicable PRs when `.gitlint` exists.
 `skip-bzlmod-lock` cannot be combined with
 [`require-bzlmod-lock`](#requiring-the-bazel-lockfile). Example:
 
