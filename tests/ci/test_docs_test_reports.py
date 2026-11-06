@@ -16,7 +16,6 @@ ACTION_DIRECTORY = ROOT / '.github/actions/merge-test-reports'
 sys.path.insert(0, str(ACTION_DIRECTORY))
 
 import merge_reports as reports
-from prepare_download import artifact_names
 
 
 def artifact(root, name, files):
@@ -109,7 +108,7 @@ def test_rejects_file_directory_conflicts(tmp_path, reverse):
 @pytest.mark.parametrize('value', ['{}', 'null', '[]', '["same", "same"]', '[1]', '["../outside"]', '["*"]', '["."]', '[""]'])
 def test_rejects_invalid_or_pattern_artifact_names(value):
     with pytest.raises(ValueError):
-        artifact_names(value)
+        reports.artifact_names(value)
 
 
 def test_cli_selects_only_requested_artifacts_and_combines_their_files(tmp_path):
@@ -120,8 +119,12 @@ def test_cli_selects_only_requested_artifacts_and_combines_their_files(tmp_path)
     artifact(downloads, names[1], {'pytest.xml': b'two'})
     artifact(downloads, 'unrelated', {'secret.txt': b'unselected'})
     output = tmp_path / 'output'
-    subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'prepare_download.py'), '--artifacts', json.dumps(names)], check=True,
-                   env={**os.environ, 'RUNNER_TEMP': str(tmp_path), 'GITHUB_OUTPUT': str(output)})
+    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
+    prepare = next(step for step in action['runs']['steps'] if step.get('id') == 'selection')
+    subprocess.run([sys.executable, '-c', prepare['run']], check=True, env={
+        **os.environ, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY), 'ARTIFACTS': json.dumps(names),
+        'RUNNER_TEMP': str(tmp_path), 'GITHUB_OUTPUT': str(output),
+    })
     prepared = dict(line.split('=', 1) for line in output.read_text().splitlines())
     assert prepared['pattern'] == '@(bazel-linux|pytest-runtime)'
     assert Path(prepared['downloads']).is_dir()

@@ -3,10 +3,20 @@
 """Combine selected artifact trees without interpreting their report formats."""
 
 import argparse
+import json
 from pathlib import Path
+import re
 import shutil
 
-from prepare_download import artifact_names
+
+def artifact_names(value):
+    """Use exact, plain names so artifact selection cannot expand a glob."""
+    names = json.loads(value)
+    if (not isinstance(names, list) or not names or
+            any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', name)
+                or name in ('.', '..') for name in names) or len(set(names)) != len(names)):
+        raise ValueError('Expected a nonempty JSON array of unique plain artifact names')
+    return names
 
 
 def merge(sources, destination):
