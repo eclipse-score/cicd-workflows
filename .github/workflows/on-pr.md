@@ -2,8 +2,8 @@
 
 `on-pr.yml` is the **main entry point for pull-request checks** across all S-CORE
 repositories. It auto-detects what a repository contains and runs the relevant
-checks — PR commit messages, pre-commit, Python tests, Bazel format/copyright, and the Bazel bzlmod
-lockfile checks — as a **single job**.
+checks — PR commit messages, pre-commit, Python tests, Bazel format/copyright,
+and the Bazel bzlmod lockfile checks — as a **single job**.
 
 ## Usage
 
@@ -67,6 +67,7 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 
 | Check           | Runs when                                | Command                                   |
 | --------------- | ---------------------------------------- | ----------------------------------------- |
+| Gitlint         | Calling PR checkout with no explicit ref | Pinned Gitlint and shared SCORE policy |
 | pre-commit      | `.pre-commit-config.yaml` exists         | `uvx pre-commit run --all-files`          |
 | Python tests    | `pyproject.toml` **and** `uv.lock` exist | `uv run --frozen python -m pytest`        |
 | Bazel format    | `//:format.check` target exists          | `bazel test //:format.check`              |
@@ -76,6 +77,8 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 | Lockfile required | `require-bzlmod-lock: true`, `MODULE.bazel` exists, lockfile missing | fails with guidance |
 
 Capability detection looks for:
+
+- **PR commits** — `pull_request` for the caller repository, without an explicit `ref`
 
 - **Bazel** — `MODULE.bazel`, `WORKSPACE`, or `WORKSPACE.bazel`
 - **Bazel lockfile** — `MODULE.bazel.lock`
