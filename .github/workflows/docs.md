@@ -66,48 +66,6 @@ jobs:
 The value in `workflows` must exactly match the build workflow's `name`.
 Merge-queue builds are validated but not published.
 
-## Publish an existing central build manually
-
-When `on-pr.yml` already builds Docs, a publishing workflow can reuse its
-`github-pages` artifact directly. It does not need a download/re-upload job:
-
-```yaml
-name: Publish Documentation
-on:
-  workflow_dispatch:
-    inputs:
-      source-run-id:
-        description: Optional successful build run ID
-        type: string
-        default: ''
-jobs:
-  docs-publish:
-    uses: eclipse-score/cicd-workflows/.github/workflows/docs-publish.yml@main
-    with:
-      source-workflow: on-pr.yml
-      source-run-id: ${{ inputs.source-run-id }}
-    permissions:
-      actions: read
-      contents: write
-      pages: write
-      id-token: write
-      pull-requests: write
-```
-
-`source-workflow` is the build workflow's filename, not its display name. With
-no `source-run-id`, the publisher selects a successful push/manual build of the
-exact commit and ref selected for the publishing dispatch. An explicit run ID
-receives the same validation: completed successfully, same repository, workflow,
-commit and ref, and a push or manual trigger. PR and merge-queue artifacts cannot
-be selected through this manual path. Missing or expired artifacts fail publication.
-
-This mode also supports repositories owned by `eclipse-score`: the build stays
-in its original run and only the finished artifact enters the publishing job.
-Existing `workflow_run` callers and direct callers in trusted internal repositories
-keep their behavior when both inputs are omitted. Build selection inputs are
-supported only for `workflow_dispatch`; use the existing triggering run for
-`workflow_run` publication.
-
 ## Trusted internal repositories
 
 Repositories that do not accept fork-origin pull requests may run build and

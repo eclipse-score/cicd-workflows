@@ -15,6 +15,10 @@ name: Documentation Build
 
 on:
   workflow_call:
+    outputs:
+      artifact-name:
+        description: Documentation artifact name after a successful upload
+        value: ${{ jobs.docs-build.outputs.artifact-name }}
     inputs:
       tests-report-artifacts:
         description: JSON array of test artifacts to merge; rejects conflicting package paths
@@ -98,6 +102,8 @@ env:
 jobs:
   docs-build:
     name: Build Documentation
+    outputs:
+      artifact-name: ${{ steps.upload.outputs.artifact-id && 'github-pages' || '' }}
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
@@ -194,6 +200,7 @@ jobs:
         run: bazel run ${{ inputs.bazel-target }}
 
       - name: Upload documentation artifact
+        id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: github-pages

@@ -310,3 +310,20 @@ def test_producer_facts_preserve_ambiguous_profile_and_batch_names(workspace):
         'profile': 'host-tests-unit', 'platform': {'os': 'qnx', 'architecture': 'aarch64'},
         'check': 'tests', 'working-directory': '.', 'batch': 'ut-core',
     }
+
+
+@pytest.mark.parametrize('uploaded_id, artifact', [('42', 'github-pages'), ('', '')])
+def test_docs_output_propagates_only_an_uploaded_artifact(uploaded_id, artifact):
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / '.github/workflows/on-pr.yml').read_text())
+    outputs = workflow.get('on', workflow.get(True))['workflow_call']['outputs']
+    assert outputs['docs-artifact']['value'] == '${{ jobs.configured-docs.outputs.artifact-name }}'
+    docs = yaml.safe_load((root / '.github/workflows/docs.yml').read_text())
+    assert docs.get('on', docs.get(True))['workflow_call']['outputs']['artifact-name']['value'] == '${{ jobs.docs-build.outputs.artifact-name }}'
+    job = docs['jobs']['docs-build']
+    upload = next(step for step in job['steps'] if step.get('id') == 'upload')
+    assert upload['with']['name'] == 'github-pages'
+    assert upload['with']['if-no-files-found'] == 'error'
+    expression = job['outputs']['artifact-name'].removeprefix('${{').removesuffix('}}')
+    expression = expression.replace('steps.upload.outputs.artifact-id', repr(uploaded_id))
+    assert eval(expression.strip().replace('&&', 'and').replace('||', 'or'), {'__builtins__': {}}) == artifact
