@@ -143,7 +143,7 @@ jobs:
       - name: Download and merge selected test reports
         if: ${{ steps.report-inputs.outputs.multiple == 'true' }}
         # Resolve the action from this workflow's repository and exact commit.
-        uses: $/.github/actions/merge-test-reports
+        uses: $/.github/actions/_merge-test-reports
         with:
           artifacts: ${{ inputs.tests-report-artifacts }}
           destination: tests-report

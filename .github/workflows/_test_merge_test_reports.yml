@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+name: Test internal report collection
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  reports:
+    name: Reports / ${{ matrix.scenario }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [single, multiple, identical, conflict, missing]
+    steps:
+      # Use real artifacts to exercise download layout and expression handling.
+      # The self reference loads the candidate action without a source checkout.
+      - name: Prepare reports
+        id: fixtures
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          FIRST: selftest-reports-${{ matrix.scenario }}-first-${{ github.run_attempt }}
+          SECOND: selftest-reports-${{ matrix.scenario }}-second-${{ github.run_attempt }}
+        run: |
+          mkdir -p fixtures/first/unit fixtures/second/integration
+          echo '<testsuite name="unit"/>' > fixtures/first/unit/test.xml
+          echo 'unit log' > fixtures/first/unit/test.log
+          echo '<testsuite name="integration"/>' > fixtures/second/integration/test.xml
+          case "$SCENARIO" in
+            identical|conflict)
+              rm -r fixtures/second
+              cp -r fixtures/first fixtures/second
+              if [[ "$SCENARIO" == conflict ]]; then
+                echo '<testsuite name="different-result"/>' > fixtures/second/unit/test.xml
+              fi
+              ;;
+          esac
+          if [[ "$SCENARIO" == single ]]; then
+            artifacts=$(jq -cn --arg first "$FIRST" '[$first]')
+          else
+            artifacts=$(jq -cn --arg first "$FIRST" --arg second "$SECOND" '[$first, $second]')
+          fi
+          echo "artifacts=$artifacts" >> "$GITHUB_OUTPUT"
+      - name: Upload first report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selftest-reports-${{ matrix.scenario }}-first-${{ github.run_attempt }}
+          path: fixtures/first
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload second report
+        if: ${{ matrix.scenario != 'single' && matrix.scenario != 'missing' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selftest-reports-${{ matrix.scenario }}-second-${{ github.run_attempt }}
+          path: fixtures/second
+          if-no-files-found: error
+          retention-days: 1
+      - name: Collect selected reports
+        id: collect
+        continue-on-error: ${{ matrix.scenario == 'conflict' || matrix.scenario == 'missing' }}
+        uses: $/.github/actions/_merge-test-reports
+        with:
+          artifacts: ${{ steps.fixtures.outputs.artifacts }}
+          destination: merged-reports
+      - name: Verify collection outcome and report contents
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          OUTCOME: ${{ steps.collect.outcome }}
+        run: |
+          case "$SCENARIO" in
+            conflict|missing)
+              test "$OUTCOME" = failure
+              ;;
+            single|identical)
+              test "$OUTCOME" = success
+              diff -r fixtures/first merged-reports
+              ;;
+            multiple)
+              test "$OUTCOME" = success
+              diff fixtures/first/unit/test.xml merged-reports/unit/test.xml
+              diff fixtures/first/unit/test.log merged-reports/unit/test.log
+              diff fixtures/second/integration/test.xml merged-reports/integration/test.xml
+              test "$(find merged-reports -type f | wc -l)" -eq 3
+              ;;
+          esac

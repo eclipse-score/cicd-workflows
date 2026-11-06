@@ -148,7 +148,7 @@ file/directory conflicts also fail. Select a representative platform run when
 multiple platforms produce different reports at the same paths, or arrange for
 non-overlapping paths in the producing jobs.
 
-The merge action uses GitHub's `$/` self-repository reference, so its code comes
+The private `_merge-test-reports` action uses GitHub's `$/` self-repository reference, so its code comes
 from the same commit as the reusable workflow. It requires runner version
 2.336.0 or newer and does not depend on the consumer checkout.
 

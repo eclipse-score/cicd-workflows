@@ -26,9 +26,16 @@ def merge(sources, destination):
     report committed by a consumer cannot be silently replaced by an artifact.
     XML contents and testcase deduplication belong to the documentation parser.
     """
-    destination = Path(destination)
-    if destination.is_symlink():
-        raise ValueError('Test report destination must not be a symlink')
+    destination = Path(destination).absolute()
+    # Check the lexical path before mkdir or resolution can follow a symlink.
+    for component in (destination, *destination.parents):
+        if component.is_symlink():
+            raise ValueError(f'Test report destination path contains a symlink: {component}')
+    # Docs can read files absent from the incoming artifacts, so validate the
+    # complete existing report tree as well as paths written during this merge.
+    for existing in destination.rglob('*'):
+        if existing.is_symlink():
+            raise ValueError(f'Existing test report destination contains a symlink: {existing}')
     destination.mkdir(parents=True, exist_ok=True)
     seen = set()
     for name, root in sources:
@@ -72,7 +79,12 @@ def main():
     parser.add_argument('--destination', type=Path, required=True)
     args = parser.parse_args()
     names = artifact_names(args.artifacts)
-    sources = [(name, args.downloads / name) for name in names]
+    # The pinned download action flattens exactly one matching artifact into
+    # its download root, even when merge-multiple is false. Only use that layout
+    # for a one-name selection; a multi-name selection must supply every named
+    # directory rather than treating one downloaded artifact as several reports.
+    sources = ([(names[0], args.downloads)] if len(names) == 1 else
+               [(name, args.downloads / name) for name in names])
     print(f'Merged {merge(sources, args.destination)} test report files')
 
 
