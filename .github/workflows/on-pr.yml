@@ -96,6 +96,11 @@ on:
         required: false
         default: ""
         type: string
+      skip-gitlint:
+        description: "Skip PR commit-message checks against the shared SCORE Gitlint policy"
+        required: false
+        default: false
+        type: boolean
       skip-pre-commit:
         description: "Skip the pre-commit check even if .pre-commit-config.yaml exists"
         required: false
@@ -268,6 +273,11 @@ jobs:
 
       - name: 🕵️ Detect repository capabilities
         id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CHECK_REPOSITORY: ${{ inputs.repository }}
+          CHECK_REF: ${{ inputs.ref }}
+          CALLER_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/pr-check-lib.sh"
@@ -291,6 +301,14 @@ jobs:
             done
             return 0
           }
+
+          # Event commits apply only to the caller's unmodified PR checkout.
+          # An explicit ref/repository selects independent source history.
+          has_pr_commits() {
+            [[ "$EVENT_NAME" == pull_request && -z "$CHECK_REF" &&
+               ( -z "$CHECK_REPOSITORY" || "$CHECK_REPOSITORY" == "$CALLER_REPOSITORY" ) ]]
+          }
+          emit_output has_pr_commits has_pr_commits
 
           emit_output has_bazel any_file_exists \
             "MODULE.bazel" \
@@ -334,8 +352,52 @@ jobs:
           repository-cache-restore: ${{ (inputs.repository != '' || inputs.ref != '') && 'true' || 'auto' }}
 
       - name: ⚙️ Setup uv
-        if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true') }}
+        if: ${{ !cancelled() && (steps.detect.outputs.has_precommit == 'true' || steps.detect.outputs.has_python_uv == 'true' || steps.detect.outputs.has_pr_commits == 'true') }}
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: 💬 Check PR commit messages
+        id: gitlint
+        if: ${{ !cancelled() && steps.detect.outputs.has_pr_commits == 'true' && !inputs.skip-gitlint }}
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/pr-check-lib.sh"
+
+          # Event SHAs select the actual PR commits, including on fork PRs.
+          # Checkout's synthetic merge commit is deliberately outside the range.
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ && "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          fetch_options=(--no-tags)
+          if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+            fetch_options+=(--unshallow)
+          fi
+          git fetch "${fetch_options[@]}" origin "$PR_BASE_SHA" "$PR_HEAD_SHA"
+          commit_range="$PR_BASE_SHA..$PR_HEAD_SHA"
+          if [[ -z "$(git rev-list "$commit_range")" ]]; then
+            report_failure "No PR commits found for Gitlint" <<'MD'
+              The PR base and head did not select any commits. Re-run against the current PR revision.
+          MD
+          fi
+
+          # Pin the shared policy independently of the checked-out module.
+          # Keeping it outside the checkout avoids changing other checks' inputs.
+          policy="$RUNNER_TEMP/score.gitlint"
+          curl --fail --silent --show-error \
+            https://raw.githubusercontent.com/eclipse-score/score/edda15d1b9e2ad0bd258eb89f559a0b715fc4d7e/.gitlint \
+            --output "$policy"
+          if ! run_grouped "PR commit messages" uvx --from gitlint==0.19.1 gitlint --config "$policy" --commits "$commit_range"; then
+            report_failure "PR commit messages do not follow the SCORE policy" <<'MD'
+              Review the Gitlint errors above and the commit-message guidelines:
+              https://eclipse-score.github.io/score/main/contribute/general/git.html#commit-message-format
+
+              **Reproduce locally**
+              Run `uvx --from gitlint==0.19.1 gitlint --config <SCORE .gitlint> --commits <base-sha>..<head-sha>`.
+
+              **Fix**
+              Edit the affected commit messages and update your PR branch.
+          MD
+          fi
 
       - name: 🧹 Run pre-commit checks
         id: pre-commit
@@ -582,7 +644,7 @@ jobs:
           # Keep the full named set so consumers can distinguish an intentional
           # skip from a capability that unexpectedly stopped being detected.
           steps = json.loads(os.environ['CHECK_STEPS'])
-          names = ('pre-commit', 'python-tests', 'format', 'copyright',
+          names = ('gitlint', 'pre-commit', 'python-tests', 'format', 'copyright',
                    'require-lock', 'module-tidy', 'lockfile')
 
           results = {
