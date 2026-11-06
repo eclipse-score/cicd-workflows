@@ -70,6 +70,14 @@ jobs:
     outputs:
       artifact-name: ${{ inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' && inputs.upload-name || '' }}
     steps:
+      - name: 🚫 Refuse to run on pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "::error::This workflow must not be called from pull_request_target."
+          echo "It runs repository code with optional private dependency credentials."
+          echo "Use pull_request or merge_group instead."
+          exit 1
+
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
 
       - name: Checkout repository
@@ -111,7 +119,7 @@ jobs:
           bazel ${{ inputs.bazel-target }}
 
       - name: Upload Bazel test artifacts
-        if: ${{ always() && inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
+        if: ${{ always() && github.event_name != 'pull_request_target' && inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.upload-name }}
