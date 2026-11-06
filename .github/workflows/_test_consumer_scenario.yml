@@ -46,6 +46,7 @@ jobs:
       # remain false even when the candidate's default for that input is true.
       format-target: ${{ fromJSON(inputs.check-inputs).format-target }}
       copyright-target: ${{ fromJSON(inputs.check-inputs).copyright-target }}
+      skip-gitlint: ${{ fromJSON(inputs.check-inputs).skip-gitlint }}
       skip-pre-commit: ${{ fromJSON(inputs.check-inputs).skip-pre-commit }}
       skip-python-tests: ${{ fromJSON(inputs.check-inputs).skip-python-tests }}
       skip-format: ${{ fromJSON(inputs.check-inputs).skip-format }}
