@@ -80,6 +80,12 @@ Each job in `configured-results` and `quality-results` includes `metadata` with
 Consumers should use them instead of parsing row IDs, which remain opaque
 identifiers. Presentation paths and publication policy belong to the consumer.
 
+`docs-artifact` is `github-pages` after a successful configured Docs build and
+empty when Docs were skipped. Trusted internal wrappers can use this output to
+run `docs-publish.yml` as a dependent job in the same run, as described in
+[the documentation guide](docs.md#trusted-internal-repositories). Publication
+policy remains in the wrapper; SCORE build jobs need only read access.
+
 Downstream jobs can consume the `configured-artifacts` JSON output, keyed by the
 configured row ID. Each value has a `report` artifact name and a `testlogs`
 artifact name (null for build-only rows). Test-log archives contain package paths

@@ -45,6 +45,9 @@ on:
     # Propagate the job output through the reusable workflow boundary so each
     # scenario can assert its own checkout and capability-dependent outcomes.
     outputs:
+      docs-artifact:
+        description: Documentation artifact name after a successful configured Docs build; empty when no Docs were built
+        value: ${{ jobs.configured-docs.outputs.artifact-name }}
       quality-results:
         description: Verified analysis, SBOM and other quality evidence
         value: ${{ jobs.configured-quality.outputs.results }}

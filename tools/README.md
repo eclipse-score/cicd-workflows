@@ -279,12 +279,3 @@ The schema-1 compatibility reader preserves its old `test-type` value solely as
 an opaque row name. Schema 2 rejects that field. Test categories never enter
 result metadata, execution policy or Docs source selection. Multiple native test
 profiles require `docs.tests` to select the intended report explicitly.
-
-
-The Docs publisher can select a completed build for a manual publishing dispatch
-through `source-workflow` and optional `source-run-id`. Selection and validation
-run before any site mutation; the artifact download uses that verified run ID
-directly. Existing workflow-run and same-run downloads retain their fallback.
-`test_docs_publish.py` executes the actual workflow shell against controlled GitHub
-responses, including explicit/discovered runs, source mismatches, quoted refs,
-PR/fork rejection and existing publishing metadata contexts.
