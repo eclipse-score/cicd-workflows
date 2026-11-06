@@ -14,14 +14,15 @@ runs:
   steps:
     # Run the implementation from this action, independently of the consumer's
     # checkout and Python environment. Only the standard library is needed.
-    - name: Validate artifact names
+    - name: Prepare test report download
       id: selection
       shell: bash
       env:
         ACTION_DIRECTORY: ${{ github.action_path }}
         ARTIFACTS: ${{ inputs.artifacts }}
-      run: python3 "$ACTION_DIRECTORY/merge_reports.py" prepare --artifacts "$ARTIFACTS"
-    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      run: python3 "$ACTION_DIRECTORY/prepare_download.py" --artifacts "$ARTIFACTS"
+    - name: Download selected test reports
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         pattern: ${{ steps.selection.outputs.pattern }}
         path: ${{ steps.selection.outputs.downloads }}
@@ -35,5 +36,5 @@ runs:
         DOWNLOADS: ${{ steps.selection.outputs.downloads }}
         DESTINATION: ${{ inputs.destination }}
       run: >-
-        python3 "$ACTION_DIRECTORY/merge_reports.py" merge
+        python3 "$ACTION_DIRECTORY/merge_reports.py"
         --artifacts "$ARTIFACTS" --downloads "$DOWNLOADS" --destination "$DESTINATION"

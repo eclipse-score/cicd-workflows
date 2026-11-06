@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Keep artifact collection format-neutral and reject ambiguous report trees."""
 
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,10 +12,11 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / '.github/actions/merge-test-reports/merge_reports.py'
-SPEC = importlib.util.spec_from_file_location('merge_reports', SCRIPT)
-reports = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(reports)
+ACTION_DIRECTORY = ROOT / '.github/actions/merge-test-reports'
+sys.path.insert(0, str(ACTION_DIRECTORY))
+
+import merge_reports as reports
+from prepare_download import artifact_names
 
 
 def artifact(root, name, files):
@@ -109,7 +109,7 @@ def test_rejects_file_directory_conflicts(tmp_path, reverse):
 @pytest.mark.parametrize('value', ['{}', 'null', '[]', '["same", "same"]', '[1]', '["../outside"]', '["*"]', '["."]', '[""]'])
 def test_rejects_invalid_or_pattern_artifact_names(value):
     with pytest.raises(ValueError):
-        reports.artifact_names(value)
+        artifact_names(value)
 
 
 def test_cli_selects_only_requested_artifacts_and_combines_their_files(tmp_path):
@@ -120,13 +120,13 @@ def test_cli_selects_only_requested_artifacts_and_combines_their_files(tmp_path)
     artifact(downloads, names[1], {'pytest.xml': b'two'})
     artifact(downloads, 'unrelated', {'secret.txt': b'unselected'})
     output = tmp_path / 'output'
-    subprocess.run([sys.executable, str(SCRIPT), 'prepare', '--artifacts', json.dumps(names)], check=True,
+    subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'prepare_download.py'), '--artifacts', json.dumps(names)], check=True,
                    env={**os.environ, 'RUNNER_TEMP': str(tmp_path), 'GITHUB_OUTPUT': str(output)})
     prepared = dict(line.split('=', 1) for line in output.read_text().splitlines())
     assert prepared['pattern'] == '@(bazel-linux|pytest-runtime)'
     assert Path(prepared['downloads']).is_dir()
     destination = tmp_path / 'merged'
-    subprocess.run([sys.executable, str(SCRIPT), 'merge', '--artifacts', json.dumps(names),
+    subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'merge_reports.py'), '--artifacts', json.dumps(names),
                     '--downloads', str(downloads), '--destination', str(destination)], check=True)
     assert sorted(path.relative_to(destination).as_posix() for path in destination.rglob('*') if path.is_file()) == ['pkg/test.xml', 'pytest.xml']
 
