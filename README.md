@@ -135,6 +135,9 @@ This workflow:
 ✅ Runs **Rust Unit Tests**  
 ✅ Runs **pytest** for Python  
 
+With `upload-name` the test results are uploaded as an artifact and its name is exposed as output
+`artifact-name`.
+
 ---
 
 ### **4. Rust Coverage Workflow**
