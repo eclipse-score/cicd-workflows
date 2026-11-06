@@ -111,26 +111,27 @@ def test_rejects_invalid_or_pattern_artifact_names(value):
         reports.artifact_names(value)
 
 
-def test_cli_selects_only_requested_artifacts_and_combines_their_files(tmp_path):
+def test_action_selects_only_requested_artifacts_and_combines_their_files(tmp_path):
+    """Run the actual preparation and merge steps around a simulated download."""
     names = ['bazel-linux', 'pytest-runtime']
-    downloads = tmp_path / 'downloads'
-    downloads.mkdir()
-    artifact(downloads, names[0], {'pkg/test.xml': b'one'})
-    artifact(downloads, names[1], {'pytest.xml': b'two'})
-    artifact(downloads, 'unrelated', {'secret.txt': b'unselected'})
     output = tmp_path / 'output'
     action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
     prepare = next(step for step in action['runs']['steps'] if step.get('id') == 'selection')
-    subprocess.run([sys.executable, '-c', prepare['run']], check=True, env={
-        **os.environ, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY), 'ARTIFACTS': json.dumps(names),
-        'RUNNER_TEMP': str(tmp_path), 'GITHUB_OUTPUT': str(output),
+    subprocess.run(['bash', '-e', '-c', prepare['run']], check=True, env={
+        **os.environ, 'RUNNER_TEMP': str(tmp_path), 'GITHUB_OUTPUT': str(output),
     })
     prepared = dict(line.split('=', 1) for line in output.read_text().splitlines())
-    assert prepared['pattern'] == '@(bazel-linux|pytest-runtime)'
-    assert Path(prepared['downloads']).is_dir()
+    downloads = Path(prepared['downloads'])
+    assert downloads.is_dir()
+    artifact(downloads, names[0], {'pkg/test.xml': b'one'})
+    artifact(downloads, names[1], {'pytest.xml': b'two'})
+    artifact(downloads, 'unrelated', {'secret.txt': b'unselected'})
     destination = tmp_path / 'merged'
-    subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'merge_reports.py'), '--artifacts', json.dumps(names),
-                    '--downloads', str(downloads), '--destination', str(destination)], check=True)
+    merge = action['runs']['steps'][-1]
+    subprocess.run(['bash', '-e', '-c', merge['run']], check=True, env={
+        **os.environ, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY), 'ARTIFACTS': json.dumps(names),
+        'DOWNLOADS': str(downloads), 'DESTINATION': str(destination),
+    })
     assert sorted(path.relative_to(destination).as_posix() for path in destination.rglob('*') if path.is_file()) == ['pkg/test.xml', 'pytest.xml']
 
 
@@ -144,7 +145,7 @@ def test_workflow_preserves_legacy_input_and_rejects_ambiguous_selection(tmp_pat
     workflow = yaml.safe_load((ROOT / '.github/workflows/docs.yml').read_text())
     step = next(step for step in workflow['jobs']['docs-build']['steps'] if step.get('id') == 'report-inputs')
     output = tmp_path / 'output'
-    result = subprocess.run([sys.executable, '-c', step['run']], env={
+    result = subprocess.run(['bash', '-e', '-c', step['run']], env={
         **os.environ, 'SINGLE_REPORT': single, 'REPORTS': multiple, 'GITHUB_OUTPUT': str(output),
     }, capture_output=True, text=True)
     assert (result.returncode == 0) == success
