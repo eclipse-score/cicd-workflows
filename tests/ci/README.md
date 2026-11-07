@@ -97,3 +97,9 @@ These tests cover catalog validation, outcome assertions, pin edits and the
 publishing handoff. They do not execute the consumers' checks. The
 [consumer suite](../../.github/workflows/_test_consumers.yml) runs those
 checks in GitHub Actions using the candidate workflow implementation.
+
+The internal report collection action also has real-artifact self-tests in
+[the report self-test workflow](../../.github/workflows/_test_merge_test_reports.yml).
+They upload fixtures and invoke the candidate action for single and multiple
+artifacts, identical files, conflicts and missing artifacts. The PR workflow's
+`CI success` gate requires these self-tests as well as consumer compatibility.

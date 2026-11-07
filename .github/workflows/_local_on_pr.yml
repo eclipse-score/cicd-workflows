@@ -32,18 +32,23 @@ jobs:
     permissions:
       contents: read
 
+  merge-test-reports:
+    uses: ./.github/workflows/_test_merge_test_reports.yml
+    permissions:
+      contents: read
+
   # Matrix jobs have varying names. Branch protection can require this stable
   # result, which must turn red when preparation or any consumer assertion fails.
   # always() is essential: the gate must execute after upstream failures/skips
   # and report them as failure instead of becoming another skipped job itself.
   ci-success:
     name: CI success
-    needs: [common, consumers]
+    needs: [common, consumers, merge-test-reports]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}
     steps:
-      - name: Require common checks and all consumers
+      - name: Require common checks, consumers and action self-tests
         env:
           RESULTS: ${{ toJSON(needs.*.result) }}
         shell: python

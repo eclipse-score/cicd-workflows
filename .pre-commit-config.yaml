@@ -16,6 +16,10 @@ repos:
           # TODO: Remove once actionlint supports the `queue` key (rhysd/actionlint#654)
           - -ignore
           - 'unexpected key "queue" for "concurrency" section'
+          # TODO: Remove when actionlint supports GitHub's $/ self-repository syntax.
+          # Match only this reference; other malformed uses values still fail.
+          - -ignore
+          - '^specifying action "\$/\.github/actions/_merge-test-reports" in invalid format because ref is missing\.'
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:

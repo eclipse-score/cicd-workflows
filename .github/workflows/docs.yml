@@ -26,6 +26,11 @@ on:
         required: false
         type: string
         default: "//:docs"
+      tests-report-artifacts:
+        description: JSON array of test report artifact names to combine; cannot be used with tests-report-artifact
+        required: false
+        default: '[]'
+        type: string
       tests-report-artifact:
         description: "Name of the artifact that contains test reports"
         required: false
@@ -80,6 +85,24 @@ jobs:
     outputs:
       artifact-name: ${{ env.DOCS_ARTIFACT_NAME }}
     steps:
+      - name: Validate test report inputs
+        id: report-inputs
+        env:
+          SINGLE_REPORT: ${{ inputs.tests-report-artifact }}
+          REPORTS: ${{ inputs.tests-report-artifacts }}
+        shell: bash
+        run: |
+          if ! jq -e 'type == "array"' <<< "$REPORTS" > /dev/null; then
+            echo '::error::tests-report-artifacts must be a JSON array'
+            exit 1
+          fi
+          multiple=$(jq 'length > 0' <<< "$REPORTS")
+          if [[ "$multiple" == true && -n "$SINGLE_REPORT" ]]; then
+            echo '::error::Use either tests-report-artifact or tests-report-artifacts, not both'
+            exit 1
+          fi
+          echo "multiple=$multiple" >> "$GITHUB_OUTPUT"
+
       - uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
         # Hint: if condition cannot access secrets, so we pass them via env
         env:
@@ -116,6 +139,14 @@ jobs:
         with:
           name: ${{ inputs.tests-report-artifact }}
           path: tests-report
+
+      - name: Download and merge selected test reports
+        if: ${{ steps.report-inputs.outputs.multiple == 'true' }}
+        # Resolve the action from this workflow's repository and exact commit.
+        uses: $/.github/actions/_merge-test-reports
+        with:
+          artifacts: ${{ inputs.tests-report-artifacts }}
+          destination: tests-report
 
       - name: Download coverage report
         if: inputs.coverage-report-artifact != ''

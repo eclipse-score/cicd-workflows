@@ -107,6 +107,7 @@ the same version twice is intended.
 | `retention-days` | `1` | Number of days to retain the documentation artifact. |
 | `bazel-target` | `//:docs` | Bazel target invoked with `bazel run`. |
 | `tests-report-artifact` | empty | Optional artifact downloaded to `tests-report` before the docs build. |
+| `tests-report-artifacts` | `[]` | JSON array of exact artifact names to combine into `tests-report`; mutually exclusive with `tests-report-artifact`. |
 | `coverage-report-artifact` | empty | Optional artifact containing plain LCOV as `coverage.lcov` or `coverage_report.dat` at its root, downloaded to `coverage-report` before the docs build. |
 | `deployment_type` | `workflow` | Deprecated compatibility input; publishing is always handled by `docs-publish.yml`. |
 
@@ -115,6 +116,49 @@ the same version twice is intended.
 | Output | Description |
 | ------ | ----------- |
 | `artifact-name` | Name of the uploaded documentation artifact (`github-pages`). Use it to process the built documentation in the calling workflow, for example to attach it to a release. |
+
+## Multiple test report artifacts
+
+Matrix jobs can upload their reports separately and pass selected artifact names
+directly to Docs. No intermediate merge job or combined artifact upload is needed:
+
+```yaml
+jobs:
+  docs:
+    needs: tests
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
+    with:
+      tests-report-artifacts: '["tests-bazel-linux", "tests-pytest-cached", "tests-pytest-runtime"]'
+```
+
+Use either `tests-report-artifact` or `tests-report-artifacts`. Existing single
+artifact calls keep their behavior. Leaving both inputs at their defaults builds
+without downloading test reports.
+
+Names are exact and refer to the current workflow run. Use letters, numbers,
+underscores, hyphens and periods; globs and duplicate names are rejected. Every
+selected artifact must exist and contain files. Artifact directory prefixes are
+removed while relative paths inside each artifact are preserved. XML files,
+logs and other companion files are copied without parsing or renaming.
+
+Files with identical relative paths and bytes are accepted once. Different
+contents at the same path fail before the documentation build, including conflicts
+with files already in the checkout's `tests-report` directory. Symlinks and
+file/directory conflicts also fail. Select a representative platform run when
+multiple platforms produce different reports at the same paths, or arrange for
+non-overlapping paths in the producing jobs.
+
+The private `_merge-test-reports` action uses GitHub's `$/` self-repository reference, so its code comes
+from the same commit as the reusable workflow. It requires runner version
+2.336.0 or newer and does not depend on the consumer checkout.
+
+This combines files, not testcase results. The docs-as-code parser currently
+looks for files named `test.xml`. A pytest producer can use paths such as
+`docs-bzl/3.12/cached/test.xml` and `docs-bzl/3.12/runtime/test.xml`; copying other
+XML filenames does not make the parser consume them. Producers must also provide
+the testcase metadata required by their documentation parser. Multiple Python
+versions of the same testcase may need a representative selection or parser-level
+deduplication even when their report paths differ.
 
 ## Coverage in documentation
 
