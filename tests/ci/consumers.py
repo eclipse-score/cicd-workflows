@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # These names are the check identifiers reported by on-pr.yml. Catalog entries
 # select a supported subset as their minimum contract; omitted checks make no
 # claim about whether a repository supports them.
-CHECKS = {'pre-commit', 'python-tests', 'format', 'copyright',
+CHECKS = {'gitlint', 'pre-commit', 'python-tests', 'format', 'copyright',
           'require-lock', 'module-tidy', 'lockfile'}
 
 # require-lock reports a missing-lockfile error, not a successful capability.
@@ -40,6 +40,7 @@ REQUIRED_CHECKS = CHECKS - {'require-lock'}
 # from being hidden in a consumer-specific bag of workflow inputs.
 TARGET_INPUTS = {'format-target', 'copyright-target'}
 SKIP_INPUTS = {
+    'skip-gitlint': 'gitlint',
     'skip-pre-commit': 'pre-commit',
     'skip-python-tests': 'python-tests',
     'skip-format': 'format',

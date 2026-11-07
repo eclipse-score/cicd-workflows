@@ -2,8 +2,8 @@
 
 `on-pr.yml` is the **main entry point for pull-request checks** across all S-CORE
 repositories. It auto-detects what a repository contains and runs the relevant
-checks — pre-commit, Python tests, Bazel format/copyright, and the Bazel bzlmod
-lockfile checks — as a **single job**.
+checks — PR commit messages, pre-commit, Python tests, Bazel format/copyright,
+and the Bazel bzlmod lockfile checks — as a **single job**.
 
 ## Usage
 
@@ -67,6 +67,7 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 
 | Check           | Runs when                                | Command                                   |
 | --------------- | ---------------------------------------- | ----------------------------------------- |
+| Gitlint         | Root `.gitlint` exists and PR context applies | Pinned Gitlint with repository configuration |
 | pre-commit      | `.pre-commit-config.yaml` exists         | `uvx pre-commit run --all-files`          |
 | Python tests    | `pyproject.toml` **and** `uv.lock` exist | `uv run --frozen python -m pytest`        |
 | Bazel format    | `//:format.check` target exists          | `bazel test //:format.check`              |
@@ -76,6 +77,8 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 | Lockfile required | `require-bzlmod-lock: true`, `MODULE.bazel` exists, lockfile missing | fails with guidance |
 
 Capability detection looks for:
+
+- **Gitlint** — root `.gitlint` file and `pull_request` for the caller repository, without an explicit `ref`
 
 - **Bazel** — `MODULE.bazel`, `WORKSPACE`, or `WORKSPACE.bazel`
 - **Bazel lockfile** — `MODULE.bazel.lock`
@@ -89,6 +92,22 @@ actually exists.
 
 > A Bazel module-name check exists but is currently disabled until its detection
 > script is fixed.
+
+## Commit-message checks
+
+On `pull_request`, Gitlint runs only when the checked-out repository contains a
+`.gitlint` file at its root. It checks the event's base-to-head commit range using
+that file. Repositories own their commit-message rules; no shared policy is
+fetched or supplied. Repositories without `.gitlint` skip the check.
+
+No entry in a CI configuration file is needed. The Gitlint version is pinned
+in the workflow; `skip-gitlint: true` disables the check even when `.gitlint` exists.
+
+The check supports fork PRs and excludes checkout's synthetic merge commit.
+Pushes, merge-queue events and other events skip it. An explicit `ref` or a
+different `repository` also skips it, because the calling PR's commit range does
+not describe that selected checkout. `skip-gitlint: true` disables the check when
+it is already provided elsewhere. Only `contents: read` is needed.
 
 ## Custom Bazel targets
 
@@ -122,13 +141,14 @@ to `true`:
 
 | Input               | Skips                                    |
 | ------------------- | ---------------------------------------- |
+| `skip-gitlint`     | PR commit messages                       |
 | `skip-pre-commit`   | pre-commit                               |
 | `skip-python-tests` | Python / pytest                          |
 | `skip-format`       | configured Bazel formatting check       |
 | `skip-copyright`    | configured Bazel copyright check        |
 | `skip-bzlmod-lock`  | both the bzlmod tidy and lockfile checks |
 
-All skip inputs default to `false`, so existing callers are unaffected.
+All skip inputs default to `false`. Gitlint runs automatically for applicable PRs when `.gitlint` exists.
 `skip-bzlmod-lock` cannot be combined with
 [`require-bzlmod-lock`](#requiring-the-bazel-lockfile). Example:
 
@@ -223,6 +243,6 @@ When `repository` selects a different repository and `ref` is omitted,
 credentials must allow access to the selected repository.
 
 The `check-results` output is a JSON object containing the checked-out `commit`
-and a `checks` map with `pre-commit`, `python-tests`, `format`, `copyright`,
+and a `checks` map with `gitlint`, `pre-commit`, `python-tests`, `format`, `copyright`,
 `require-lock`, `module-tidy` and `lockfile` step outcomes. A skipped check is
 reported as `skipped`. Failed checks still fail the workflow.
