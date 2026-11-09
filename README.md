@@ -8,7 +8,7 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 
 | Workflow                                       | Description                                                                                                                 |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **[Bazel Job](.github/workflows/bazel.md)** | Standalone build-only, test-only or build-and-test job; caller owns matrix and events |
+| **[Bazel Job](.github/workflows/bazel.md)** | Standalone Bazel build, test and coverage execution with result artifacts; caller owns matrix and events |
 | **[PR Checks](.github/workflows/on-pr.md)**    | Main PR entry point: auto-detects capabilities and runs pre-commit, tests, format, copyright and lockfile checks in one job |
 | **[Bazel Cache Maintenance](.github/workflows/cache-maintenance.md)** | Maintains lockfile-keyed repository and job-specific Bazel caches                                                           |
 | **[Documentation](.github/workflows/docs.md)** | Builds and securely publishes documentation to GitHub Pages                                                                 |

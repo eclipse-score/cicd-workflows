@@ -16,8 +16,24 @@ on:
         description: Space-separated Bazel test targets, including exclusions; empty skips tests
         type: string
         default: ""
+      test-command:
+        description: Test-phase Bazel command, either test or coverage
+        type: string
+        default: test
+      run-target:
+        description: Single executable Bazel target to run after build and test; empty skips execution
+        type: string
+        default: ""
+      run-args:
+        description: Arguments for the executable selected by run-target, after Bazel's -- separator
+        type: string
+        default: ""
+      environment:
+        description: JSON object of string environment variables for Bazel commands
+        type: string
+        default: "{}"
       bazel-args:
-        description: Bazel flags applied to both build and test, such as --config=x86_64-linux
+        description: Bazel flags applied to all commands, such as --config=x86_64-linux
         type: string
         default: ""
       build-args:
@@ -25,7 +41,7 @@ on:
         type: string
         default: ""
       test-args:
-        description: Additional flags applied only to tests, such as --test_timeout=600
+        description: Additional flags applied only to the test or coverage command, such as --test_timeout=600
         type: string
         default: ""
       working-directory:
@@ -53,17 +69,17 @@ on:
         type: number
         default: 360
       artifact-name:
-        description: Test report artifact name; empty generates a unique name for this invocation
+        description: Result artifact name; empty generates a unique name for this invocation
         type: string
         default: ""
       result-paths:
-        description: Newline-separated test report paths relative to working-directory
+        description: Newline-separated result paths relative to working-directory
         type: string
         default: |
           bazel-testlogs/**/*.xml
           bazel-testlogs/**/test.log
       retention-days:
-        description: Test report artifact retention
+        description: Result artifact retention
         type: number
         default: 7
       github-app-client-id:
@@ -79,7 +95,7 @@ on:
         required: false
     outputs:
       artifact-name:
-        description: Uploaded test report artifact name; empty when no artifact was created
+        description: Uploaded result artifact name; empty when no artifact was created
         value: ${{ jobs.bazel.outputs.artifact-name }}
 
 jobs:
@@ -101,21 +117,37 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BUILD_TARGETS: ${{ inputs.build-targets }}
           TEST_TARGETS: ${{ inputs.test-targets }}
+          TEST_COMMAND: ${{ inputs.test-command }}
           BAZEL_ARGS: ${{ inputs.bazel-args }}
           BUILD_ARGS: ${{ inputs.build-args }}
           TEST_ARGS: ${{ inputs.test-args }}
+          RUN_TARGET: ${{ inputs.run-target }}
+          RUN_ARGS: ${{ inputs.run-args }}
+          COMMAND_ENV: ${{ inputs.environment }}
         run: |
+          import json
           import os
           import shlex
 
           if os.environ['EVENT_NAME'] == 'pull_request_target':
               raise SystemExit('This workflow must not run on pull_request_target.')
+          if os.environ['TEST_COMMAND'] not in ('test', 'coverage'):
+              raise SystemExit('test-command must be test or coverage.')
           values = {key: shlex.split(os.environ[key]) for key in
-                    ('BUILD_TARGETS', 'TEST_TARGETS', 'BAZEL_ARGS', 'BUILD_ARGS', 'TEST_ARGS')}
-          if not values['BUILD_TARGETS'] and not values['TEST_TARGETS']:
-              raise SystemExit('Supply build-targets, test-targets, or both.')
+                    ('BUILD_TARGETS', 'TEST_TARGETS', 'BAZEL_ARGS', 'BUILD_ARGS', 'TEST_ARGS', 'RUN_TARGET', 'RUN_ARGS')}
+          if not any(values[key] for key in ('BUILD_TARGETS', 'TEST_TARGETS', 'RUN_TARGET')):
+              raise SystemExit('Supply build-targets, test-targets or run-target.')
+          if values['RUN_TARGET'] and (len(values['RUN_TARGET']) != 1 or values['RUN_TARGET'][0].startswith('-')):
+              raise SystemExit('run-target must select exactly one executable Bazel target.')
+          if values['RUN_ARGS'] and not values['RUN_TARGET']:
+              raise SystemExit('run-args requires run-target.')
+          environment = json.loads(os.environ['COMMAND_ENV'])
+          if not isinstance(environment, dict) or any(not isinstance(key, str) or not isinstance(value, str)
+                                                      or not key or '=' in key or '\x00' in key or '\x00' in value
+                                                      for key, value in environment.items()):
+              raise SystemExit('environment must be a JSON object of string variables.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f"has-tests={str(bool(values['TEST_TARGETS'])).lower()}\n")
+              output.write(f"has-results={str(bool(values['TEST_TARGETS'] or values['RUN_TARGET'])).lower()}\n")
 
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
         with:
@@ -189,16 +221,21 @@ jobs:
       # The sandbox action needs Bazel on PATH to locate its install base.
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
 
-      - name: Build and test
+      - name: Execute Bazel commands
         shell: python
         working-directory: ${{ inputs.working-directory }}
         env:
           BUILD_TARGETS: ${{ inputs.build-targets }}
           TEST_TARGETS: ${{ inputs.test-targets }}
+          TEST_COMMAND: ${{ inputs.test-command }}
           BAZEL_ARGS: ${{ inputs.bazel-args }}
           BUILD_ARGS: ${{ inputs.build-args }}
           TEST_ARGS: ${{ inputs.test-args }}
+          RUN_TARGET: ${{ inputs.run-target }}
+          RUN_ARGS: ${{ inputs.run-args }}
+          COMMAND_ENV: ${{ inputs.environment }}
         run: |
+          import json
           import os
           import shlex
           import subprocess
@@ -206,22 +243,34 @@ jobs:
           # Split arguments without shell expansion. Target exclusions follow --;
           # build and test share one checkout and the same Bazel/cache context.
           common = shlex.split(os.environ['BAZEL_ARGS'])
+          environment = {**os.environ, **json.loads(os.environ['COMMAND_ENV'])}
+          commands = []
           for command in ('build', 'test'):
               targets = shlex.split(os.environ[f'{command.upper()}_TARGETS'])
               if not targets:
                   continue
               extra = shlex.split(os.environ[f'{command.upper()}_ARGS'])
-              argv = ['bazel', command, *common, *extra, '--', *targets]
+              subcommand = os.environ['TEST_COMMAND'] if command == 'test' else command
+              argv = ['bazel', subcommand, *common, *extra, '--', *targets]
+              commands.append(argv)
+          target = shlex.split(os.environ['RUN_TARGET'])
+          if target:
+              argv = ['bazel', 'run', *common, *target]
+              arguments = shlex.split(os.environ['RUN_ARGS'])
+              if arguments:
+                  argv.extend(['--', *arguments])
+              commands.append(argv)
+          for argv in commands:
               print(f'::group::{shlex.join(argv)}', flush=True)
-              result = subprocess.run(argv, check=False)
+              result = subprocess.run(argv, env=environment, check=False)
               print('::endgroup::', flush=True)
               # A failed build must stop the job before tests can hide its failure.
               if result.returncode:
                   raise SystemExit(result.returncode)
 
-      - name: Upload test reports
+      - name: Upload results
         id: upload
-        if: ${{ always() && steps.validate.outputs.has-tests == 'true' && steps.prepare.outcome == 'success' }}
+        if: ${{ always() && steps.validate.outputs.has-results == 'true' && steps.prepare.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.prepare.outputs.artifact-name }}
