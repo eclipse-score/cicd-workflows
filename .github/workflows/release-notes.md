@@ -2,8 +2,8 @@
 
 [`release-notes-agent.md`](release-notes-agent.md) is a GitHub Agentic Workflow
 that uses the Copilot engine to draft reStructuredText notes between two release
-tags. It follows the
-shared [release-notes template](../release-notes-template.md), reads repository,
+tags. Its prompt and module-template schema are embedded in the workflow source.
+It reads repository,
 pull-request, issue, and security-advisory evidence, and creates one
 `[release-notes-test]` issue for human review. It never creates or publishes a
 release.
