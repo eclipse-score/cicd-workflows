@@ -189,45 +189,13 @@ jobs:
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
 
       - name: Execute Bazel commands
-        shell: python
-        working-directory: ${{ inputs.working-directory }}
+        uses: $/.github/actions/_bazel-execute
+        with:
+          working-directory: ${{ inputs.working-directory }}
         env:
           COVERAGE_JUSTIFICATIONS: ${{ inputs.coverage-justifications }}
           COVERAGE_THRESHOLD: ${{ inputs.coverage-threshold }}
           COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
-        run: |
-          import os
-          import shlex
-          import subprocess
-
-          # Split arguments without shell expansion. Target exclusions follow --;
-          # build and test share one checkout and the same Bazel/cache context.
-          common = ['--lockfile_mode=error', *shlex.split(os.environ['BAZEL_ARGS'])]
-          configs = [f'--config={config}' for config in os.environ['BAZEL_CONFIGS'].split()]
-
-          def run_bazel(command, *args):
-              argv = ['bazel', command, *common, *args]
-              print(f'::group::{shlex.join(argv)}', flush=True)
-              result = subprocess.run(argv, check=False)
-              print('::endgroup::', flush=True)
-              # Stop immediately so a later command cannot hide this failure.
-              if result.returncode:
-                  raise SystemExit(result.returncode)
-
-          for command in ('build', 'test'):
-              targets = shlex.split(os.environ[f'{command.upper()}_TARGETS'])
-              if not targets:
-                  continue
-              extra = shlex.split(os.environ[f'{command.upper()}_ARGS'])
-              subcommand = os.environ['TEST_COMMAND'] if command == 'test' else command
-              run_bazel(subcommand, *configs, *extra, '--', *targets)
-          if os.environ['TEST_COMMAND'] == 'coverage':
-              # coverage_tool owns interpretation, justifications and the gate.
-              # This workflow only connects its report to the artifact upload.
-              reporter_args = ['--archive-dir', os.environ['COVERAGE_REPORT_DIRECTORY']]
-              if os.environ['COVERAGE_JUSTIFICATIONS']:
-                  reporter_args.extend(['--yaml', os.environ['COVERAGE_JUSTIFICATIONS']])
-              run_bazel('run', '@score_coverage//:generate_coverage_html', '--', *reporter_args)
 
       - name: Select coverage results
         id: coverage-results

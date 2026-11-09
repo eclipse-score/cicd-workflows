@@ -1,0 +1,23 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Internal implementation for bazel.yml, not a public action API.
+# The workflow validates and supplies BUILD_TARGETS, TEST_TARGETS, TEST_COMMAND,
+# BAZEL_ARGS, BAZEL_CONFIGS, BUILD_ARGS and TEST_ARGS through the job environment.
+# Coverage additionally uses COVERAGE_JUSTIFICATIONS, COVERAGE_THRESHOLD and
+# COVERAGE_REPORT_DIRECTORY from the calling step's environment.
+name: Execute Bazel commands
+description: Execute a validated build, test or coverage request in one workspace
+inputs:
+  working-directory:
+    description: Validated Bazel workspace relative to the caller checkout
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run Bazel
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ACTION_DIRECTORY: ${{ github.action_path }}
+      run: python3 "$ACTION_DIRECTORY/execute.py"
