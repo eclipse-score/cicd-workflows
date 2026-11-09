@@ -1,0 +1,230 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# One invocation executes one module-owned Bazel job. Event selection, matrices
+# and dependencies belong to the caller; this workflow owns its execution.
+name: Bazel
+
+on:
+  workflow_call:
+    inputs:
+      build-targets:
+        description: Space-separated Bazel build targets; empty skips the build
+        type: string
+        default: ""
+      test-targets:
+        description: Space-separated Bazel test targets, including exclusions; empty skips tests
+        type: string
+        default: ""
+      bazel-args:
+        description: Bazel flags applied to both build and test, such as --config=x86_64-linux
+        type: string
+        default: ""
+      build-args:
+        description: Additional flags applied only to the build
+        type: string
+        default: ""
+      test-args:
+        description: Additional flags applied only to tests, such as --test_timeout=600
+        type: string
+        default: ""
+      working-directory:
+        description: Bazel workspace relative to the repository checkout
+        type: string
+        default: .
+      cache-key:
+        description: Stable disk-cache key; set a distinct value for each matrix variant
+        type: string
+        default: ""
+      packages:
+        description: Additional APT packages, such as qemu-user for emulated Linux tests
+        type: string
+        default: ""
+      disk-space-level:
+        description: Disk cleanup level (0-4), passed to more-disk-space
+        type: number
+        default: 2
+      runner-labels:
+        description: Optional JSON runner label or array, overriding repository runner variables
+        type: string
+        default: ""
+      timeout-minutes:
+        description: Job timeout, including setup, build and tests
+        type: number
+        default: 360
+      artifact-name:
+        description: Test report artifact name; empty generates a unique name for this invocation
+        type: string
+        default: ""
+      result-paths:
+        description: Newline-separated test report paths relative to working-directory
+        type: string
+        default: |
+          bazel-testlogs/**/*.xml
+          bazel-testlogs/**/test.log
+      retention-days:
+        description: Test report artifact retention
+        type: number
+        default: 7
+      github-app-client-id:
+        description: Optional GitHub App client ID for private dependencies
+        type: string
+        default: ""
+    secrets:
+      github-app-private-key:
+        description: Optional private key paired with github-app-client-id
+        required: false
+      token:
+        description: Optional token for private dependencies, as an alternative to GitHub App credentials
+        required: false
+    outputs:
+      artifact-name:
+        description: Uploaded test report artifact name; empty when no artifact was created
+        value: ${{ jobs.bazel.outputs.artifact-name }}
+
+jobs:
+  bazel:
+    name: Bazel
+    permissions:
+      contents: read
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    outputs:
+      artifact-name: ${{ steps.upload.outputs.artifact-id && steps.prepare.outputs.artifact-name || '' }}
+    steps:
+      # Reject privileged PR execution before checkout or dependency credentials.
+      # An empty job is a caller error, not a successful verification result.
+      - name: Validate request
+        id: validate
+        shell: python
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BUILD_TARGETS: ${{ inputs.build-targets }}
+          TEST_TARGETS: ${{ inputs.test-targets }}
+          BAZEL_ARGS: ${{ inputs.bazel-args }}
+          BUILD_ARGS: ${{ inputs.build-args }}
+          TEST_ARGS: ${{ inputs.test-args }}
+        run: |
+          import os
+          import shlex
+
+          if os.environ['EVENT_NAME'] == 'pull_request_target':
+              raise SystemExit('This workflow must not run on pull_request_target.')
+          values = {key: shlex.split(os.environ[key]) for key in
+                    ('BUILD_TARGETS', 'TEST_TARGETS', 'BAZEL_ARGS', 'BUILD_ARGS', 'TEST_ARGS')}
+          if not values['BUILD_TARGETS'] and not values['TEST_TARGETS']:
+              raise SystemExit('Supply build-targets, test-targets, or both.')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"has-tests={str(bool(values['TEST_TARGETS'])).lower()}\n")
+
+      - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
+        with:
+          level: ${{ inputs.disk-space-level }}
+
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          lfs: true
+
+      - name: Prepare workspace and report paths
+        id: prepare
+        shell: python
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          RESULT_PATHS: ${{ inputs.result-paths }}
+        run: |
+          import os
+          from pathlib import Path
+          import uuid
+
+          root = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+          relative = Path(os.environ['WORKING_DIRECTORY'])
+          directory = (root / relative).resolve()
+          if relative.is_absolute() or not directory.is_relative_to(root) or not directory.is_dir():
+              raise SystemExit('working-directory must be an existing directory inside the checkout.')
+          # Prefix every pattern, including exclusions, for nested Bazel workspaces.
+          paths = []
+          for pattern in os.environ['RESULT_PATHS'].splitlines():
+              pattern = pattern.strip()
+              if pattern:
+                  exclusion = pattern.startswith('!')
+                  pattern = pattern[1:] if exclusion else pattern
+                  if Path(pattern).is_absolute() or '..' in Path(pattern).parts:
+                      raise SystemExit('result-paths must be relative to working-directory.')
+                  paths.append(('!' if exclusion else '') + str(directory / pattern))
+          if not paths:
+              raise SystemExit('result-paths must contain at least one report path.')
+          name = os.environ['ARTIFACT_NAME'] or f'bazel-tests-{uuid.uuid4().hex}'
+          delimiter = f'paths_{uuid.uuid4().hex}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'artifact-name={name}\n')
+              output.write(f'result-paths<<{delimiter}\n' + '\n'.join(paths) + f'\n{delimiter}\n')
+
+      - name: Configure access to private dependencies
+        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90
+        env:
+          HAS_KEY: ${{ secrets.github-app-private-key != '' }}
+          HAS_TOKEN: ${{ secrets.token != '' }}
+        if: ${{ env.HAS_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.github-app-client-id != '' }}
+        with:
+          token: ${{ secrets.token }}
+          github-app-client-id: ${{ inputs.github-app-client-id }}
+          github-app-private-key: ${{ secrets.github-app-private-key }}
+
+      - name: Install dependencies
+        if: ${{ inputs.packages != '' }}
+        uses: eclipse-score/apt-install@d545215b973c4151236fcb3f75480dffcb914835
+        with:
+          packages: ${{ inputs.packages }}
+          cache: false
+
+      # This revision supports nested workspaces for lockfile and cache identity.
+      - name: Setup Bazel with shared caching
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@ee1eb410c572e2a97ae27488f8401887ec331de3
+        with:
+          disk-cache-key: ${{ inputs.cache-key || github.job }}
+          working-directory: ${{ inputs.working-directory }}
+
+      # The sandbox action needs Bazel on PATH to locate its install base.
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
+
+      - name: Build and test
+        shell: python
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          BUILD_TARGETS: ${{ inputs.build-targets }}
+          TEST_TARGETS: ${{ inputs.test-targets }}
+          BAZEL_ARGS: ${{ inputs.bazel-args }}
+          BUILD_ARGS: ${{ inputs.build-args }}
+          TEST_ARGS: ${{ inputs.test-args }}
+        run: |
+          import os
+          import shlex
+          import subprocess
+
+          # Split arguments without shell expansion. Target exclusions follow --;
+          # build and test share one checkout and the same Bazel/cache context.
+          common = shlex.split(os.environ['BAZEL_ARGS'])
+          for command in ('build', 'test'):
+              targets = shlex.split(os.environ[f'{command.upper()}_TARGETS'])
+              if not targets:
+                  continue
+              extra = shlex.split(os.environ[f'{command.upper()}_ARGS'])
+              argv = ['bazel', command, *common, *extra, '--', *targets]
+              print(f'::group::{shlex.join(argv)}', flush=True)
+              result = subprocess.run(argv, check=False)
+              print('::endgroup::', flush=True)
+              # A failed build must stop the job before tests can hide its failure.
+              if result.returncode:
+                  raise SystemExit(result.returncode)
+
+      - name: Upload test reports
+        id: upload
+        if: ${{ always() && steps.validate.outputs.has-tests == 'true' && steps.prepare.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.prepare.outputs.artifact-name }}
+          path: ${{ steps.prepare.outputs.result-paths }}
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: warn
