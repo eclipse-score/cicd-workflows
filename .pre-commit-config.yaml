@@ -9,6 +9,9 @@ repos:
     rev: v1.7.11
     hooks:
       - id: actionlint
+        # gh-aw lock files use generated context expressions and Copilot permission scopes
+        # that actionlint does not yet recognize; gh aw compile validates those files.
+        exclude: '\.lock\.yml$'
         args:
           # Disable shellcheck and pyflakes for now, to enforce consistent behavior.
           - -shellcheck=
