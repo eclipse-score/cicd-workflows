@@ -146,22 +146,22 @@ setup commands or arbitrary shell hooks are accepted from consumer YAML.
 ## Coverage and Docs integration
 
 `configured_coverage.py` owns the coverage contracts and Docs selection.
-LLVM coverage preserves the template's `bazel-configs`, `bazel-targets`,
-`justifications-yaml`, `coverage-html-bazel-target`, `coverage-threshold` and
-`generate-artifacts-archive` fields as one object per variant. The SCORE report
-CLI uses `--archive-dir`; the template's script hooks are deliberately absent.
-The default threshold is report-only; both migrated consumers set their intended
-values explicitly. `checks.coverage` is a distinct module Bazel orchestrator
-contract, not an adapter for the template's GCOV options.
+Named `coverage` profiles select platform, workspace and execution independently
+of test profiles. A profile either supplies explicit instrumentation configs and
+targets, optionally with a Bazel report generator, or delegates the complete
+pipeline to a module Bazel target with an explicit output directory. Direct
+coverage without a report target uses central LCOV/genhtml processing.
+`report-bazel-target` requires `justifications-yaml`; its CLI uses `--yaml` and
+`--archive-dir`. No module-specific configs, labels or file paths are defaults.
+The report-only threshold, retention and normalized reporting conventions remain
+central. Internal setup profiles retain tool-specific names to select packages;
+those names are not schema 2 check families.
 
-The built-in scope policy preserves baselibs' production universe query,
-configured dependency query and missing/stale exclusion comparisons. The local
-scope-check script remains available for developer use. Lifecycle keeps its
-module-owned coverage target, including the combined C++/Rust orchestration.
-Both consumers keep their release artifact names and ten-day retention. Their
-local coverage workflows are replaced by configuration; baselibs' Linux entry
-point also supports manual dispatch. Lifecycle's Docs verification and link checks are configured centrally. The central call includes coverage and Docs in its
-success result, so the caller's merge/release gates cover them too.
+The optional built-in scope policy queries the explicitly configured production
+universe, configured scope dependencies and exclusions file. It rejects missing
+coverage and stale exclusions. Module-owned targets can retain combined C++/Rust
+orchestration. Explicit artifact names preserve module release interfaces.
+Coverage and Docs contribute to the central success result.
 
 Coverage collection stages HTML, plain LCOV at both supported root filenames,
 and Cobertura (preserving the generator's `coverage.xml` or converting via the
@@ -184,8 +184,9 @@ coverage exclusions/thresholds. Full module coverage and documentation builds,
 GitHub artifact handoff and release downloads still need end-to-end validation.
 
 Configuration conventions are centralized in `configured_coverage.py` and the
-schema 2 planner defaults. Consumers omit standard platform/test fields, report
-paths, generator labels and retention values. Defaults are merged before type
+schema 2 planner defaults. Consumers may omit standard platform/test fields and retention values.
+Instrumentation configs, target scopes, generator labels, justification paths
+and module output directories stay explicit. Defaults are merged before type
 and path validation, so explicit invalid/null overrides still fail. Docs resolves
 unique native-root test and root coverage sources; ambiguity fails preparation
 instead of choosing by variant order. Explicit empty selectors disable a report.
@@ -195,7 +196,7 @@ coverage metadata and Docs plans when redundant configuration is removed.
 ## Module-facing configuration
 
 The compact schema 2 layout names profiles directly under `tests` and `builds`,
-with top-level `llvm-coverage`/`coverage` and `docs`. Platform, workspace and
+and `coverage`, with a top-level `docs` object. Platform, workspace and
 execution options live on the profile rather than under `variants` and
 `workflow-config`. `normalize()` adapts it to the existing planner so command
 execution, workspace validation, evidence and artifact contracts remain shared.
@@ -219,17 +220,17 @@ coverage, rather than only the small reference example.
 ## Typed quality execution
 
 `configured_quality.py` plans and executes Docs verification, Cargo Clippy,
-PR-only Gitlint and module-owned Bazel CodeQL. `configured-quality.yml` freezes
+and module-owned Bazel CodeQL. `configured-quality.yml` freezes
 its checkout, executes independent profiles with read-only tokens and verifies
 all reports. The main entry passes its already frozen SHA and requires quality
 verification before Docs build. A setup or post-step failure also fails the gate.
 
 Command recipes are shared by execution and verification. Reports must match the
 full plan and commit, include all commands, and contain profile-specific evidence:
-Bazel target events, Cargo workspace compiler artifacts, PR commits/policy hash,
+Bazel target events, Cargo workspace compiler artifacts,
 or a nonempty queried CodeQL target set and parsed merged SARIF. Fetch-only CodeQL
-is a distinct planned mode and cannot claim SARIF analysis. Gitlint records event
-base/head SHAs; a not-applicable report cannot pass PR verification.
+is a distinct planned mode and cannot claim SARIF analysis. Gitlint belongs to the automatic common checks, with a `skip-gitlint` workflow
+input; it is not part of the module configuration or quality matrix.
 
 Only the separate SARIF publication job inherits caller write permissions. Fork
 upload failures remain best effort as in the module workflow; unsuppressed finding

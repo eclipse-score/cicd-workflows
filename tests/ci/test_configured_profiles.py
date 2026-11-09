@@ -4,6 +4,7 @@
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import subprocess
 from types import SimpleNamespace
@@ -89,7 +90,7 @@ def test_precheck_is_a_bazel_target_and_failure_prevents_tests(workspace, monkey
 
 def test_gcov_coverage_uses_qnx_setup_and_real_test_evidence(workspace):
     document = {'schema-version': 2, 'variants': [{'name': 'target', 'os': [{'name': 'qnx'}],
-        'checks': {'gcov-coverage': {'bazel-configs': 'qcc', 'bazel-targets': '//lib/...', 'coverage-threshold': 80}}}]}
+        'checks': {'coverage': {'bazel-configs': 'qcc', 'bazel-targets': '//lib/...', 'coverage-threshold': 80}}}]}
     row = checks.plan(workspace, write_config(workspace, document))[0]
     assert row['execution'] == 'qnx-vm' and row['has-tests']
     assert row['prerequisites'] == 'gcov-coverage'
@@ -322,8 +323,166 @@ def test_docs_output_propagates_only_an_uploaded_artifact(uploaded_id, artifact)
     assert docs.get('on', docs.get(True))['workflow_call']['outputs']['artifact-name']['value'] == '${{ jobs.docs-build.outputs.artifact-name }}'
     job = docs['jobs']['docs-build']
     upload = next(step for step in job['steps'] if step.get('id') == 'upload')
-    assert upload['with']['name'] == 'github-pages'
+    assert upload['with']['name'] == '${{ env.DOCS_ARTIFACT_NAME }}'
+    assert docs['env']['DOCS_ARTIFACT_NAME'] == 'github-pages'
     assert upload['with']['if-no-files-found'] == 'error'
     expression = job['outputs']['artifact-name'].removeprefix('${{').removesuffix('}}')
     expression = expression.replace('steps.upload.outputs.artifact-id', repr(uploaded_id))
+    expression = expression.replace('env.DOCS_ARTIFACT_NAME', repr(docs['env']['DOCS_ARTIFACT_NAME']))
     assert eval(expression.strip().replace('&&', 'and').replace('||', 'or'), {'__builtins__': {}}) == artifact
+
+
+@pytest.mark.parametrize('os_name, architecture, execution, expected', [
+    ('linux', 'x86_64', None, 'native'),
+    ('linux', 'aarch64', 'qemu-user', 'qemu-user'),
+    ('qnx', 'x86_64', None, 'qnx-vm'),
+    ('qnx', 'aarch64', None, 'qnx-vm'),
+])
+def test_named_coverage_profiles_own_their_platform_and_execution(workspace, os_name, architecture, execution, expected):
+    profile = {'os': os_name, 'architecture': architecture,
+               'bazel-configs': 'module-coverage', 'bazel-targets': '//lib/...'}
+    if execution:
+        profile['execution'] = execution
+    document = {'schema-version': 2, 'tests': {'other': {'bazel-configs': 'host'}},
+                'coverage': {'measurement': profile}}
+    row = next(row for row in checks.plan(workspace, write_config(workspace, document)) if 'coverage' in row)
+    assert row['id'] == 'measurement-coverage'
+    assert row['metadata']['check'] == 'coverage'
+    assert row['platform'] == {'os': os_name, 'architecture': architecture}
+    assert row['execution'] == expected
+    assert '--config=module-coverage' in row['commands'][0]
+    assert ('--test_timeout=180,900,2700,10800' in row['commands'][0]) == (expected == 'qemu-user')
+
+
+def test_coverage_can_run_in_an_independent_nested_workspace(workspace):
+    nested = workspace / 'component'
+    nested.mkdir()
+    (nested / 'MODULE.bazel').touch()
+    (nested / 'MODULE.bazel.lock').touch()
+    (nested / 'justifications.yml').write_text('{}')
+    document = {'schema-version': 2, 'coverage': {'nested': {
+        'working-directory': 'component', 'bazel-configs': 'instrumented',
+        'bazel-targets': '//src/...', 'report-bazel-target': '//reports:html',
+        'justifications-yaml': 'justifications.yml',
+    }}}
+    row = checks.plan(workspace, write_config(workspace, document))[0]
+    assert row['working-directory'] == row['metadata']['working-directory'] == 'component'
+    assert row['commands'][1][-4:] == ['--yaml', 'justifications.yml', '--archive-dir', 'coverage-report']
+
+
+@pytest.mark.parametrize('missing', ['bazel-configs', 'bazel-targets', 'justifications-yaml'])
+def test_coverage_does_not_invent_module_configs_targets_or_input_paths(workspace, missing):
+    (workspace / 'justifications.yml').write_text('{}')
+    entry = {'bazel-configs': 'instrumented', 'bazel-targets': '//src/...',
+             'report-bazel-target': '//reports:html', 'justifications-yaml': 'justifications.yml'}
+    del entry[missing]
+    with pytest.raises(ValueError, match=missing):
+        checks.plan(workspace, write_config(workspace, {'schema-version': 2, 'coverage': {'linux': entry}}))
+
+
+@pytest.mark.parametrize('scope', [{}, {'scope-target': '//:scope'},
+                                  {'scope-target': '//:scope', 'universe': '//src/...'}])
+def test_scope_check_requires_explicit_targets_and_exclusion_file(workspace, scope):
+    document = {'schema-version': 2, 'coverage': {'linux': {
+        'bazel-configs': 'instrumented', 'bazel-targets': '//src/...', 'scope-check': scope,
+    }}}
+    with pytest.raises(ValueError, match='scope-check.*missing fields'):
+        checks.plan(workspace, write_config(workspace, document))
+
+
+@pytest.mark.parametrize('options', [
+    {'architecture': 'aarch64'}, {'os': 'qnx', 'execution': 'native'},
+    {'architecture': 'x86_64', 'execution': 'qemu-user'},
+])
+def test_coverage_rejects_incompatible_target_execution_before_scheduling(workspace, options):
+    document = {'schema-version': 2, 'coverage': {'target': {
+        'bazel-configs': 'instrumented', 'bazel-targets': '//src/...', **options,
+    }}}
+    with pytest.raises(ValueError, match='execution|qemu-user|qnx-vm'):
+        checks.plan(workspace, write_config(workspace, document))
+
+
+def test_multiple_coverage_profiles_require_an_explicit_docs_source(workspace):
+    profile = {'bazel-configs': 'instrumented', 'bazel-targets': '//src/...'}
+    document = {'schema-version': 2, 'coverage': {'first': dict(profile), 'second': dict(profile)},
+                'docs': {}}
+    with pytest.raises(ValueError, match='docs.coverage: ambiguous'):
+        checks.plan(workspace, write_config(workspace, document))
+    document['docs']['coverage'] = 'second-coverage'
+    rows = checks.plan(workspace, write_config(workspace, document))
+    assert docs_plan(workspace, document['docs'], rows)['coverage'] == 'second-coverage'
+
+
+@pytest.mark.parametrize('allow_missing', [False, True])
+def test_docs_missing_producer_is_optional_but_failed_test_results_are_retained(tmp_path, monkeypatch, allow_missing):
+    """A build failure may upload nothing; a test failure still supplies useful XML."""
+    available = tmp_path / 'failed-tests'
+    available.mkdir()
+    xml = '<testsuite tests="1" failures="1"><testcase name="failure"><failure/></testcase></testsuite>'
+    (available / 'test.xml').write_text(xml)
+    summary = tmp_path / 'summary'
+    monkeypatch.setenv('GITHUB_STEP_SUMMARY', str(summary))
+    sources = [('failed-tests', available), ('build-failed', tmp_path / 'absent')]
+    destination = tmp_path / 'docs'
+    if allow_missing:
+        assert merge(sources, destination, allow_missing=True) == 1
+        assert (destination / 'test.xml').read_text() == xml
+        assert 'build-failed' in summary.read_text()
+    else:
+        with pytest.raises(ValueError, match='no test.xml'):
+            merge(sources, destination)
+
+
+def test_docs_optional_reports_still_reject_corrupt_and_conflicting_artifacts(tmp_path):
+    first, second = tmp_path / 'first', tmp_path / 'second'
+    first.mkdir()
+    second.mkdir()
+    with pytest.raises(ValueError, match='no test.xml'):
+        merge([('empty', first)], tmp_path / 'out', allow_missing=True)
+    (first / 'test.xml').write_text('<testsuite failures="1"/>')
+    (second / 'test.xml').write_text('<testsuite failures="0"/>')
+    with pytest.raises(ValueError, match='Conflicting'):
+        merge([('one', first), ('two', second)], tmp_path / 'out', allow_missing=True)
+
+
+def test_documentation_runs_after_failed_checks_without_changing_the_gate():
+    workflow = yaml.safe_load(Path('.github/workflows/on-pr.yml').read_text())
+    docs = workflow['jobs']['configured-docs']
+    assert docs['needs'] == ['prepare-configured', 'verify-configured']
+    assert docs['with']['allow-missing-reports'] is True
+    condition = docs['if']
+    assert '!cancelled()' in condition
+    assert "needs.prepare-configured.result == 'success'" in condition
+    assert 'needs.verify-configured.result' not in condition
+    assert "needs.configured.result != 'success'" in Path('.github/workflows/on-pr.yml').read_text()
+
+
+@pytest.mark.parametrize('artifacts, api_failure, deploy', [
+    ([], False, False),
+    ([{'name': 'github-pages', 'expired': False}], False, True),
+    ([{'name': 'github-pages', 'expired': True}], False, False),
+    ([], True, None),
+])
+def test_publication_uses_only_available_docs_from_triggering_run(tmp_path, artifacts, api_failure, deploy):
+    """Absent Docs skip publication; API errors must not look like absent Docs."""
+    workflow = yaml.safe_load(Path('.github/workflows/docs-publish.yml').read_text())
+    step = next(step for step in workflow['jobs']['docs-deploy']['steps'] if step.get('id') == 'metadata')
+    executable = tmp_path / 'gh'
+    (tmp_path / 'response.json').write_text(json.dumps([{'artifacts': artifacts}]))
+    executable.write_text('#!/bin/sh\nexit 1\n' if api_failure else
+                          '#!/bin/sh\ncat "$RESPONSE"\n')
+    executable.chmod(0o755)
+    output = tmp_path / 'output'
+    result = subprocess.run(['bash', '-e', '-c', step['run']], env={
+        **os.environ, 'PATH': str(tmp_path) + os.pathsep + os.environ['PATH'],
+        'ALLOW_FAILED_WORKFLOW': 'true', 'BUILD_RUN_ID': '42', 'REPO': 'owner/repo',
+        'RESPONSE': str(tmp_path / 'response.json'),
+        'EVENT_NAME': 'push', 'PR_NUMBER': '', 'REF_NAME': 'main',
+        'GITHUB_OUTPUT': str(output), 'GITHUB_STEP_SUMMARY': str(tmp_path / 'summary'),
+    }, capture_output=True, text=True)
+    if api_failure:
+        assert result.returncode != 0
+        assert not output.exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert f'should_deploy={str(deploy).lower()}' in output.read_text()

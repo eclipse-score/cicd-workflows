@@ -28,8 +28,14 @@ def git(root, *args):
     ('merge_group', '', '', False),
     ('workflow_dispatch', '', '', False),
 ])
-def test_detects_only_the_callers_pr_history(tmp_path, event, repository, ref, expected):
-    """External compatibility checkouts cannot inherit the caller's PR commits."""
+@pytest.mark.parametrize('config_kind', ['missing', 'file', 'directory'])
+def test_detects_local_gitlint_config_for_the_callers_pr(tmp_path, event, repository, ref, expected, config_kind):
+    """A local config is required; unrelated event histories remain inapplicable."""
+    if config_kind == 'file':
+        (tmp_path / '.gitlint').write_text('[general]\n')
+    elif config_kind == 'directory':
+        (tmp_path / '.gitlint').mkdir()
+    expected = expected and config_kind == 'file'
     helper = next(step['run'] for step in STEPS if step.get('name') == '🧰 Prepare shared check helper')
     detect = next(step['run'] for step in STEPS if step.get('id') == 'detect')
     output = tmp_path / 'output'
@@ -38,15 +44,16 @@ def test_detects_only_the_callers_pr_history(tmp_path, event, repository, ref, e
         'EVENT_NAME': event, 'CHECK_REPOSITORY': repository, 'CHECK_REF': ref,
         'CALLER_REPOSITORY': 'example/module',
     }, capture_output=True, text=True)
-    assert f'has_pr_commits={str(expected).lower()}' in output.read_text().splitlines()
+    assert f'has_gitlint={str(expected).lower()}' in output.read_text().splitlines()
 
 
-@pytest.mark.parametrize('valid', [True, False])
-def test_lints_real_pr_commits_with_central_policy_from_shallow_merge_checkout(tmp_path, valid):
+@pytest.mark.parametrize('length, limit, valid', [(26, 72, True), (90, 72, False), (90, 100, True)])
+def test_lints_real_pr_commits_with_repository_policy_from_shallow_merge_checkout(tmp_path, length, limit, valid):
     """The PR head is checked even though HEAD is a different merge commit.
 
-    Curl is replaced with a local policy download and uvx uses the installed
-    pinned Gitlint. Git fetching, range selection and linting run unchanged.
+    Uvx uses the installed pinned Gitlint. Git fetching, range selection and
+    linting run unchanged. The same long title passes or fails according to
+    the repository's own configured title limit.
     """
     source = tmp_path / 'source'
     source.mkdir()
@@ -56,7 +63,7 @@ def test_lints_real_pr_commits_with_central_policy_from_shallow_merge_checkout(t
     git(source, 'commit', '--allow-empty', '-m', 'Initial commit')
     base = git(source, 'rev-parse', 'HEAD')
     git(source, 'checkout', '-b', 'pr')
-    message = 'feat: add module capability' if valid else 'x' * 90
+    message = 'x' * length
     git(source, 'commit', '--allow-empty', '-m', message)
     head = git(source, 'rev-parse', 'HEAD')
     git(source, 'checkout', 'main')
@@ -66,13 +73,11 @@ def test_lints_real_pr_commits_with_central_policy_from_shallow_merge_checkout(t
     subprocess.run(['git', 'clone', '--depth=1', source.as_uri(), str(checkout)], check=True, capture_output=True)
     assert git(checkout, 'rev-parse', 'HEAD') != head
     assert git(checkout, 'rev-parse', '--is-shallow-repository') == 'true'
-    # A local module policy must not weaken the centrally selected policy.
-    (checkout / '.gitlint').write_text('[general]\nignore=T1\n')
-    policy = tmp_path / 'policy'
-    policy.write_text('[general]\nignore=B6\n[title-max-length]\nline-length=72\n')
+    (checkout / '.gitlint').write_text(
+        f'[general]\nignore=B6\n[title-max-length]\nline-length={limit}\n'
+    )
     executables = tmp_path / 'bin'
     executables.mkdir()
-    (executables / 'curl').write_text('#!/bin/bash\ncp "$TEST_POLICY" "${@: -1}"\n')
     (executables / 'uvx').write_text(
         '#!/bin/bash\nset -eu\n'
         '[[ "$1" == --from && "$2" == gitlint==0.19.1 && "$3" == gitlint ]]\n'
@@ -86,12 +91,12 @@ def test_lints_real_pr_commits_with_central_policy_from_shallow_merge_checkout(t
     result = subprocess.run(['bash', '-e', '-c', helper + '\n' + script], cwd=checkout, env={
         **os.environ, 'PATH': str(executables) + os.pathsep + os.environ['PATH'],
         'RUNNER_TEMP': str(tmp_path), 'PR_BASE_SHA': base, 'PR_HEAD_SHA': head,
-        'TEST_POLICY': str(policy), 'TEST_ARGV': str(tmp_path / 'argv'),
+        'TEST_ARGV': str(tmp_path / 'argv'),
     }, capture_output=True, text=True)
     assert (result.returncode == 0) == valid, result.stdout + result.stderr
     assert (tmp_path / 'argv').read_text().splitlines() == [
-        '--config', str(tmp_path / 'score.gitlint'), '--commits', f'{base}..{head}',
+        '--config', '.gitlint', '--commits', f'{base}..{head}',
     ]
     assert git(checkout, 'rev-parse', '--is-shallow-repository') == 'false'
     if not valid:
-        assert 'PR commit messages do not follow the SCORE policy' in result.stdout
+        assert 'PR commit messages do not follow the repository Gitlint configuration' in result.stdout

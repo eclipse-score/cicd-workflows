@@ -12,21 +12,9 @@ import subprocess
 import zipfile
 
 
-# Defaults describe shared SCORE conventions, not consumer-specific policies.
-# Explicit values are merged only after validation of field names; null values
-# remain explicit and are rejected by the normal type/path validators.
-LLVM_DEFAULTS = {
-    'bazel-configs': 'llvm_cov',
-    'bazel-targets': '//score/...',
-    'justifications-yaml': 'tools/coverage/coverage_justifications.yaml',
-    'coverage-html-bazel-target': '@score_coverage//:generate_coverage_html',
-    'generate-artifacts-archive': True,
-}
-SCOPE_DEFAULTS = {
-    'scope-target': '//tools/coverage:coverage_scope',
-    'universe': '//score/...',
-    'exclusions': 'tools/coverage/scope_exclusions.txt',
-}
+# Only execution/reporting conventions have shared defaults. Module-owned Bazel
+# configs, target scopes and input paths must be supplied by each profile.
+SCOPE_FIELDS = {'scope-target', 'universe', 'exclusions'}
 DOCS_DEFAULTS = {'bazel-target': '//:docs', 'retention-days': 5}
 
 
@@ -45,19 +33,42 @@ def retention(value):
 
 
 def coverage_row(workspace, entry, family, name, platform, digest):
-    """Keep the LLVM template fields; permit a module Bazel orchestrator separately."""
+    """Plan a coverage profile with explicit module inputs and shared reporting.
+
+    A module may run its own complete Bazel pipeline, supply a separate Bazel
+    report generator, or use the shared LCOV/genhtml reporter. This choice does
+    not select a compiler or a target system; those remain explicit profile facts.
+    """
     from configured_checks import CONFIG, DEFAULT_FLAGS, TARGET, fields, inside, words
-    if family != 'gcov-coverage' and platform != {'os': 'linux', 'architecture': 'x86_64'}:
-        raise ValueError('LLVM/module coverage requires native Linux x86_64')
+    from configured_profiles import platform_profile, result_metadata
+
+    # Schema 1 compatibility translates field names only. It does not invent
+    # module-specific configs, target scopes or files that the caller omitted.
+    entry = dict(entry) if isinstance(entry, dict) else entry
+    if family in ('llvm-coverage', 'gcov-coverage') and isinstance(entry, dict):
+        for old, new in (('coverage-html-bazel-target', 'report-bazel-target'),
+                         ('coverage-html-bazel-configs', 'report-bazel-configs')):
+            if old in entry:
+                if new in entry:
+                    raise ValueError(f'coverage: duplicate {new}')
+                entry[new] = entry.pop(old)
     common = {'coverage-threshold', 'workflow-config'}
-    llvm = {'bazel-configs', 'bazel-targets', 'justifications-yaml',
-            'coverage-html-bazel-target', 'coverage-html-bazel-configs', 'generate-artifacts-archive',
-            'testlogs-subdir', 'scope-check'}
-    required = set() if family == 'llvm-coverage' else ({'bazel-configs', 'bazel-targets'} if family == 'gcov-coverage' else {'bazel-target'})
-    fields(entry, common | (llvm if family == 'llvm-coverage' else ({'bazel-configs', 'bazel-targets'} if family == 'gcov-coverage' else {'bazel-target', 'output-directory'})), required, family)
-    entry = {**(LLVM_DEFAULTS if family == 'llvm-coverage' else {'output-directory': 'coverage_artifacts'}), **entry}
+    direct = {'bazel-configs', 'bazel-targets'}
+    reporting = {'report-bazel-target', 'report-bazel-configs', 'justifications-yaml',
+                 'generate-artifacts-archive', 'testlogs-subdir', 'scope-check'}
+    module = isinstance(entry, dict) and 'bazel-target' in entry
+    reporter = 'module' if module else ('bazel' if family == 'llvm-coverage' or (isinstance(entry, dict) and 'report-bazel-target' in entry) else 'genhtml')
+    required = {'bazel-target', 'output-directory'} if module else direct
+    if reporter == 'bazel':
+        required |= {'report-bazel-target', 'justifications-yaml'}
+    fields(entry, common | ({'bazel-target', 'output-directory'} if module else direct | reporting), required, 'coverage')
+    if reporter == 'genhtml' and set(entry) & (reporting - {'scope-check'}):
+        raise ValueError('coverage: report generator options require report-bazel-target')
     options = entry.get('workflow-config', {})
-    fields(options, {'working-directory', 'artifact-name', 'retention-days'}, set(), f'{family}.workflow-config')
+    fields(options, {'working-directory', 'execution', 'artifact-name', 'retention-days'}, set(), 'coverage.workflow-config')
+    execution = platform_profile(platform, 'tests', options)
+    if platform == {'os': 'linux', 'architecture': 'aarch64'} and execution != 'qemu-user':
+        raise ValueError('coverage: Linux aarch64 requires explicit qemu-user execution')
     directory = inside(workspace, options.get('working-directory', '.'))
     if not all((directory / file).is_file() for file in ('MODULE.bazel', 'MODULE.bazel.lock')):
         raise ValueError('Coverage requires MODULE.bazel and its lockfile')
@@ -67,75 +78,61 @@ def coverage_row(workspace, entry, family, name, platform, digest):
     artifact = options.get('artifact-name', '')
     if not isinstance(artifact, str) or (artifact and not re.fullmatch(r'[A-Za-z0-9_.-]+', artifact.replace('{repository}', 'repository'))):
         raise ValueError('artifact-name: expected a simple name with optional {repository}')
-    metadata = {'threshold': threshold, 'artifact-name': artifact,
+    metadata = {'threshold': threshold, 'artifact-name': artifact, 'reporter': reporter,
                 'retention-days': retention(options.get('retention-days', 10))}
-    if family == 'gcov-coverage':
-        from configured_checks import CONFIG
-        configs = entry['bazel-configs']
-        if not isinstance(configs, str) or not all(CONFIG.fullmatch(c.strip()) for c in configs.split(',')):
-            raise ValueError('bazel-configs: expected nonempty config names')
-        metadata['output-directory'] = 'coverage-report'
-        metadata['kind'] = 'gcov-coverage'
-        flags = [*DEFAULT_FLAGS, *[f'--config={c.strip()}' for c in configs.split(',')]]
-        commands = [['bazel', 'coverage', *flags, '--combined_report=lcov', '--',
-                     *words(entry['bazel-targets'], TARGET, family)]]
-    elif family == 'coverage':
+
+    def configs(key, *, optional=False):
+        value = entry.get(key, '')
+        if not isinstance(value, str) or (not value and not optional) or (value and not all(CONFIG.fullmatch(c.strip()) for c in value.split(','))):
+            raise ValueError(f'coverage.{key}: expected config names')
+        return [f'--config={c.strip()}' for c in value.split(',')] if value else []
+
+    if module:
         output = inside(directory, entry['output-directory'])
         if output == directory:
             raise ValueError('output-directory must be a dedicated subdirectory')
         metadata['output-directory'] = output.relative_to(directory).as_posix()
-        commands = [['bazel', 'run', '--lockfile_mode=error', label(entry['bazel-target'], family), '--']]
+        commands = [['bazel', 'run', '--lockfile_mode=error', label(entry['bazel-target'], 'coverage'), '--']]
     else:
-        configs = entry['bazel-configs']
-        if not isinstance(configs, str) or not all(CONFIG.fullmatch(c.strip()) for c in configs.split(',')):
-            raise ValueError('bazel-configs: expected nonempty config names')
-        flags = [*DEFAULT_FLAGS, *[f'--config={c.strip()}' for c in configs.split(',')]]
-        justification = inside(directory, entry['justifications-yaml'])
-        if not justification.is_file():
-            raise ValueError('justifications-yaml: file does not exist')
+        flags = [*DEFAULT_FLAGS, *configs('bazel-configs')]
+        extra = ['--test_timeout=180,900,2700,10800'] if execution == 'qemu-user' else []
+        report_flags = ['--combined_report=lcov'] if reporter == 'genhtml' else ['--build_tests_only']
+        commands = [['bazel', 'coverage', *flags, *report_flags, *extra, '--',
+                     *words(entry['bazel-targets'], TARGET, 'coverage.bazel-targets')]]
         metadata['output-directory'] = 'coverage-report'
-        archive = entry['generate-artifacts-archive']
-        if type(archive) is not bool:
-            raise ValueError('generate-artifacts-archive: expected boolean')
-        args = ['--yaml', justification.relative_to(directory).as_posix()]
-        if 'testlogs-subdir' in entry:
-            subdir = inside(directory, entry['testlogs-subdir']).relative_to(directory).as_posix()
-            args += ['--testlogs-subdir', subdir]
-        if archive:
-            args += ['--archive-dir', metadata['output-directory']]
-        else:
-            args += [metadata['output-directory']]
-        report_configs = entry.get('coverage-html-bazel-configs', '')
-        if not isinstance(report_configs, str) or (report_configs and not all(CONFIG.fullmatch(c.strip()) for c in report_configs.split(','))):
-            raise ValueError('coverage-html-bazel-configs: expected config names')
-        report_flags = [f'--config={c.strip()}' for c in report_configs.split(',')] if report_configs else []
-        commands = [
-            ['bazel', 'coverage', *flags, '--build_tests_only', '--', *words(entry['bazel-targets'], TARGET, family)],
-            # Instrumentation configs can be coverage-only Bazel rc sections.
-            # Report targets select build configs separately when they need them.
-            ['bazel', 'run', '--lockfile_mode=error', *report_flags,
-             label(entry['coverage-html-bazel-target'], family), '--', *args],
-        ]
+        if reporter == 'bazel':
+            justification = inside(directory, entry['justifications-yaml'])
+            if not justification.is_file():
+                raise ValueError('justifications-yaml: file does not exist')
+            archive = entry.get('generate-artifacts-archive', True)
+            if type(archive) is not bool:
+                raise ValueError('generate-artifacts-archive: expected boolean')
+            args = ['--yaml', justification.relative_to(directory).as_posix()]
+            if 'testlogs-subdir' in entry:
+                subdir = inside(directory, entry['testlogs-subdir']).relative_to(directory).as_posix()
+                args += ['--testlogs-subdir', subdir]
+            args += ['--archive-dir', metadata['output-directory']] if archive else [metadata['output-directory']]
+            # Coverage-only rc sections cannot be passed to a Bazel run target.
+            # Report tool configs are separately selected by the module.
+            commands.append(['bazel', 'run', '--lockfile_mode=error', *configs('report-bazel-configs', optional=True),
+                             label(entry['report-bazel-target'], 'coverage.report-bazel-target'), '--', *args])
         if 'scope-check' in entry:
             scope = entry['scope-check']
-            fields(scope, set(SCOPE_DEFAULTS), set(), 'scope-check')
-            scope = {**SCOPE_DEFAULTS, **scope}
+            fields(scope, SCOPE_FIELDS, SCOPE_FIELDS, 'scope-check')
             label(scope['scope-target'], 'scope-target')
             universe = words(scope['universe'], TARGET, 'universe')
             if len(universe) != 1 or not re.fullmatch(r'//[A-Za-z0-9_/]+/\.\.\.', universe[0]):
                 raise ValueError('scope-check.universe: expected //package/...')
             if not inside(directory, scope['exclusions']).is_file():
                 raise ValueError('scope-check.exclusions: file does not exist')
-            metadata['scope-check'] = scope
-    from configured_profiles import result_metadata
-    return {'id': f'{name}-{family}', 'config-sha256': digest,
-            'metadata': result_metadata(name, platform, family,
+            metadata['scope-check'] = dict(scope)
+    return {'id': f'{name}-coverage' if family == 'coverage' else f'{name}-{family}', 'config-sha256': digest,
+            'metadata': result_metadata(name, platform, 'coverage',
                                         working_directory=directory.relative_to(workspace).as_posix()),
             'working-directory': directory.relative_to(workspace).as_posix(),
-            'execution': 'qnx-vm' if platform['os'] == 'qnx' else 'native',
-            'platform': platform, 'prerequisites': family if family != 'coverage' else '',
-            'has-tests': family in ('llvm-coverage', 'gcov-coverage'),
-            'commands': commands, 'coverage': metadata}
+            'execution': execution, 'platform': platform,
+            'prerequisites': {'bazel': 'llvm-coverage', 'genhtml': 'gcov-coverage', 'module': ''}[reporter],
+            'has-tests': not module, 'commands': commands, 'coverage': metadata}
 
 
 def scope_difference(universe, scoped, excluded):

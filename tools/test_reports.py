@@ -10,12 +10,19 @@ import shutil
 import re
 
 
-def merge(sources, destination):
+def merge(sources, destination, *, allow_missing=False):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
     seen = {}
     for name, root in sources:
         root = Path(root).resolve()
+        if not root.exists() and allow_missing:
+            message = f'Test report unavailable: {name}'
+            print(message)
+            if os.environ.get('GITHUB_STEP_SUMMARY'):
+                with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                    summary.write(message + '\n')
+            continue
         files = list(root.rglob('test.xml'))
         if not files:
             raise ValueError(f'Test artifact {name} contains no test.xml files')
@@ -53,7 +60,10 @@ def main():
         if root.is_symlink() or not root.resolve().is_relative_to(downloads):
             raise ValueError('Test artifact directory escapes its download root')
         sources.append((name, root))
-    print(f'Merged {merge(sources, args.reports)} test reports')
+    count = merge(sources, args.reports, allow_missing=os.environ.get('ALLOW_MISSING_REPORTS') == 'true')
+    if count == 0:
+        args.reports.rmdir()
+    print(f'Merged {count} test reports')
 
 
 

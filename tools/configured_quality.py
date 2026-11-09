@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Contributors to the Eclipse Foundation
 # SPDX-License-Identifier: Apache-2.0
-"""Typed documentation, Cargo, commit-policy and Bazel CodeQL profiles.
+"""Typed documentation, Cargo and Bazel CodeQL profiles.
 
 Module YAML selects checks and analysis policy. Recipes, prerequisites and
 report verification belong to the shared workflow; shell hooks are not accepted.
@@ -56,15 +56,6 @@ def plan(workspace, document, digest, *, only_codeql=False, fetch_only=False, fa
                     raise ValueError(f'docs.{key}: expected boolean')
                 if enabled:
                     rows.append({'id': f'docs-{key}', 'bazel-target': target})
-    if 'gitlint' in document:
-        if type(document['gitlint']) is not bool:
-            raise ValueError('gitlint: expected boolean')
-        if document['gitlint']:
-            selected = os.environ.get('SOURCE_REPOSITORY', '')
-            if (os.environ.get('GITHUB_EVENT_NAME') == 'pull_request' and selected and
-                    selected != os.environ.get('GITHUB_REPOSITORY')):
-                raise ValueError('Gitlint PR context belongs to another repository')
-            rows.append({'id': 'gitlint'})
     if 'codeql' in document:
         fields(document['codeql'], set(CODEQL_DEFAULTS) | {'bazel-configs'}, {'bazel-configs'}, 'codeql')
         options = {**CODEQL_DEFAULTS, **document['codeql']}
@@ -114,7 +105,7 @@ def load_plan(workspace, config):
                 fail_override=os.environ.get('FAIL_ON_FINDINGS', ''))
 
 
-def recipes(row, destination, *, targets=(), policy='', base='', head=''):
+def recipes(row, destination, *, targets=()):
     """One command contract is used by execution and completeness verification."""
     if row['id'].startswith('docs-'):
         return [['bazel', 'run', '--lockfile_mode=error', row['bazel-target']]]
@@ -125,9 +116,6 @@ def recipes(row, destination, *, targets=(), policy='', base='', head=''):
             ['cargo', f'+{channel}', 'clippy', '--locked', '--all-features', '--all-targets',
              '--workspace', '--message-format=json', '--', '-D', 'warnings'],
         ]
-    if row['id'] == 'gitlint':
-        return [['git', 'rev-list', f'{base}..{head}'],
-                ['gitlint', '--config', policy, '--commits', f'{base}..{head}']]
     if row.get('kind') == 'sbom':
         return [['bazel', 'build', '--lockfile_mode=error',
                  *[f'--config={c}' for c in row['bazel-configs']], '--', row['bazel-target']]]
@@ -228,24 +216,6 @@ def execute(workspace, row, reports):
             if not count or not any(item.get('reason') == 'build-finished' and item.get('success') for item in artifacts):
                 raise ValueError('Clippy did not check any workspace targets')
             report['workspace-artifacts'] = count
-        elif row['id'] == 'gitlint':
-            if os.environ.get('GITHUB_EVENT_NAME') != 'pull_request':
-                report['outcome'] = 'not-applicable'
-                return 0
-            policy = Path(os.environ['GITLINT_POLICY'])
-            if not policy.is_file():
-                raise ValueError('Missing shared SCORE gitlint policy')
-            base, head = os.environ['PR_BASE_SHA'], os.environ['PR_HEAD_SHA']
-            if any(not re.fullmatch(r'[0-9a-f]{40}', value) for value in (base, head)):
-                raise ValueError('Gitlint requires observed PR base and head SHAs')
-            report['policy'] = str(policy)
-            query, lint = recipes(row, destination, policy=str(policy), base=base, head=head)
-            revisions = run(query, capture=True).splitlines()
-            if not revisions:
-                raise ValueError('Gitlint found no PR commits')
-            run(lint)
-            report.update({'policy-sha256': hashlib.sha256(policy.read_bytes()).hexdigest(),
-                           'commits': revisions, 'base': base, 'head': head})
         elif row.get('kind') in ('sbom', 'sca'):
             execute_additional(workspace, row, destination, report, run)
         elif row['id'] == 'codeql':
@@ -304,14 +274,10 @@ def verify(expected, reports, source_commit):
             raise ValueError('Quality producer metadata differs from preparation')
         if report.get('plan') != row or report.get('commit') != source_commit:
             raise ValueError('Quality checkout or config differs from preparation')
-        if report.get('outcome') == 'not-applicable' and row['id'] == 'gitlint' and os.environ.get('GITHUB_EVENT_NAME') != 'pull_request':
-            continue
         commands = report.get('commands', [])
         if report.get('outcome') != 'success' or not commands or any(c.get('exit-code') != 0 for c in commands):
             raise ValueError(f'{row["id"]}: quality check did not succeed')
-        expected_commands = recipes(row, Path(report['destination']), targets=report.get('targets', []),
-                                    policy=report.get('policy', ''), base=report.get('base', ''),
-                                    head=report.get('head', ''))
+        expected_commands = recipes(row, Path(report['destination']), targets=report.get('targets', []))
         if [c.get('argv') for c in commands] != expected_commands:
             raise ValueError('Planned quality commands were skipped or changed')
         if row['id'].startswith('docs-') or (row['id'] == 'codeql' and not row['fetch-only']):
@@ -330,10 +296,6 @@ def verify(expected, reports, source_commit):
                     raise ValueError('Missing SCA report evidence or unsuppressed findings')
         if row['id'] == 'clippy' and (type(report.get('workspace-artifacts')) is not int or report['workspace-artifacts'] < 1):
             raise ValueError('Missing Clippy workspace evidence')
-        if row['id'] == 'gitlint' and (not report.get('commits') or not report.get('policy-sha256') or
-                                       report.get('base') != os.environ.get('PR_BASE_SHA') or
-                                       report.get('head') != os.environ.get('PR_HEAD_SHA')):
-            raise ValueError('Missing or mismatched PR commit evidence')
         if row['id'] == 'codeql' and not row['fetch-only']:
             count = report.get('unsuppressed-findings')
             if not report.get('targets') or type(count) is not int or count < 0 or (row['fail-on-findings'] and count):

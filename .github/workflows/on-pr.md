@@ -43,15 +43,19 @@ tests:
   linux-native:
     bazel-configs: score-linux-x86_64
     bazel-build-targets: //...
-llvm-coverage:
-  coverage-threshold: 0
+coverage:
+  linux:
+    os: linux
+    architecture: x86_64
+    bazel-configs: coverage-linux
+    bazel-targets: //my/library/...
 docs: {}
 ```
 
-This builds all native targets, runs all native tests, collects LLVM coverage
-using the standard module paths, and builds Docs with the verified reports.
-Only declare families you want to run. The LLVM config and justification file
-must exist in the module.
+This builds all native targets, runs all native tests, collects coverage with
+the shared LCOV/HTML reporter, and builds Docs with the verified reports.
+Only declare families you want to run. The named Bazel configs must exist in
+the module and select its toolchain and instrumentation.
 
 Use the Bazel config names and labels defined by your module. `bazel-configs` is
 an explicit comma-separated list, applied in order. Target strings are split
@@ -63,7 +67,7 @@ use named `builds` profiles with `bazel-configs`; `bazel-build-targets` defaults
 
 Each named profile selects one OS and architecture; schema 2 defaults to Linux x86_64. This POC supports Linux x86_64
 builds/tests, Linux aarch64 builds and explicit aarch64 tests under QEMU on
-x86_64 runners, plus QNX builds and VM tests with optional SDK credentials. Profile names must be unique across `tests` and `builds`. An optional `name`
+x86_64 runners, plus QNX builds and VM tests with optional SDK credentials. Profile names must be unique across `tests`, `builds` and `coverage`. An optional `name`
 identifies a check within a profile when needed. Row IDs are `<profile>-tests`
 or `<profile>-builds`, followed by an explicit check name or batch name when
 present. SCORE does not classify tests: Bazel configs and targets determine
@@ -140,54 +144,59 @@ including multiple checks per platform or per-variant coverage. It uses
 `checks.tests`/`checks.builds` lists, lists of named OS/architecture values, and
 `workflow-config` for execution/report options. Both layouts normalize to the
 same execution plan. Do not mix `variants` with the compact top-level families.
-The compact layout uses scalar `os`/`architecture` and direct execution options;
-its top-level coverage attaches to the unique native root profile when present,
-preserving existing job/artifact IDs. Otherwise coverage gets its own native row.
+The compact layout uses scalar `os`/`architecture` and direct execution options.
+Coverage has its own named profiles and does not inherit a test profile's
+platform, workspace or Bazel configs.
 
 ### Configuration defaults
 
 Defaults are central and apply only to configured checks. An absent
 `workflow-config-yaml` still runs no configured jobs. A missing check family is
-disabled; `llvm-coverage: {}` and `docs: {}` explicitly enable convention-based
-execution. Explicit values override defaults; invalid or null values are errors.
+disabled. Named `coverage` profiles enable coverage; `docs: {}` enables Docs. Explicit values override defaults; invalid or null values are errors.
 
 | Key | Default |
 | --- | --- |
 | Profile `os`, `architecture` (schema 2) | `linux`, `x86_64` |
 | Test `bazel-test-targets` (schema 2) | `//...` |
 | Build-only `bazel-build-targets` (schema 2) | `//...` |
-| LLVM `bazel-configs`, `bazel-targets` | `llvm_cov`, `//score/...` |
-| LLVM `justifications-yaml` | `tools/coverage/coverage_justifications.yaml` |
-| LLVM `coverage-html-bazel-target` | `@score_coverage//:generate_coverage_html` |
-| LLVM `generate-artifacts-archive` | `true` |
+| Bazel report generator `generate-artifacts-archive` | `true` |
 | Coverage `coverage-threshold`, retention | `0` (report-only), 10 days |
-| Module coverage `output-directory` | `coverage_artifacts` |
-| Enabled scope check `scope-target` | `//tools/coverage:coverage_scope` |
-| Enabled scope check `universe`, `exclusions` | `//score/...`, `tools/coverage/scope_exclusions.txt` |
+| Direct coverage report output | `coverage-report` |
 | Docs `bazel-target`, retention | `//:docs`, 5 days |
 | Docs `tests`, `coverage` | Unique suitable root-workspace row, if present |
 
 Compiler configs for build/test entries stay required because they select the
 module's toolchain. Tests build first only if `bazel-build-targets` is supplied.
 ARM emulation stays opt-in via `architecture` and `execution`.
-Scope checking stays opt-in via `scope-check`; its files must exist. Fixed
+Coverage configs, target scopes, generator labels and module input paths have
+no defaults. Scope checking stays opt-in via `scope-check`; all three fields
+are required and its exclusions file must exist. Fixed
 release artifact names, exclusions and nonzero coverage thresholds remain
 module policy and need explicit configuration.
 
 ### Add coverage and documentation
 
-Add a top-level `llvm-coverage` object to a native x86_64 variant for a
-standard LLVM pipeline. It runs Bazel coverage, generates HTML and stages plain
-LCOV plus Cobertura with the HTML report:
+Coverage profiles select their own `os`, `architecture`, `working-directory`
+and `execution`, using the same platform rules as tests. Linux x86_64 is the
+default. Linux aarch64 requires `execution: qemu-user`; QNX uses VM test setup.
+The module's explicit `bazel-configs` select the actual toolchain and coverage
+instrumentation. Selecting an OS alone cannot configure either.
+
+For a module-provided Bazel report generator, declare its inputs explicitly:
 
 ```yaml
-llvm-coverage:
-  bazel-targets: //my/library/... -//my/library:excluded_test
-  justifications-yaml: tools/coverage/justifications.yaml
-  coverage-threshold: 0
+coverage:
+  linux:
+    os: linux
+    architecture: x86_64
+    bazel-configs: coverage-linux
+    bazel-targets: //my/library/... -//my/library:excluded_test
+    report-bazel-target: '@score_coverage//:generate_coverage_html'
+    justifications-yaml: tools/coverage/justifications.yaml
+    coverage-threshold: 80
 ```
 
-Your module must define the LLVM Bazel config and report generator. Target
+Your module must define the instrumentation config and report generator. Target
 exclusions remain ordinary Bazel target arguments. The generator must support
 `--yaml`, an optional `--testlogs-subdir`, and `--archive-dir` when
 `generate-artifacts-archive` is true. Otherwise it receives `coverage-report` as
@@ -195,13 +204,17 @@ its positional output directory. Coverage runs with `--build_tests_only` and
 requires successful test summaries. The report generator requires successful
 Bazel target evidence. A successful exit without HTML and LCOV fails the gate.
 
-For an existing module-owned Bazel orchestrator, use a top-level `coverage`
-object instead:
+For an existing module-owned Bazel orchestrator, select its target and output
+directory in a named profile:
 
 ```yaml
 coverage:
-  bazel-target: //quality/coverage:run_coverage
-  coverage-threshold: 66
+  linux:
+    os: linux
+    architecture: x86_64
+    bazel-target: //quality/coverage:run_coverage
+    output-directory: coverage_artifacts
+    coverage-threshold: 66
 ```
 
 This form executes that Bazel target without imposing configs or test targets on
@@ -211,19 +224,23 @@ the module must honor it. The default is **0 (report-only)**, so set the desired
 threshold explicitly. Thresholds must be numbers from 0 to 100. Shell scripts and
 arbitrary CLI hooks are not configuration fields.
 
-Both forms support `working-directory`, `artifact-name` and
+All coverage profiles support `working-directory`, `artifact-name` and
 `retention-days` (default 10, range 1–90). Leave `artifact-name` unset for a unique
 invocation-specific name. Set a fixed name only when another consumer, such as a
 release workflow, requires that interface; names must be unique in the plan.
 `{repository}` in a fixed name expands to the selected repository name (without
 the owner), preserving release interfaces in forks and external checkouts.
 `configured-artifacts[row-id].coverage` exposes the resolved name.
-Row IDs use the normalized profile name: `<profile>-llvm-coverage` or `<profile>-coverage`.
+Row IDs use the normalized profile name: `<profile>-coverage`.
 
-An optional `llvm-coverage.scope-check` preserves production-scope completeness:
+An optional `scope-check` on a direct coverage profile checks production-scope
+completeness. The module supplies every scope input explicitly:
 
 ```yaml
-scope-check: {}
+scope-check:
+  scope-target: //quality/coverage:scope
+  universe: //my/library/...
+  exclusions: quality/coverage/exclusions.txt
 ```
 
 Before coverage, the workflow queries non-testonly, non-QNX `cc_library` and
@@ -262,7 +279,6 @@ tests:
   asan:
     bazel-configs: x86_64-linux,asan_ubsan_lsan
 clippy: {}
-gitlint: true
 codeql:
   bazel-configs: x86_64-linux
   reports: [cert-cpp-l1, cert-c-l1, cpp-code-scanning, code-complexity]
@@ -281,10 +297,6 @@ Rust toolchain with Clippy, and runs Cargo with `--locked --all-features
 --all-targets --workspace -- -D warnings`. It requires `Cargo.toml`, `Cargo.lock`
 and evidence that Cargo checked workspace targets. No Rust version is duplicated
 in CI configuration. Cargo JSON diagnostics are retained and rendered in logs.
-
-Gitlint checks PR commits from the event's base SHA to head SHA, using the shared
-`eclipse-score/score` `.gitlint` policy. It does not lint a synthetic merge commit.
-Other events record it as not applicable. History and policy checkout are central.
 
 CodeQL uses the module's Bazel analysis target, not a replacement GitHub ruleset.
 Defaults are `//quality/static_analysis:codeql_lint`, production universe
@@ -348,21 +360,20 @@ The module config still selects the QNX toolchain and VM test wrapper. Linux ARM
 tests retain the explicit `execution: qemu-user` profile. Emulation does not prove
 behavior on target hardware.
 
-### GCC/QCC coverage, analysis and SBOM
+### Shared coverage reporter, analysis and SBOM
 
-LLVM and module-orchestrated coverage retain their existing contracts.
-`gcov-coverage` adds GCC/QCC coverage for Linux or QNX in the variants layout:
+For toolchains producing LCOV, omit `report-bazel-target` to use the central
+reporter. No compiler-specific family name is required:
 
 ```yaml
 schema-version: 2
-variants:
-  - name: target
-    os: [{name: qnx}]
-    checks:
-      gcov-coverage:
-        bazel-configs: target-coverage
-        bazel-targets: //core/...
-        coverage-threshold: 80
+coverage:
+  target:
+    os: qnx
+    architecture: x86_64
+    bazel-configs: target-coverage
+    bazel-targets: //core/...
+    coverage-threshold: 80
 ```
 
 The central recipe runs Bazel coverage with a combined LCOV report, generates HTML
@@ -481,6 +492,7 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 
 | Check           | Runs when                                | Command                                   |
 | --------------- | ---------------------------------------- | ----------------------------------------- |
+| Gitlint         | Root `.gitlint` exists and PR context applies | Pinned Gitlint with repository configuration |
 | pre-commit      | `.pre-commit-config.yaml` exists         | `uvx pre-commit run --all-files`          |
 | Python tests    | `pyproject.toml` **and** `uv.lock` exist | `uv run --frozen python -m pytest`        |
 | Bazel format    | `//:format.check` target exists          | `bazel test //:format.check`              |
@@ -490,6 +502,8 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 | Lockfile required | `require-bzlmod-lock: true`, `MODULE.bazel` exists, lockfile missing | fails with guidance |
 
 Capability detection looks for:
+
+- **Gitlint** — root `.gitlint` file and `pull_request` for the caller repository, without an explicit `ref`
 
 - **Bazel** — `MODULE.bazel`, `WORKSPACE`, or `WORKSPACE.bazel`
 - **Bazel lockfile** — `MODULE.bazel.lock`
@@ -506,10 +520,13 @@ actually exists.
 
 ## Commit-message checks
 
-On `pull_request`, Gitlint automatically checks the event's base-to-head commit
-range against the shared [`eclipse-score/score` policy](https://github.com/eclipse-score/score/blob/edda15d1b9e2ad0bd258eb89f559a0b715fc4d7e/.gitlint).
-No module configuration file is needed. The policy and Gitlint version are pinned
-centrally; a module's local `.gitlint` does not override the SCORE policy.
+On `pull_request`, Gitlint runs only when the checked-out repository contains a
+`.gitlint` file at its root. It checks the event's base-to-head commit range using
+that file. Repositories own their commit-message rules; no shared policy is
+fetched or supplied. Repositories without `.gitlint` skip the check.
+
+No entry in a CI configuration file is needed. The Gitlint version is pinned
+in the workflow; `skip-gitlint: true` disables the check even when `.gitlint` exists.
 
 The check supports fork PRs and excludes checkout's synthetic merge commit.
 Pushes, merge-queue events and other events skip it. An explicit `ref` or a
@@ -564,7 +581,7 @@ to `true`:
 | `skip-copyright`    | configured Bazel copyright check        |
 | `skip-bzlmod-lock`  | both the bzlmod tidy and lockfile checks |
 
-All skip inputs default to `false`. Gitlint runs automatically for applicable PRs.
+All skip inputs default to `false`. Gitlint runs automatically for applicable PRs when `.gitlint` exists.
 `skip-bzlmod-lock` cannot be combined with
 [`require-bzlmod-lock`](#requiring-the-bazel-lockfile). Example:
 
@@ -665,7 +682,27 @@ and a `checks` map with `gitlint`, `pre-commit`, `python-tests`, `format`, `copy
 reported as `skipped`. Failed checks still fail the workflow.
 
 
-LLVM coverage can optionally set `coverage-html-bazel-configs` to a comma-separated
+A Bazel coverage report generator can optionally set `report-bazel-configs` to a comma-separated
 list of build configs for its HTML/report target. It defaults to no extra configs:
 Bazel rc configs defined only under `coverage:` cannot be reused by `bazel run`.
 Use this override when the module report target needs a configured build toolchain.
+
+
+### Documentation after test failures
+
+Configured documentation builds independently of quality-check outcomes. It waits
+for the configured Bazel matrix to finish collecting reports, including failed
+test results. Missing selected test or coverage artifacts (for example after a
+compiler/setup failure) are listed in the Actions summary and do not block Docs.
+Present but malformed or conflicting reports still fail the Docs job. The test,
+coverage and aggregate verification jobs retain their failing statuses.
+
+Standalone `docs.yml` callers retain strict report requirements unless they opt
+into `allow-missing-reports: true`. To publish documentation despite unrelated
+failures, a `workflow_run` caller can opt into `allow-failed-workflow: true` in
+`docs-publish.yml` and invoke it for both success and failure conclusions. That
+mode checks for the Docs artifact in the triggering run and skips publication
+when no artifact was uploaded. Cancellation does not trigger publication.
+
+The current matrix is a single Actions dependency: selecting fewer reports does
+not yet let Docs start before the other matrix rows finish.

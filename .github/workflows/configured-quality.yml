@@ -139,7 +139,6 @@ jobs:
           fetch-depth: 0
           lfs: true
       - uses: eclipse-score/cicd-workflows/.github/actions/build-environment@central-workflow
-        if: ${{ matrix.id != 'gitlint' }}
         with:
           token: ${{ secrets.token }}
           github-app-client-id: ${{ inputs.github-app-client-id }}
@@ -154,7 +153,7 @@ jobs:
           qnx-license-server: ${{ inputs.qnx-license-server }}
           profile: ${{ startsWith(matrix.id, 'docs-') && 'docs' || '' }}
       - uses: eclipse-score/cicd-actions/setup-bazel-cache@ee1eb410c572e2a97ae27488f8401887ec331de3
-        if: ${{ matrix.id != 'clippy' && matrix.id != 'gitlint' }}
+        if: ${{ matrix.id != 'clippy' }}
         with:
           disk-cache-key: ${{ format('quality-{0}-{1}', inputs.repository || github.repository, matrix.id) }}
           disk-cache-restore: 'true'
@@ -170,24 +169,11 @@ jobs:
           key: ${{ runner.os }}-quality-clippy-${{ matrix.toolchain }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-quality-clippy-${{ matrix.toolchain }}-
-      # Use the same shared policy source as the former module action. Checkout
-      # freezes that policy's observed revision; module code cannot replace it.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ matrix.id == 'gitlint' && github.event_name == 'pull_request' }}
-        with:
-          repository: eclipse-score/score
-          path: .central-gitlint-policy
-          sparse-checkout: .gitlint
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
       - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
         env:
           ONLY_CODEQL: ${{ inputs.only-codeql }}
           FETCH_ONLY: ${{ inputs.fetch-only }}
           FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GITLINT_POLICY: ${{ github.workspace }}/.central-gitlint-policy/.gitlint
         with:
           engine: quality
           repository: ${{ inputs.repository || github.repository }}
@@ -272,9 +258,6 @@ jobs:
       - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
         id: verify
         if: ${{ needs.prepare.outputs.has-checks == 'true' }}
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
           engine: quality
           mode: verify

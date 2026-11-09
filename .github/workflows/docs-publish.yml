@@ -41,6 +41,10 @@ name: Publish Documentation
 on:
   workflow_call:
     inputs:
+      allow-failed-workflow:
+        description: Publish an available Docs artifact even when unrelated jobs in the producing run failed
+        type: boolean
+        default: false
       deployment_type:
         description: "Type of deployment: legacy or workflow"
         required: false
@@ -76,7 +80,8 @@ jobs:
   docs-deploy:
     name: Deploy documentation to GitHub Pages
     if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_run' && (github.event.workflow_run.conclusion == 'success' ||
+        (inputs.allow-failed-workflow && github.event.workflow_run.conclusion == 'failure'))) ||
       (github.event_name != 'workflow_run' && github.repository_owner != 'eclipse-score')
     env:
       # Avoid collisions with the build artifact and with prior job retries.
@@ -92,6 +97,8 @@ jobs:
       - name: Resolve build metadata
         id: metadata
         env:
+          ALLOW_FAILED_WORKFLOW: ${{ inputs.allow-failed-workflow }}
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || '' }}
@@ -100,6 +107,22 @@ jobs:
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || '' }}
           REF_NAME: ${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
         run: |
+          set -euo pipefail
+          # A successful Docs upload is the publication signal when other jobs
+          # may fail. Inspect only the triggering run, never an earlier artifact.
+          if [[ "$ALLOW_FAILED_WORKFLOW" == true && -n "$BUILD_RUN_ID" ]]; then
+            count=$(gh api --paginate --slurp "repos/${REPO}/actions/runs/${BUILD_RUN_ID}/artifacts" \
+              | jq '[.[] .artifacts[] | select(.name == "github-pages" and .expired == false)] | length')
+            if [[ "$count" == 0 ]]; then
+              echo "No documentation artifact was uploaded; skipping publication." >> "$GITHUB_STEP_SUMMARY"
+              echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [[ "$count" != 1 ]]; then
+              echo "Expected exactly one documentation artifact." >&2
+              exit 1
+            fi
+          fi
           if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
             # Fork-origin workflow_run payloads may omit pull_requests[]. Query
             # open PRs directly because commit-to-PR associations can be empty

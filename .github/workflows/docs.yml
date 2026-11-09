@@ -20,6 +20,10 @@ on:
         description: Documentation artifact name after a successful upload
         value: ${{ jobs.docs-build.outputs.artifact-name }}
     inputs:
+      allow-missing-reports:
+        description: Build with available reports after producer failures; list missing reports in the summary
+        type: boolean
+        default: false
       tests-report-artifacts:
         description: JSON array of test artifacts to merge; rejects conflicting package paths
         type: string
@@ -95,10 +99,6 @@ on:
       token:
         description: "GitHub Token for inter-repo access (not used in public S-CORE)"
         required: false
-    outputs:
-      artifact-name:
-        description: "Name of the uploaded documentation artifact; docs-publish.yml downloads it by this name"
-        value: ${{ jobs.docs-build.outputs.artifact-name }}
 
 env:
   CACHE_KEY_PREFIX: bazel-cache
@@ -109,12 +109,10 @@ jobs:
   docs-build:
     name: Build Documentation
     outputs:
-      artifact-name: ${{ steps.upload.outputs.artifact-id && 'github-pages' || '' }}
+      artifact-name: ${{ steps.upload.outputs.artifact-id && env.DOCS_ARTIFACT_NAME || '' }}
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
-    outputs:
-      artifact-name: ${{ env.DOCS_ARTIFACT_NAME }}
     steps:
       - uses: eclipse-score/cicd-workflows/.github/actions/build-environment@central-workflow
         with:
@@ -144,39 +142,60 @@ jobs:
           repository-cache-restore: ${{ (inputs.repository != '' || inputs.ref != '') && 'true' || 'auto' }}
 
       - name: Download test report
-        if: inputs.tests-report-artifact != '' && inputs.tests-report-artifacts == '[]'
+        if: inputs.tests-report-artifact != '' && inputs.tests-report-artifacts == '[]' && !inputs.allow-missing-reports
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.tests-report-artifact }}
           path: tests-report
 
       - name: Download selected test reports
-        if: ${{ inputs.tests-report-artifacts != '[]' }}
+        if: ${{ inputs.tests-report-artifacts != '[]' || (inputs.allow-missing-reports && inputs.tests-report-artifact != '') }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: ${{ format('@({0})', join(fromJSON(inputs.tests-report-artifacts), '|')) }}
+          pattern: ${{ format('@({0})', join(fromJSON(inputs.tests-report-artifacts != '[]' && inputs.tests-report-artifacts || format('["{0}"]', inputs.tests-report-artifact)), '|')) }}
           path: ${{ runner.temp }}/docs-test-artifacts
 
       - uses: eclipse-score/cicd-workflows/.github/actions/configured-checks@central-workflow
-        if: ${{ inputs.tests-report-artifacts != '[]' }}
+        if: ${{ inputs.tests-report-artifacts != '[]' || (inputs.allow-missing-reports && inputs.tests-report-artifact != '') }}
         env:
           TEST_REPORT_DOWNLOADS: ${{ runner.temp }}/docs-test-artifacts
-          TEST_REPORT_ARTIFACTS: ${{ inputs.tests-report-artifacts }}
+          TEST_REPORT_ARTIFACTS: ${{ inputs.tests-report-artifacts != '[]' && inputs.tests-report-artifacts || format('["{0}"]', inputs.tests-report-artifact) }}
+          ALLOW_MISSING_REPORTS: ${{ inputs.allow-missing-reports }}
         with:
           engine: test-reports
           mode: merge
           reports: ${{ github.workspace }}/tests-report
 
       - name: Download coverage report
-        if: inputs.coverage-report-artifact != ''
+        if: inputs.coverage-report-artifact != '' && !inputs.allow-missing-reports
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.coverage-report-artifact }}
           path: coverage-report
 
+      # Pattern downloads allow absent reports without hiding download errors.
+      - name: Download available coverage report
+        if: inputs.coverage-report-artifact != '' && inputs.allow-missing-reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ inputs.coverage-report-artifact }}
+          merge-multiple: true
+          path: coverage-report
+
       - name: Prepare coverage report
         if: inputs.coverage-report-artifact != ''
+        env:
+          ALLOW_MISSING_REPORTS: ${{ inputs.allow-missing-reports }}
         run: |
+          if [[ "$ALLOW_MISSING_REPORTS" == true && ! -d coverage-report ]]; then
+            echo "Coverage report unavailable; building documentation without it." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "$ALLOW_MISSING_REPORTS" == true && -d coverage-report && -z "$(ls -A coverage-report)" ]]; then
+            echo "Coverage report unavailable; building documentation without it." >> "$GITHUB_STEP_SUMMARY"
+            rmdir coverage-report
+            exit 0
+          fi
           if [[ ! -f coverage-report/coverage_report.dat ]]; then
             if [[ ! -f coverage-report/coverage.lcov ]]; then
               echo "::error::The coverage artifact must contain plain LCOV as coverage.lcov or coverage_report.dat at its root."

@@ -90,12 +90,12 @@ def normalize(document):
     for callers using the existing variants layout. The two layouts cannot be
     mixed, since that would create two sources of truth for the same profiles.
     """
-    compact = {'tests', 'builds', 'llvm-coverage', 'gcov-coverage', 'coverage'}
-    if not isinstance(document, dict) or not (compact | {'sca', 'sbom', 'clippy', 'gitlint', 'docs', 'codeql'}).intersection(document) or 'variants' in document:
+    compact = {'tests', 'builds', 'coverage'}
+    if not isinstance(document, dict) or not (compact | {'sca', 'sbom', 'clippy', 'docs', 'codeql'}).intersection(document) or 'variants' in document:
         if isinstance(document, dict) and 'variants' in document and compact.intersection(document):
             raise ValueError('Do not mix variants with compact profiles')
         return document
-    fields(document, compact | {'schema-version', 'docs', 'clippy', 'codeql', 'gitlint', 'sca', 'sbom'}, {'schema-version'}, '$')
+    fields(document, compact | {'schema-version', 'docs', 'clippy', 'codeql', 'sca', 'sbom'}, {'schema-version'}, '$')
     if type(document['schema-version']) is not int or document['schema-version'] != 2:
         raise ValueError('The compact layout requires schema-version: 2')
     variants = []
@@ -127,33 +127,33 @@ def normalize(document):
                 entry['workflow-config'] = options
             variants.append(variant)
 
-    # Reuse a unique native root profile only for stable coverage naming.
-    # Multiple matching profiles give coverage an independent row; their names
-    # and Bazel configs do not imply any preferred kind of test.
-    native = [variant for variant in variants if variant.get('architecture', [{'name': 'x86_64'}]) == [{'name': 'x86_64'}]
-              and variant.get('os', [{'name': 'linux'}]) == [{'name': 'linux'}]
-              and next(iter(variant['checks'].values()))[0].get('workflow-config', {}).get('working-directory', '.') == '.']
-    for family in ('llvm-coverage', 'gcov-coverage', 'coverage'):
-        if family not in document:
-            continue
-        entry = document[family]
-        if not isinstance(entry, dict):
-            raise ValueError(f'{family}: expected a mapping')
-        entry = dict(entry)
-        if 'workflow-config' in entry:
-            raise ValueError(f'{family}: place report options directly in the coverage mapping')
-        options = {key: entry.pop(key) for key in ('working-directory', 'artifact-name', 'retention-days') if key in entry}
-        if options:
-            entry['workflow-config'] = options
-        if len(native) == 1:
-            native[0]['checks'][family] = entry
-        else:
-            if family in names:
-                raise ValueError(f'Duplicate profile name: {family}')
-            names.add(family)
-            variants.append({'name': family, 'checks': {family: entry}})
+    # Coverage owns its platform and workspace, independently of test profiles.
+    # No compiler config, source target or report-input path can be inferred from
+    # another profile or from the layout of a particular module.
+    if 'coverage' in document:
+        profiles = document['coverage']
+        if not isinstance(profiles, dict) or not profiles:
+            raise ValueError('coverage: expected named profiles')
+        for name, original in profiles.items():
+            if name in names:
+                raise ValueError(f'Duplicate profile name: {name}')
+            names.add(name)
+            if not isinstance(original, dict):
+                raise ValueError(f'coverage.{name}: expected a profile mapping')
+            entry = dict(original)
+            variant = {'name': name, 'checks': {'coverage': entry}}
+            for dimension in ('os', 'architecture'):
+                if dimension in entry:
+                    variant[dimension] = [{'name': entry.pop(dimension)}]
+            if 'workflow-config' in entry:
+                raise ValueError('coverage: place execution/report options directly in the profile')
+            options = {key: entry.pop(key) for key in
+                       ('working-directory', 'execution', 'artifact-name', 'retention-days') if key in entry}
+            if options:
+                entry['workflow-config'] = options
+            variants.append(variant)
     return {'schema-version': 2, 'variants': variants,
-            **{key: document[key] for key in ('docs', 'clippy', 'codeql', 'gitlint', 'sca', 'sbom') if key in document}}
+            **{key: document[key] for key in ('docs', 'clippy', 'codeql', 'sca', 'sbom') if key in document}}
 
 
 def plan(workspace, config):
@@ -162,7 +162,7 @@ def plan(workspace, config):
     source = inside(workspace, config)
     content = source.read_text(encoding='utf-8')
     document = normalize(yaml.load(content, Loader=Loader))
-    fields(document, {'schema-version', 'variants', 'docs', 'clippy', 'codeql', 'gitlint', 'sca', 'sbom'}, {'schema-version', 'variants'}, '$')
+    fields(document, {'schema-version', 'variants', 'docs', 'clippy', 'codeql', 'sca', 'sbom'}, {'schema-version', 'variants'}, '$')
     version = document['schema-version']
     if type(version) is not int or version not in (1, 2):
         raise ValueError('schema-version: expected 1 or 2')
@@ -198,7 +198,7 @@ def plan(workspace, config):
 
         families = variant[checks_key]
         fields(families, {'tests', 'llvm-coverage', 'gcov-coverage'} if version == 1 else
-               {'builds', 'tests', 'llvm-coverage', 'gcov-coverage', 'coverage'}, set(), f'{path}.{checks_key}')
+               {'builds', 'tests', 'coverage'}, set(), f'{path}.{checks_key}')
         if not families:
             raise ValueError(f'{path}.{checks_key}: no jobs configured')
         for family, entries in families.items():
@@ -376,7 +376,7 @@ def execute(workspace, config, job_id, reports):
             observed['outcome'] = 'success'
         # Threshold failures can still produce useful HTML and LCOV. Stage
         # those reports while retaining the failed command as gate evidence.
-        if row.get('coverage', {}).get('kind') == 'gcov-coverage' and success:
+        if row.get('coverage', {}).get('reporter') == 'genhtml' and success:
             from gcov_coverage import generate
             generate(directory, directory / row['coverage']['output-directory'], row['coverage']['threshold'])
         if 'coverage' in row:

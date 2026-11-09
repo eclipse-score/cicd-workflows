@@ -130,7 +130,7 @@ class ConsumerTests(unittest.TestCase):
     def test_overrides_cannot_disable_required_checks(self):
         """Both lockfile commands must respect the shared skip-bzlmod-lock switch."""
         for required, switch in (
-                ('format', 'skip-format'), ('module-tidy', 'skip-bzlmod-lock'),
+                ('gitlint', 'skip-gitlint'), ('format', 'skip-format'), ('module-tidy', 'skip-bzlmod-lock'),
                 ('lockfile', 'skip-bzlmod-lock')):
             with self.subTest(required=required):
                 self.row['required-checks'] = [required]

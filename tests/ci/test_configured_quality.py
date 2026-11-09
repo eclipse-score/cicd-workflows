@@ -5,7 +5,6 @@
 import hashlib
 import json
 import os
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,8 +26,8 @@ def document(workspace):
         'native': {'bazel-configs': 'linux'},
         'asan': {'bazel-configs': 'linux,asan'},
         'tsan': {'bazel-configs': 'linux,tsan'},
-    }, 'coverage': {'bazel-target': '//quality:coverage'},
-        'clippy': {}, 'gitlint': True, 'codeql': {'bazel-configs': 'linux'},
+    }, 'coverage': {'cov': {'bazel-target': '//quality:coverage', 'output-directory': 'coverage_artifacts'}},
+        'clippy': {}, 'codeql': {'bazel-configs': 'linux'},
         'docs': {'check': True, 'link-check': True, 'tests': 'native-tests'}}
 
 
@@ -43,7 +42,7 @@ def test_sanitizers_keep_test_only_scope_and_docs_uses_regular_tests(workspace, 
     sanitizers = [row for row in rows if row['metadata']['profile'] in ('asan', 'tsan')]
     assert len(sanitizers) == 2
     assert all([c[1] for c in row['commands']] == ['test'] for row in sanitizers)
-    assert [row['id'] for row in rows if 'coverage' in row] == ['coverage-coverage']
+    assert [row['id'] for row in rows if 'coverage' in row] == ['cov-coverage']
     docs = docs_plan(workspace, document['docs'], rows)
     assert docs['tests'] == 'native-tests'
     assert docs['retention-days'] == 5
@@ -52,7 +51,7 @@ def test_sanitizers_keep_test_only_scope_and_docs_uses_regular_tests(workspace, 
 
 @pytest.mark.parametrize('key, value, message', [
     ('clippy', {'command': 'true'}, 'unsupported fields'),
-    ('gitlint', {}, 'boolean'),
+    ('gitlint', True, 'unsupported fields'),
     ('codeql', {'bazel-configs': 'linux', 'reports': []}, 'report names'),
     ('codeql', {'bazel-configs': 'linux', 'fail-on-findings': 'false'}, 'boolean'),
     ('codeql', {'bazel-configs': 'linux', 'target-universe': '//...; true'}, 'invalid value'),
@@ -196,16 +195,6 @@ def test_quality_verification_rejects_missing_and_duplicate_reports(workspace, d
         quality.verify([row], tmp_path, 'frozen-sha')
 
 
-def test_gitlint_is_applicable_only_to_pull_requests(workspace, document, runner, monkeypatch, tmp_path):
-    row = selected(workspace, document, 'gitlint')
-    monkeypatch.setenv('GITHUB_EVENT_NAME', 'merge_group')
-    assert quality.execute(workspace, row, tmp_path) == 0
-    assert quality.verify([row], tmp_path, 'frozen-sha')
-    monkeypatch.setenv('GITHUB_EVENT_NAME', 'pull_request')
-    with pytest.raises(ValueError, match='did not succeed'):
-        quality.verify([row], tmp_path, 'frozen-sha')
-
-
 def test_fetch_only_never_requires_or_claims_sarif(workspace, document, runner, tmp_path):
     row = selected(workspace, document, 'codeql', fetch_only=True)
     assert quality.execute(workspace, row, tmp_path) == 0
@@ -227,34 +216,14 @@ def test_docs_context_uses_selected_repository_environment():
     assert '--github_user' not in workflow and '--github_repo' not in workflow
 
 
-def test_quality_is_required_before_documentation_and_lifecycle_gate():
+def test_quality_gate_is_independent_of_documentation():
     workflow = yaml.load(Path('.github/workflows/on-pr.yml').read_text(), Loader=yaml.BaseLoader)
-    assert 'configured-quality' in workflow['jobs']['configured-docs']['needs']
+    assert 'configured-quality' not in workflow['jobs']['configured-docs']['needs']
+    assert '!cancelled()' in workflow['jobs']['configured-docs']['if']
     quality_workflow = yaml.load(Path('.github/workflows/configured-quality.yml').read_text(), Loader=yaml.BaseLoader)
     assert quality_workflow['jobs']['checks']['permissions'] == {'contents': 'read'}
     assert quality_workflow['jobs']['verify']['needs'] == ['prepare', 'checks']
     assert 'permissions' not in quality_workflow['jobs']['publish-sarif']
-
-
-@pytest.mark.parametrize('valid', [True, False])
-def test_real_gitlint_checks_frozen_pr_head_without_synthetic_merge(workspace, document, monkeypatch, tmp_path, valid):
-    """A merge checkout must lint PR commits only, against the actual base SHA."""
-    base = quality.commit(workspace)
-    message = 'Check the shared policy' if valid else 'x' * 73
-    subprocess.run(['git', '-C', str(workspace), '-c', 'user.name=Test',
-                    '-c', 'user.email=test@example.org', 'commit', '--allow-empty', '-qm', message], check=True)
-    head = quality.commit(workspace)
-    policy = tmp_path / '.gitlint'
-    policy.write_text('[general]\nignore=T3,T5,B1,B5,B6,B7\n[title-max-length]\nline-length=72\n')
-    monkeypatch.setenv('GITHUB_EVENT_NAME', 'pull_request')
-    monkeypatch.setenv('PR_BASE_SHA', base)
-    monkeypatch.setenv('PR_HEAD_SHA', head)
-    monkeypatch.setenv('GITLINT_POLICY', str(policy))
-    row = selected(workspace, document, 'gitlint')
-    assert quality.execute(workspace, row, tmp_path / 'reports') == (0 if valid else 1)
-    if valid:
-        verified = quality.verify([row], tmp_path / 'reports', head)
-        assert verified['jobs']['gitlint']['commits'] == [head]
 
 
 @pytest.mark.parametrize('identity', ['clippy', 'docs-check', 'codeql'])
@@ -272,12 +241,4 @@ def test_quality_cli_plan_accepts_relative_workspace_path(workspace, document, m
     monkeypatch.setenv('FETCH_ONLY', 'false')
     monkeypatch.setenv('FAIL_ON_FINDINGS', '')
     rows = quality.load_plan(Path(os.path.relpath(workspace)), config)
-    assert {r['id'] for r in rows} == {'clippy', 'docs-check', 'docs-link-check', 'gitlint', 'codeql'}
-
-
-def test_gitlint_rejects_pr_event_from_different_repository(workspace, document, monkeypatch):
-    monkeypatch.setenv('GITHUB_EVENT_NAME', 'pull_request')
-    monkeypatch.setenv('GITHUB_REPOSITORY', 'owner/caller')
-    monkeypatch.setenv('SOURCE_REPOSITORY', 'owner/selected')
-    with pytest.raises(ValueError, match='another repository'):
-        quality.plan(workspace, document, 'digest')
+    assert {r['id'] for r in rows} == {'clippy', 'docs-check', 'docs-link-check', 'codeql'}
