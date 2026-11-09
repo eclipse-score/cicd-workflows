@@ -1,7 +1,8 @@
 # Release Notes Agentic Workflow
 
 [`release-notes-agent.md`](release-notes-agent.md) is a GitHub Agentic Workflow
-that uses the Copilot engine to draft notes between two refs. It follows the
+that uses the Copilot engine to draft reStructuredText notes between two release
+tags. It follows the
 shared [release-notes template](../release-notes-template.md), reads repository,
 pull-request, issue, and security-advisory evidence, and creates one
 `[release-notes-test]` issue for human review. It never creates or publishes a
@@ -25,8 +26,9 @@ published.
 
 The workflow must first be merged so GitHub registers it on the default branch.
 Then run `gh aw run release-notes-agent` or dispatch **Release Notes Agent** in
-Actions. Supply an earlier ref and a later ref from this repository; a milestone
-is optional. The result appears in one issue prefixed `[release-notes-test]`.
+Actions. Supply the module name, origin release tag, release tag, and optionally
+a milestone. The result appears as a reStructuredText document in one issue
+prefixed `[release-notes-test]`.
 
 Review the draft for factual accuracy, especially known issues, vulnerabilities,
 and any missing milestone evidence. The generated issue is only a test artifact;
