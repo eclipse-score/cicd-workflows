@@ -20,20 +20,20 @@ on:
         description: Test-phase Bazel command, either test or coverage
         type: string
         default: test
-      run-target:
-        description: Single executable Bazel target to run after build and test; empty skips execution
+      coverage-justifications:
+        description: Optional workspace-relative justification YAML for coverage_tool
         type: string
         default: ""
-      run-args:
-        description: Arguments for the executable selected by run-target, after Bazel's -- separator
+      coverage-threshold:
+        description: Minimum effective line coverage percentage, enforced by coverage_tool
+        type: number
+        default: 100
+      bazel-configs:
+        description: Space-separated Bazel config names, applied in order to build and test or coverage
         type: string
         default: ""
-      environment:
-        description: JSON object of string environment variables for Bazel commands
-        type: string
-        default: "{}"
       bazel-args:
-        description: Bazel flags applied to all commands, such as --config=x86_64-linux
+        description: Additional Bazel flags applied to all commands, after the default --lockfile_mode=error
         type: string
         default: ""
       build-args:
@@ -119,14 +119,12 @@ jobs:
           TEST_TARGETS: ${{ inputs.test-targets }}
           TEST_COMMAND: ${{ inputs.test-command }}
           BAZEL_ARGS: ${{ inputs.bazel-args }}
+          BAZEL_CONFIGS: ${{ inputs.bazel-configs }}
           BUILD_ARGS: ${{ inputs.build-args }}
           TEST_ARGS: ${{ inputs.test-args }}
-          RUN_TARGET: ${{ inputs.run-target }}
-          RUN_ARGS: ${{ inputs.run-args }}
-          COMMAND_ENV: ${{ inputs.environment }}
         run: |
-          import json
           import os
+          import re
           import shlex
 
           if os.environ['EVENT_NAME'] == 'pull_request_target':
@@ -134,20 +132,16 @@ jobs:
           if os.environ['TEST_COMMAND'] not in ('test', 'coverage'):
               raise SystemExit('test-command must be test or coverage.')
           values = {key: shlex.split(os.environ[key]) for key in
-                    ('BUILD_TARGETS', 'TEST_TARGETS', 'BAZEL_ARGS', 'BUILD_ARGS', 'TEST_ARGS', 'RUN_TARGET', 'RUN_ARGS')}
-          if not any(values[key] for key in ('BUILD_TARGETS', 'TEST_TARGETS', 'RUN_TARGET')):
-              raise SystemExit('Supply build-targets, test-targets or run-target.')
-          if values['RUN_TARGET'] and (len(values['RUN_TARGET']) != 1 or values['RUN_TARGET'][0].startswith('-')):
-              raise SystemExit('run-target must select exactly one executable Bazel target.')
-          if values['RUN_ARGS'] and not values['RUN_TARGET']:
-              raise SystemExit('run-args requires run-target.')
-          environment = json.loads(os.environ['COMMAND_ENV'])
-          if not isinstance(environment, dict) or any(not isinstance(key, str) or not isinstance(value, str)
-                                                      or not key or '=' in key or '\x00' in key or '\x00' in value
-                                                      for key, value in environment.items()):
-              raise SystemExit('environment must be a JSON object of string variables.')
+                    ('BUILD_TARGETS', 'TEST_TARGETS', 'BAZEL_ARGS', 'BUILD_ARGS', 'TEST_ARGS')}
+          configs = os.environ['BAZEL_CONFIGS'].split()
+          if any(not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.+-]*', config) for config in configs):
+              raise SystemExit('bazel-configs must contain config names without --config flags.')
+          if not values['BUILD_TARGETS'] and not values['TEST_TARGETS']:
+              raise SystemExit('Supply build-targets, test-targets, or both.')
+          if os.environ['TEST_COMMAND'] == 'coverage' and not values['TEST_TARGETS']:
+              raise SystemExit('Coverage requires test-targets.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f"has-results={str(bool(values['TEST_TARGETS'] or values['RUN_TARGET'])).lower()}\n")
+              output.write(f"has-results={str(bool(values['TEST_TARGETS'])).lower()}\n")
 
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
         with:
@@ -165,6 +159,8 @@ jobs:
           WORKING_DIRECTORY: ${{ inputs.working-directory }}
           ARTIFACT_NAME: ${{ inputs.artifact-name }}
           RESULT_PATHS: ${{ inputs.result-paths }}
+          TEST_COMMAND: ${{ inputs.test-command }}
+          COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
         run: |
           import os
           from pathlib import Path
@@ -175,16 +171,19 @@ jobs:
           directory = (root / relative).resolve()
           if relative.is_absolute() or not directory.is_relative_to(root) or not directory.is_dir():
               raise SystemExit('working-directory must be an existing directory inside the checkout.')
-          # Prefix every pattern, including exclusions, for nested Bazel workspaces.
-          paths = []
-          for pattern in os.environ['RESULT_PATHS'].splitlines():
-              pattern = pattern.strip()
-              if pattern:
-                  exclusion = pattern.startswith('!')
-                  pattern = pattern[1:] if exclusion else pattern
-                  if Path(pattern).is_absolute() or '..' in Path(pattern).parts:
-                      raise SystemExit('result-paths must be relative to working-directory.')
-                  paths.append(('!' if exclusion else '') + str(directory / pattern))
+          if os.environ['TEST_COMMAND'] == 'coverage':
+              paths = [os.environ['COVERAGE_REPORT_DIRECTORY']]
+          else:
+              # Prefix every pattern, including exclusions, for nested Bazel workspaces.
+              paths = []
+              for pattern in os.environ['RESULT_PATHS'].splitlines():
+                  pattern = pattern.strip()
+                  if pattern:
+                      exclusion = pattern.startswith('!')
+                      pattern = pattern[1:] if exclusion else pattern
+                      if Path(pattern).is_absolute() or '..' in Path(pattern).parts:
+                          raise SystemExit('result-paths must be relative to working-directory.')
+                      paths.append(('!' if exclusion else '') + str(directory / pattern))
           if not paths:
               raise SystemExit('result-paths must contain at least one report path.')
           name = os.environ['ARTIFACT_NAME'] or f'bazel-tests-{uuid.uuid4().hex}'
@@ -229,21 +228,21 @@ jobs:
           TEST_TARGETS: ${{ inputs.test-targets }}
           TEST_COMMAND: ${{ inputs.test-command }}
           BAZEL_ARGS: ${{ inputs.bazel-args }}
+          BAZEL_CONFIGS: ${{ inputs.bazel-configs }}
           BUILD_ARGS: ${{ inputs.build-args }}
           TEST_ARGS: ${{ inputs.test-args }}
-          RUN_TARGET: ${{ inputs.run-target }}
-          RUN_ARGS: ${{ inputs.run-args }}
-          COMMAND_ENV: ${{ inputs.environment }}
+          COVERAGE_JUSTIFICATIONS: ${{ inputs.coverage-justifications }}
+          COVERAGE_THRESHOLD: ${{ inputs.coverage-threshold }}
+          COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
         run: |
-          import json
           import os
           import shlex
           import subprocess
 
           # Split arguments without shell expansion. Target exclusions follow --;
           # build and test share one checkout and the same Bazel/cache context.
-          common = shlex.split(os.environ['BAZEL_ARGS'])
-          environment = {**os.environ, **json.loads(os.environ['COMMAND_ENV'])}
+          common = ['--lockfile_mode=error', *shlex.split(os.environ['BAZEL_ARGS'])]
+          configs = [f'--config={config}' for config in os.environ['BAZEL_CONFIGS'].split()]
           commands = []
           for command in ('build', 'test'):
               targets = shlex.split(os.environ[f'{command.upper()}_TARGETS'])
@@ -251,18 +250,19 @@ jobs:
                   continue
               extra = shlex.split(os.environ[f'{command.upper()}_ARGS'])
               subcommand = os.environ['TEST_COMMAND'] if command == 'test' else command
-              argv = ['bazel', subcommand, *common, *extra, '--', *targets]
+              argv = ['bazel', subcommand, *common, *configs, *extra, '--', *targets]
               commands.append(argv)
-          target = shlex.split(os.environ['RUN_TARGET'])
-          if target:
-              argv = ['bazel', 'run', *common, *target]
-              arguments = shlex.split(os.environ['RUN_ARGS'])
-              if arguments:
-                  argv.extend(['--', *arguments])
+          if os.environ['TEST_COMMAND'] == 'coverage':
+              # coverage_tool owns interpretation, justifications and the gate.
+              # This workflow only connects its report to the artifact upload.
+              argv = ['bazel', 'run', *common, '@score_coverage//:generate_coverage_html', '--',
+                      '--archive-dir', os.environ['COVERAGE_REPORT_DIRECTORY']]
+              if os.environ['COVERAGE_JUSTIFICATIONS']:
+                  argv.extend(['--yaml', os.environ['COVERAGE_JUSTIFICATIONS']])
               commands.append(argv)
           for argv in commands:
               print(f'::group::{shlex.join(argv)}', flush=True)
-              result = subprocess.run(argv, env=environment, check=False)
+              result = subprocess.run(argv, check=False)
               print('::endgroup::', flush=True)
               # A failed build must stop the job before tests can hide its failure.
               if result.returncode:

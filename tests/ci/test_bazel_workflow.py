@@ -15,15 +15,16 @@ import yaml
 WORKFLOW = Path(__file__).resolve().parents[2] / '.github/workflows/bazel.yml'
 STEPS = yaml.safe_load(WORKFLOW.read_text())['jobs']['bazel']['steps']
 DEFAULTS = dict(BUILD_TARGETS='', TEST_TARGETS='', BAZEL_ARGS='', BUILD_ARGS='', TEST_ARGS='',
-                EVENT_NAME='pull_request', WORKING_DIRECTORY='.', ARTIFACT_NAME='',
-                RUN_TARGET='', RUN_ARGS='', COMMAND_ENV='{}', TEST_COMMAND='test',
+                EVENT_NAME='pull_request', WORKING_DIRECTORY='.', ARTIFACT_NAME='', BAZEL_CONFIGS='',
+                TEST_COMMAND='test', COVERAGE_JUSTIFICATIONS='', COVERAGE_THRESHOLD='100',
                 RESULT_PATHS='bazel-testlogs/**/*.xml\nbazel-testlogs/**/test.log')
 
 
 def run_step(name, root, **values):
     step = next(step for step in STEPS if step.get('name') == name)
     environment = {**os.environ, **DEFAULTS, 'GITHUB_WORKSPACE': str(root),
-                   'GITHUB_OUTPUT': str(root / 'output'), **values}
+                   'GITHUB_OUTPUT': str(root / 'output'),
+                   'COVERAGE_REPORT_DIRECTORY': str(root / 'coverage-report'), **values}
     return subprocess.run([sys.executable, '-c', step['run']], cwd=root, env=environment,
                           text=True, capture_output=True)
 
@@ -50,7 +51,7 @@ def test_enabled_commands_share_workspace_and_preserve_flags(tmp_path, bazel, bu
     workspace = tmp_path / 'examples/integration'
     workspace.mkdir(parents=True)
     result = run_step('Execute Bazel commands', workspace, **bazel, BUILD_TARGETS=build,
-                      TEST_TARGETS=test, BAZEL_ARGS='--lockfile_mode=error --config=linux',
+                      TEST_TARGETS=test, BAZEL_ARGS='--config=linux',
                       BUILD_ARGS='--keep_going', TEST_ARGS='--test_timeout=600')
     assert result.returncode == 0, result.stderr
     commands = [json.loads(line) for line in (tmp_path / 'commands').read_text().splitlines()]
@@ -76,7 +77,7 @@ def test_target_exclusions_and_shell_metacharacters_are_passed_literally(tmp_pat
                       TEST_TARGETS='//... -//pkg:slow', TEST_ARGS='--test_env="VALUE=$(touch marker)"')
     assert result.returncode == 0, result.stderr
     argv = json.loads((tmp_path / 'commands').read_text())[1]
-    assert argv == ['test', '--test_env=VALUE=$(touch marker)', '--', '//...', '-//pkg:slow']
+    assert argv == ['test', '--lockfile_mode=error', '--test_env=VALUE=$(touch marker)', '--', '//...', '-//pkg:slow']
     assert not (tmp_path / 'marker').exists()
 
 
@@ -121,75 +122,108 @@ def test_workspace_must_exist_inside_checkout(tmp_path, directory):
                     WORKING_DIRECTORY=directory).returncode != 0
 
 
-def test_run_passes_executable_arguments_and_environment_to_module_reporter(tmp_path, bazel):
-    reporter = tmp_path / 'bazel'
-    reporter.write_text('#!' + sys.executable + '\n' +
-                        'import json, os, sys\n'
-                        'from pathlib import Path\n'
-                        'Path("report.json").write_text(json.dumps({"argv": sys.argv[1:], '
-                        '"threshold": os.environ["COVERAGE_THRESHOLD"]}))\n')
-    result = run_step('Execute Bazel commands', tmp_path, **bazel,
-                      RUN_TARGET='@score_coverage//:generate_coverage_html',
-                      RUN_ARGS='--output "coverage reports"',
-                      BAZEL_ARGS='--config=llvm_cov', COMMAND_ENV='{"COVERAGE_THRESHOLD": "66"}')
-    assert result.returncode == 0, result.stderr
-    report = json.loads((tmp_path / 'report.json').read_text())
-    assert report == {'argv': ['run', '--config=llvm_cov', '@score_coverage//:generate_coverage_html',
-                               '--', '--output', 'coverage reports'], 'threshold': '66'}
-
-
-def test_run_failure_keeps_exit_status_and_is_eligible_for_result_upload(tmp_path, bazel):
-    values = {'RUN_TARGET': '@score_coverage//:generate_coverage_html'}
-    assert run_step('Validate request', tmp_path, **values).returncode == 0
-    assert (tmp_path / 'output').read_text() == 'has-results=true\n'
-    result = run_step('Execute Bazel commands', tmp_path, **bazel, **values, FAIL_COMMAND='run')
-    assert result.returncode == 23
-
-
-def test_failed_build_stops_run_as_well_as_tests(tmp_path, bazel):
-    result = run_step('Execute Bazel commands', tmp_path, **bazel, BUILD_TARGETS='//...',
-                      RUN_TARGET='//:report', FAIL_COMMAND='build')
-    assert result.returncode == 23
-    commands = [json.loads(line)[1][0] for line in (tmp_path / 'commands').read_text().splitlines()]
-    assert commands == ['build']
-
-
-@pytest.mark.parametrize('values', [
-    {'RUN_TARGET': '//:one //:two'}, {'RUN_TARGET': '--help'},
-    {'BUILD_TARGETS': '//...', 'RUN_ARGS': '--output report'},
-    {'RUN_TARGET': '//:report', 'COMMAND_ENV': '[]'},
-    {'RUN_TARGET': '//:report', 'COMMAND_ENV': '{"COVERAGE_THRESHOLD": 66}'},
-    {'RUN_TARGET': '//:report', 'COMMAND_ENV': 'not JSON'},
-])
-def test_invalid_run_requests_fail_before_setup(tmp_path, values):
-    assert run_step('Validate request', tmp_path, **values).returncode != 0
-
-
 def test_coverage_runs_before_shared_reporter_with_separate_flags(tmp_path, bazel):
     result = run_step('Execute Bazel commands', tmp_path, **bazel,
                       TEST_TARGETS='//score/... -//score:excluded', TEST_COMMAND='coverage',
-                      TEST_ARGS='--config=llvm_cov --lockfile_mode=error --build_tests_only',
-                      RUN_TARGET='@score_coverage//:generate_coverage_html',
-                      RUN_ARGS='--yaml quality/coverage/coverage_justifications.yaml --archive-dir coverage_artifacts')
+                      BAZEL_CONFIGS='llvm_cov', TEST_ARGS='--build_tests_only',
+                      COVERAGE_JUSTIFICATIONS='quality/coverage/coverage_justifications.yaml')
     assert result.returncode == 0, result.stderr
     commands = [json.loads(line)[1] for line in (tmp_path / 'commands').read_text().splitlines()]
     assert commands == [
-        ['coverage', '--config=llvm_cov', '--lockfile_mode=error', '--build_tests_only',
+        ['coverage', '--lockfile_mode=error', '--config=llvm_cov', '--build_tests_only',
          '--', '//score/...', '-//score:excluded'],
-        ['run', '@score_coverage//:generate_coverage_html', '--',
-         '--yaml', 'quality/coverage/coverage_justifications.yaml', '--archive-dir', 'coverage_artifacts'],
+        ['run', '--lockfile_mode=error', '@score_coverage//:generate_coverage_html', '--',
+         '--archive-dir', str(tmp_path / 'coverage-report'),
+         '--yaml', 'quality/coverage/coverage_justifications.yaml'],
     ]
 
 
 def test_coverage_failure_stops_reporter_and_keeps_failure_status(tmp_path, bazel):
     result = run_step('Execute Bazel commands', tmp_path, **bazel, TEST_TARGETS='//score/...',
-                      TEST_COMMAND='coverage', RUN_TARGET='@score_coverage//:generate_coverage_html',
-                      FAIL_COMMAND='coverage')
+                      TEST_COMMAND='coverage', FAIL_COMMAND='coverage')
     assert result.returncode == 23
     commands = [json.loads(line)[1][0] for line in (tmp_path / 'commands').read_text().splitlines()]
     assert commands == ['coverage']
 
 
-def test_test_phase_cannot_select_an_arbitrary_bazel_subcommand(tmp_path):
-    result = run_step('Validate request', tmp_path, TEST_TARGETS='//...', TEST_COMMAND='clean')
-    assert result.returncode != 0
+@pytest.mark.parametrize('threshold, failure', [('0', False), ('66', False), ('100', True)])
+def test_threshold_reaches_tool_and_report_survives_reporter_failure(tmp_path, bazel, threshold, failure):
+    executable = tmp_path / 'bazel'
+    executable.write_text('#!' + sys.executable + '\n' +
+                          'import os, sys\n'
+                          'from pathlib import Path\n'
+                          'if sys.argv[1] == "run":\n'
+                          '    report = Path(sys.argv[sys.argv.index("--archive-dir") + 1])\n'
+                          '    report.mkdir()\n'
+                          '    (report / "threshold").write_text(os.environ["COVERAGE_THRESHOLD"])\n'
+                          '    sys.exit(23 if os.environ["FAIL_REPORTER"] == "true" else 0)\n')
+    result = run_step('Execute Bazel commands', tmp_path, **bazel, TEST_TARGETS='//score/...',
+                      TEST_COMMAND='coverage', COVERAGE_THRESHOLD=threshold,
+                      FAIL_REPORTER=str(failure).lower())
+    assert result.returncode == (23 if failure else 0)
+    assert (tmp_path / 'coverage-report/threshold').read_text() == threshold
+
+
+def test_coverage_upload_uses_the_centrally_selected_report_directory(tmp_path):
+    result = run_step('Prepare workspace and report paths', tmp_path, TEST_COMMAND='coverage')
+    assert result.returncode == 0, result.stderr
+    output = (tmp_path / 'output').read_text()
+    assert f'{tmp_path}/coverage-report\n' in output
+    assert 'bazel-testlogs' not in output
+
+
+@pytest.mark.parametrize('values', [
+    {'TEST_TARGETS': '//...', 'TEST_COMMAND': 'clean'},
+    {'BUILD_TARGETS': '//...', 'TEST_COMMAND': 'coverage'},
+])
+def test_invalid_coverage_requests_fail_before_setup(tmp_path, values):
+    assert run_step('Validate request', tmp_path, **values).returncode != 0
+
+
+def test_named_configs_preserve_order_for_build_and_test(tmp_path, bazel):
+    result = run_step('Execute Bazel commands', tmp_path, **bazel, BUILD_TARGETS='//score/...',
+                      TEST_TARGETS='//...', BAZEL_CONFIGS='x86_64-linux asan_ubsan_lsan')
+    assert result.returncode == 0, result.stderr
+    commands = [json.loads(line)[1] for line in (tmp_path / 'commands').read_text().splitlines()]
+    assert commands == [
+        ['build', '--lockfile_mode=error', '--config=x86_64-linux', '--config=asan_ubsan_lsan', '--', '//score/...'],
+        ['test', '--lockfile_mode=error', '--config=x86_64-linux', '--config=asan_ubsan_lsan', '--', '//...'],
+    ]
+
+
+def test_instrumentation_config_does_not_leak_into_coverage_reporter(tmp_path, bazel):
+    result = run_step('Execute Bazel commands', tmp_path, **bazel, TEST_TARGETS='//score/...',
+                      TEST_COMMAND='coverage', BAZEL_CONFIGS='llvm_cov')
+    assert result.returncode == 0, result.stderr
+    commands = [json.loads(line)[1] for line in (tmp_path / 'commands').read_text().splitlines()]
+    assert commands[0] == ['coverage', '--lockfile_mode=error', '--config=llvm_cov', '--', '//score/...']
+    assert commands[1] == ['run', '--lockfile_mode=error', '@score_coverage//:generate_coverage_html', '--',
+                            '--archive-dir', str(tmp_path / 'coverage-report')]
+
+
+@pytest.mark.parametrize('configs', ['--config=linux', 'linux,tsan', 'linux $(touch marker)'])
+def test_config_names_do_not_accept_flags_or_shell_expressions(tmp_path, configs):
+    assert run_step('Validate request', tmp_path, TEST_TARGETS='//...', BAZEL_CONFIGS=configs).returncode != 0
+    assert not (tmp_path / 'marker').exists()
+
+
+def test_additional_flags_keep_lockfile_default_for_build_and_test(tmp_path, bazel):
+    result = run_step('Execute Bazel commands', tmp_path, **bazel, BUILD_TARGETS='//score/...',
+                      TEST_TARGETS='//...', BAZEL_ARGS='--verbose_failures')
+    assert result.returncode == 0, result.stderr
+    commands = [json.loads(line)[1] for line in (tmp_path / 'commands').read_text().splitlines()]
+    assert [argv[:3] for argv in commands] == [
+        ['build', '--lockfile_mode=error', '--verbose_failures'],
+        ['test', '--lockfile_mode=error', '--verbose_failures'],
+    ]
+
+
+def test_explicit_test_lockfile_mode_overrides_only_the_test_default(tmp_path, bazel):
+    result = run_step('Execute Bazel commands', tmp_path, **bazel, BUILD_TARGETS='//score/...',
+                      TEST_TARGETS='//...', TEST_ARGS='--lockfile_mode=update')
+    assert result.returncode == 0, result.stderr
+    commands = [json.loads(line)[1] for line in (tmp_path / 'commands').read_text().splitlines()]
+    assert commands == [
+        ['build', '--lockfile_mode=error', '--', '//score/...'],
+        ['test', '--lockfile_mode=error', '--lockfile_mode=update', '--', '//...'],
+    ]
