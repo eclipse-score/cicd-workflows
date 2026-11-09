@@ -58,21 +58,32 @@ on:
       token:
         description: Token for private dependencies; an alternative to GitHub App credentials
         required: false
+    outputs:
+      artifact-name:
+        description: Name of the uploaded test results artifact; empty if no upload is configured
+        value: ${{ jobs.unit-tests.outputs.artifact-name }}
 
 jobs:
   unit-tests:
     name: Test Execution
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
-
+    outputs:
+      artifact-name: ${{ inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' && inputs.upload-name || '' }}
     steps:
+      - name: 🚫 Refuse to run on pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "::error::This workflow must not be called from pull_request_target."
+          echo "It runs repository code with optional private dependency credentials."
+          echo "Use pull_request or merge_group instead."
+          exit 1
+
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
 
-      - name: Checkout repository (Handle all events)
-        uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           lfs: true
-          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Configure access to private dependencies
         uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
@@ -88,7 +99,7 @@ jobs:
 
       - name: Install dependencies
         if: ${{ inputs.packages != '' }}
-        uses: eclipse-score/apt-install@main
+        uses: eclipse-score/apt-install@d545215b973c4151236fcb3f75480dffcb914835 # main branch (2026-11-06)
         with:
           packages: ${{ inputs.packages }}
           cache: false
@@ -108,8 +119,8 @@ jobs:
           bazel ${{ inputs.bazel-target }}
 
       - name: Upload Bazel test artifacts
-        if: ${{ always() && inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
-        uses: actions/upload-artifact@v7.0.1
+        if: ${{ always() && github.event_name != 'pull_request_target' && inputs.upload-name != 'NO UPLOAD OF TEST RESULTS CONFIGURED' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.upload-name }}
           path: |

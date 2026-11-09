@@ -141,6 +141,13 @@ This workflow:
 ✅ Runs **Rust Unit Tests**  
 ✅ Runs **pytest** for Python  
 
+With `upload-name` the test results are uploaded as an artifact and its name is exposed as output
+`artifact-name`.
+
+The workflow uses the triggering event's default checkout; `pull_request` tests the merge result.
+Calls from `pull_request_target` fail before checkout or credential setup. Use `pull_request`
+or `merge_group` for pull request testing.
+
 ---
 
 ### **4. Rust Coverage Workflow**
