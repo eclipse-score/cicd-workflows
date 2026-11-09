@@ -165,7 +165,11 @@ def test_threshold_reaches_tool_and_report_survives_reporter_failure(tmp_path, b
 
 
 def test_coverage_upload_uses_the_centrally_selected_report_directory(tmp_path):
-    result = run_step('Prepare workspace and report paths', tmp_path, TEST_COMMAND='coverage')
+    report = tmp_path / 'coverage-report'
+    report.mkdir()
+    (report / 'index.html').write_text('coverage report')
+    result = run_step('Select coverage results', tmp_path,
+                      TEST_RESULT_PATHS=str(tmp_path / 'bazel-testlogs/**/*.xml'))
     assert result.returncode == 0, result.stderr
     output = (tmp_path / 'output').read_text()
     assert f'{tmp_path}/coverage-report\n' in output
@@ -227,3 +231,53 @@ def test_explicit_test_lockfile_mode_overrides_only_the_test_default(tmp_path, b
         ['build', '--lockfile_mode=error', '--', '//score/...'],
         ['test', '--lockfile_mode=error', '--lockfile_mode=update', '--', '//...'],
     ]
+
+
+@pytest.mark.parametrize('failed, archive', [('coverage', False), ('run', False), ('run', True)])
+def test_failed_coverage_uploads_test_results_unless_report_was_archived(tmp_path, bazel, failed, archive):
+    """Retain diagnostics even when tests stop the reporter or the reporter cannot archive."""
+    workspace = tmp_path / 'examples/integration'
+    workspace.mkdir(parents=True)
+    executable = tmp_path / 'bazel'
+    executable.write_text('#!' + sys.executable + '\n' +
+                          'import os, sys\n'
+                          'from pathlib import Path\n'
+                          'if sys.argv[1] == "coverage":\n'
+                          '    logs = Path("bazel-testlogs/pkg/test")\n'
+                          '    logs.mkdir(parents=True)\n'
+                          '    (logs / "test.xml").write_text("<testsuite/>")\n'
+                          '    (logs / "test.log").write_text("test output")\n'
+                          'if sys.argv[1] == "run" and os.environ["CREATE_ARCHIVE"] == "true":\n'
+                          '    report = Path(os.environ["COVERAGE_REPORT_DIRECTORY"])\n'
+                          '    report.mkdir()\n'
+                          '    (report / "index.html").write_text("coverage report")\n'
+                          'sys.exit(23 if sys.argv[1] == os.environ["FAIL_COMMAND"] else 0)\n')
+    prepared = run_step('Prepare workspace and report paths', tmp_path,
+                        WORKING_DIRECTORY='examples/integration', TEST_COMMAND='coverage')
+    assert prepared.returncode == 0, prepared.stderr
+    prepared_paths = (tmp_path / 'output').read_text().splitlines()[2:-1]
+    executed = run_step('Execute Bazel commands', workspace, **bazel,
+                        TEST_TARGETS='//pkg:test', TEST_COMMAND='coverage',
+                        FAIL_COMMAND=failed, CREATE_ARCHIVE=str(archive).lower())
+    assert executed.returncode == 23
+    (workspace / 'output').unlink(missing_ok=True)
+    selected = run_step('Select coverage results', workspace,
+                        TEST_RESULT_PATHS='\n'.join(prepared_paths))
+    assert selected.returncode == 0, selected.stderr
+    selected_paths = (workspace / 'output').read_text().splitlines()[1:-1]
+    expected = [str(workspace / 'coverage-report')] if archive else prepared_paths
+    assert selected_paths == expected
+    if not archive:
+        assert (workspace / 'bazel-testlogs/pkg/test/test.xml').is_file()
+        assert (workspace / 'bazel-testlogs/pkg/test/test.log').is_file()
+        assert selected_paths == [str(workspace / 'bazel-testlogs/**/*.xml'),
+                                  str(workspace / 'bazel-testlogs/**/test.log')]
+
+
+def test_empty_coverage_archive_falls_back_to_test_results(tmp_path):
+    (tmp_path / 'coverage-report').mkdir()
+    result = run_step('Select coverage results', tmp_path,
+                      TEST_RESULT_PATHS=str(tmp_path / 'bazel-testlogs/**/*.xml'))
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / 'output').read_text().splitlines()[1:-1] == [
+        str(tmp_path / 'bazel-testlogs/**/*.xml')]

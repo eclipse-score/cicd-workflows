@@ -159,8 +159,6 @@ jobs:
           WORKING_DIRECTORY: ${{ inputs.working-directory }}
           ARTIFACT_NAME: ${{ inputs.artifact-name }}
           RESULT_PATHS: ${{ inputs.result-paths }}
-          TEST_COMMAND: ${{ inputs.test-command }}
-          COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
         run: |
           import os
           from pathlib import Path
@@ -171,19 +169,17 @@ jobs:
           directory = (root / relative).resolve()
           if relative.is_absolute() or not directory.is_relative_to(root) or not directory.is_dir():
               raise SystemExit('working-directory must be an existing directory inside the checkout.')
-          if os.environ['TEST_COMMAND'] == 'coverage':
-              paths = [os.environ['COVERAGE_REPORT_DIRECTORY']]
-          else:
-              # Prefix every pattern, including exclusions, for nested Bazel workspaces.
-              paths = []
-              for pattern in os.environ['RESULT_PATHS'].splitlines():
-                  pattern = pattern.strip()
-                  if pattern:
-                      exclusion = pattern.startswith('!')
-                      pattern = pattern[1:] if exclusion else pattern
-                      if Path(pattern).is_absolute() or '..' in Path(pattern).parts:
-                          raise SystemExit('result-paths must be relative to working-directory.')
-                      paths.append(('!' if exclusion else '') + str(directory / pattern))
+          # Prefix every pattern, including exclusions, for nested Bazel workspaces.
+          # These test reports also serve as the fallback if coverage cannot be archived.
+          paths = []
+          for pattern in os.environ['RESULT_PATHS'].splitlines():
+              pattern = pattern.strip()
+              if pattern:
+                  exclusion = pattern.startswith('!')
+                  pattern = pattern[1:] if exclusion else pattern
+                  if Path(pattern).is_absolute() or '..' in Path(pattern).parts:
+                      raise SystemExit('result-paths must be relative to working-directory.')
+                  paths.append(('!' if exclusion else '') + str(directory / pattern))
           if not paths:
               raise SystemExit('result-paths must contain at least one report path.')
           name = os.environ['ARTIFACT_NAME'] or f'bazel-tests-{uuid.uuid4().hex}'
@@ -268,12 +264,33 @@ jobs:
               if result.returncode:
                   raise SystemExit(result.returncode)
 
+      - name: Select coverage results
+        id: coverage-results
+        if: ${{ always() && inputs.test-command == 'coverage' && steps.prepare.outcome == 'success' }}
+        shell: python
+        env:
+          COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
+          TEST_RESULT_PATHS: ${{ steps.prepare.outputs.result-paths }}
+        run: |
+          import os
+          from pathlib import Path
+          import uuid
+
+          report = Path(os.environ['COVERAGE_REPORT_DIRECTORY'])
+          # Test or reporter failures can leave no archive. Keep their XML and logs
+          # available for diagnosis without rerunning commands or masking the failure.
+          has_report = report.is_dir() and any(path.is_file() for path in report.rglob('*'))
+          paths = str(report) if has_report else os.environ['TEST_RESULT_PATHS']
+          delimiter = f'paths_{uuid.uuid4().hex}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'result-paths<<{delimiter}\n{paths}\n{delimiter}\n')
+
       - name: Upload results
         id: upload
         if: ${{ always() && steps.validate.outputs.has-results == 'true' && steps.prepare.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.prepare.outputs.artifact-name }}
-          path: ${{ steps.prepare.outputs.result-paths }}
+          path: ${{ steps.coverage-results.outputs.result-paths || steps.prepare.outputs.result-paths }}
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: warn

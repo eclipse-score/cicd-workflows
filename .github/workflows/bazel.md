@@ -134,7 +134,9 @@ while available result files remain eligible for upload.
 - `working-directory` selects an existing Bazel workspace inside the checkout.
   Cache setup and commands use it. For tests, every `result-paths` pattern is relative
   to that workspace, including `!` exclusions. Defaults collect XML and test.log.
-  Coverage automatically uploads the generated coverage report instead.
+  Coverage uploads the generated coverage report instead. If no report files
+  were archived, it falls back to the test result paths, preserving XML and logs
+  for diagnosis without changing the command failure status.
 - `cache-key` defaults to the reusable job ID. Matrix callers must supply stable
   keys that distinguish variants. The cache action retains its own default
   restore/save policy and selects the Bazel version from the module workspace.
