@@ -8,6 +8,13 @@ pull-request, issue, and security-advisory evidence, and creates one
 `[release-notes-test]` issue for human review. It never creates or publishes a
 release.
 
+When a GitHub Release already exists for the target tag, the workflow uses its
+raw `What's Changed` PR list as the release scope. When drafting before a release
+exists, it derives scope from the supplied tag comparison. It inspects each
+in-scope PR and uses recent published notes for editorial context. Routine
+maintenance is deemphasized; dependency changes are still reported under
+Compatibility.
+
 ## Authentication And Permissions
 
 The workflow requests `copilot-requests: write`; gh-aw uses the per-run Actions

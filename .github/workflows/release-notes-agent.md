@@ -53,13 +53,48 @@ Generate a release note for the current repository strictly between these tags:
 - Milestone: `${{ github.event.inputs.milestone }}`
 
 Before writing, verify that both inputs are existing tags in the current
-repository and that the origin-to-release range is valid. Use GitHub repository
-and pull-request tools to inspect the comparison, merged pull requests, titles,
-labels, and links. Review dependency tracking files changed in the range. Get the
-release date from the release/tag metadata. If a milestone is provided, inspect
-its open issues and relevant security labels and advisories. Do not use evidence
-outside the requested tag range except milestone/security records needed by the
-template.
+repository and that the origin-to-release range is valid. Get the release date
+from GitHub release or tag metadata.
+
+## Determine release scope and evidence
+
+- If a GitHub Release exists for the release tag, retrieve its raw body and
+  metadata. When it contains a GitHub-generated `What's Changed` list, use every
+  unique PR linked there as the release scope. If that list is absent or has no
+  PR links, stop and report that the scope cannot be determined; do not silently
+  reconstruct an existing release from `git log` or another comparison.
+- If no GitHub Release exists yet, as in a pre-release test, use the GitHub
+  comparison between the supplied tags to identify merged PRs in range. Do not
+  include changes outside the range.
+- Fetch each in-scope PR's number, title, body, author, and URL. Inspect its diff
+  when the title and body are not enough to support a precise description. Every
+  generated claim must be traceable to PR metadata or a diff.
+- Review the two most recent published release notes before the target, or the
+  two most recent published releases when drafting a new release. Match their
+  level of detail and check whether an earlier promised follow-up is completed
+  by an in-scope PR. Prior notes provide context, not additional release scope.
+- Review dependency tracking files changed in the release range. If a milestone
+  is provided, inspect its open issues and relevant security labels and
+  advisories. If security or milestone evidence is unavailable, state that human
+  review is required instead of inferring that there are no issues.
+
+## Editorial classification
+
+- Highlight breaking behavior or API changes, deprecations, new public features
+  or libraries, user-visible bug fixes, and completion of changes previously
+  announced as upcoming.
+- Treat CI/workflow-only changes, bot dependency bumps, Bazel-visibility-only
+  changes, documentation-only changes, internal repository-sync or agent-tooling
+  changes, and changes reverted to net zero as routine rather than notable.
+- Apply that routine/notable distinction when deciding emphasis in the change
+  sections. Do not omit dependency changes from `Compatibility`; summarize other
+  meaningful labeled maintenance under `Other changes by Label` when useful.
+- Use RST headings and links that work in module documentation. The upstream
+  skill's ATX headings and GitHub-Markdown link syntax do not override the RST
+  format required by this template.
+
+Do not use evidence outside the requested tag range except prior-release context
+and milestone/security records needed by the template.
 
 Follow the embedded style guide and template exactly. Keep all headings and
 return reStructuredText, not Markdown. Replace placeholders only with verified
