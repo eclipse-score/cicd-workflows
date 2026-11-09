@@ -16,8 +16,7 @@ WORKFLOW = Path(__file__).resolve().parents[2] / '.github/workflows/bazel.yml'
 STEPS = yaml.safe_load(WORKFLOW.read_text())['jobs']['bazel']['steps']
 DEFAULTS = dict(BUILD_TARGETS='', TEST_TARGETS='', BAZEL_ARGS='', BUILD_ARGS='', TEST_ARGS='',
                 EVENT_NAME='pull_request', WORKING_DIRECTORY='.', ARTIFACT_NAME='', BAZEL_CONFIGS='',
-                TEST_COMMAND='test', COVERAGE_JUSTIFICATIONS='', COVERAGE_THRESHOLD='100',
-                RESULT_PATHS='bazel-testlogs/**/*.xml\nbazel-testlogs/**/test.log')
+                TEST_COMMAND='test', COVERAGE_JUSTIFICATIONS='', COVERAGE_THRESHOLD='100')
 
 
 def run_step(name, root, **values):
@@ -95,16 +94,17 @@ def test_build_only_validation_disables_report_upload(tmp_path):
     assert (tmp_path / 'output').read_text() == 'has-results=false\n'
 
 
-def test_nested_workspace_prefixes_every_report_pattern_and_retains_explicit_name(tmp_path):
+def test_nested_workspace_selects_standard_test_reports_and_retains_explicit_name(tmp_path):
     (tmp_path / 'examples/integration').mkdir(parents=True)
     result = run_step('Prepare workspace and report paths', tmp_path,
-                      WORKING_DIRECTORY='examples/integration', ARTIFACT_NAME='existing-docs-input',
-                      RESULT_PATHS='bazel-testlogs/**/*.xml\n!bazel-testlogs/excluded/**')
+                      WORKING_DIRECTORY='examples/integration', ARTIFACT_NAME='existing-docs-input')
     assert result.returncode == 0, result.stderr
     outputs = (tmp_path / 'output').read_text()
     assert 'artifact-name=existing-docs-input\n' in outputs
-    assert f'{tmp_path}/examples/integration/bazel-testlogs/**/*.xml\n' in outputs
-    assert f'!{tmp_path}/examples/integration/bazel-testlogs/excluded/**\n' in outputs
+    assert outputs.splitlines()[2:-1] == [
+        f'{tmp_path}/examples/integration/bazel-testlogs/**/*.xml',
+        f'{tmp_path}/examples/integration/bazel-testlogs/**/test.log',
+    ]
 
 
 def test_default_report_names_do_not_collide_between_invocations(tmp_path):
@@ -168,8 +168,7 @@ def test_coverage_upload_uses_the_centrally_selected_report_directory(tmp_path):
     report = tmp_path / 'coverage-report'
     report.mkdir()
     (report / 'index.html').write_text('coverage report')
-    result = run_step('Select coverage results', tmp_path,
-                      TEST_RESULT_PATHS=str(tmp_path / 'bazel-testlogs/**/*.xml'))
+    result = run_step('Select coverage results', tmp_path)
     assert result.returncode == 0, result.stderr
     output = (tmp_path / 'output').read_text()
     assert f'{tmp_path}/coverage-report\n' in output
@@ -261,10 +260,11 @@ def test_failed_coverage_uploads_test_results_unless_report_was_archived(tmp_pat
                         FAIL_COMMAND=failed, CREATE_ARCHIVE=str(archive).lower())
     assert executed.returncode == 23
     (workspace / 'output').unlink(missing_ok=True)
-    selected = run_step('Select coverage results', workspace,
-                        TEST_RESULT_PATHS='\n'.join(prepared_paths))
+    selected = run_step('Select coverage results', workspace)
     assert selected.returncode == 0, selected.stderr
-    selected_paths = (workspace / 'output').read_text().splitlines()[1:-1]
+    coverage_path = (workspace / 'output').read_text().removeprefix('result-paths=').strip()
+    # The upload expression uses the prepared test paths when this output is empty.
+    selected_paths = [coverage_path] if coverage_path else prepared_paths
     expected = [str(workspace / 'coverage-report')] if archive else prepared_paths
     assert selected_paths == expected
     if not archive:
@@ -276,8 +276,6 @@ def test_failed_coverage_uploads_test_results_unless_report_was_archived(tmp_pat
 
 def test_empty_coverage_archive_falls_back_to_test_results(tmp_path):
     (tmp_path / 'coverage-report').mkdir()
-    result = run_step('Select coverage results', tmp_path,
-                      TEST_RESULT_PATHS=str(tmp_path / 'bazel-testlogs/**/*.xml'))
+    result = run_step('Select coverage results', tmp_path)
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / 'output').read_text().splitlines()[1:-1] == [
-        str(tmp_path / 'bazel-testlogs/**/*.xml')]
+    assert (tmp_path / 'output').read_text() == ''

@@ -11,11 +11,9 @@ on:
       build-targets:
         description: Space-separated Bazel build targets; empty skips the build
         type: string
-        default: ""
       test-targets:
         description: Space-separated Bazel test targets, including exclusions; empty skips tests
         type: string
-        default: ""
       test-command:
         description: Test-phase Bazel command, either test or coverage
         type: string
@@ -23,7 +21,6 @@ on:
       coverage-justifications:
         description: Optional workspace-relative justification YAML for coverage_tool
         type: string
-        default: ""
       coverage-threshold:
         description: Minimum effective line coverage percentage, enforced by coverage_tool
         type: number
@@ -31,19 +28,15 @@ on:
       bazel-configs:
         description: Space-separated Bazel config names, applied in order to build and test or coverage
         type: string
-        default: ""
       bazel-args:
         description: Additional Bazel flags applied to all commands, after the default --lockfile_mode=error
         type: string
-        default: ""
       build-args:
         description: Additional flags applied only to the build
         type: string
-        default: ""
       test-args:
         description: Additional flags applied only to the test or coverage command, such as --test_timeout=600
         type: string
-        default: ""
       working-directory:
         description: Bazel workspace relative to the repository checkout
         type: string
@@ -51,11 +44,9 @@ on:
       cache-key:
         description: Stable disk-cache key; set a distinct value for each matrix variant
         type: string
-        default: ""
       packages:
         description: Additional APT packages, such as qemu-user for emulated Linux tests
         type: string
-        default: ""
       disk-space-level:
         description: Disk cleanup level (0-4), passed to more-disk-space
         type: number
@@ -63,7 +54,6 @@ on:
       runner-labels:
         description: Optional JSON runner label or array, overriding repository runner variables
         type: string
-        default: ""
       timeout-minutes:
         description: Job timeout, including setup, build and tests
         type: number
@@ -71,13 +61,6 @@ on:
       artifact-name:
         description: Result artifact name; empty generates a unique name for this invocation
         type: string
-        default: ""
-      result-paths:
-        description: Newline-separated result paths relative to working-directory
-        type: string
-        default: |
-          bazel-testlogs/**/*.xml
-          bazel-testlogs/**/test.log
       retention-days:
         description: Result artifact retention
         type: number
@@ -85,7 +68,6 @@ on:
       github-app-client-id:
         description: Optional GitHub App client ID for private dependencies
         type: string
-        default: ""
     secrets:
       github-app-private-key:
         description: Optional private key paired with github-app-client-id
@@ -105,6 +87,14 @@ jobs:
       contents: read
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    env:
+      BUILD_TARGETS: ${{ inputs.build-targets }}
+      TEST_TARGETS: ${{ inputs.test-targets }}
+      TEST_COMMAND: ${{ inputs.test-command }}
+      BAZEL_ARGS: ${{ inputs.bazel-args }}
+      BAZEL_CONFIGS: ${{ inputs.bazel-configs }}
+      BUILD_ARGS: ${{ inputs.build-args }}
+      TEST_ARGS: ${{ inputs.test-args }}
     outputs:
       artifact-name: ${{ steps.upload.outputs.artifact-id && steps.prepare.outputs.artifact-name || '' }}
     steps:
@@ -115,13 +105,6 @@ jobs:
         shell: python
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BUILD_TARGETS: ${{ inputs.build-targets }}
-          TEST_TARGETS: ${{ inputs.test-targets }}
-          TEST_COMMAND: ${{ inputs.test-command }}
-          BAZEL_ARGS: ${{ inputs.bazel-args }}
-          BAZEL_CONFIGS: ${{ inputs.bazel-configs }}
-          BUILD_ARGS: ${{ inputs.build-args }}
-          TEST_ARGS: ${{ inputs.test-args }}
         run: |
           import os
           import re
@@ -158,7 +141,6 @@ jobs:
         env:
           WORKING_DIRECTORY: ${{ inputs.working-directory }}
           ARTIFACT_NAME: ${{ inputs.artifact-name }}
-          RESULT_PATHS: ${{ inputs.result-paths }}
         run: |
           import os
           from pathlib import Path
@@ -169,24 +151,14 @@ jobs:
           directory = (root / relative).resolve()
           if relative.is_absolute() or not directory.is_relative_to(root) or not directory.is_dir():
               raise SystemExit('working-directory must be an existing directory inside the checkout.')
-          # Prefix every pattern, including exclusions, for nested Bazel workspaces.
+          # Resolve standard Bazel test reports inside the selected workspace.
           # These test reports also serve as the fallback if coverage cannot be archived.
-          paths = []
-          for pattern in os.environ['RESULT_PATHS'].splitlines():
-              pattern = pattern.strip()
-              if pattern:
-                  exclusion = pattern.startswith('!')
-                  pattern = pattern[1:] if exclusion else pattern
-                  if Path(pattern).is_absolute() or '..' in Path(pattern).parts:
-                      raise SystemExit('result-paths must be relative to working-directory.')
-                  paths.append(('!' if exclusion else '') + str(directory / pattern))
-          if not paths:
-              raise SystemExit('result-paths must contain at least one report path.')
+          paths = [str(directory / pattern) for pattern in
+                   ('bazel-testlogs/**/*.xml', 'bazel-testlogs/**/test.log')]
           name = os.environ['ARTIFACT_NAME'] or f'bazel-tests-{uuid.uuid4().hex}'
-          delimiter = f'paths_{uuid.uuid4().hex}'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'artifact-name={name}\n')
-              output.write(f'result-paths<<{delimiter}\n' + '\n'.join(paths) + f'\n{delimiter}\n')
+              output.write('result-paths<<REPORT_PATHS\n' + '\n'.join(paths) + '\nREPORT_PATHS\n')
 
       - name: Configure access to private dependencies
         uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90
@@ -220,13 +192,6 @@ jobs:
         shell: python
         working-directory: ${{ inputs.working-directory }}
         env:
-          BUILD_TARGETS: ${{ inputs.build-targets }}
-          TEST_TARGETS: ${{ inputs.test-targets }}
-          TEST_COMMAND: ${{ inputs.test-command }}
-          BAZEL_ARGS: ${{ inputs.bazel-args }}
-          BAZEL_CONFIGS: ${{ inputs.bazel-configs }}
-          BUILD_ARGS: ${{ inputs.build-args }}
-          TEST_ARGS: ${{ inputs.test-args }}
           COVERAGE_JUSTIFICATIONS: ${{ inputs.coverage-justifications }}
           COVERAGE_THRESHOLD: ${{ inputs.coverage-threshold }}
           COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
@@ -239,30 +204,30 @@ jobs:
           # build and test share one checkout and the same Bazel/cache context.
           common = ['--lockfile_mode=error', *shlex.split(os.environ['BAZEL_ARGS'])]
           configs = [f'--config={config}' for config in os.environ['BAZEL_CONFIGS'].split()]
-          commands = []
+
+          def run_bazel(command, *args):
+              argv = ['bazel', command, *common, *args]
+              print(f'::group::{shlex.join(argv)}', flush=True)
+              result = subprocess.run(argv, check=False)
+              print('::endgroup::', flush=True)
+              # Stop immediately so a later command cannot hide this failure.
+              if result.returncode:
+                  raise SystemExit(result.returncode)
+
           for command in ('build', 'test'):
               targets = shlex.split(os.environ[f'{command.upper()}_TARGETS'])
               if not targets:
                   continue
               extra = shlex.split(os.environ[f'{command.upper()}_ARGS'])
               subcommand = os.environ['TEST_COMMAND'] if command == 'test' else command
-              argv = ['bazel', subcommand, *common, *configs, *extra, '--', *targets]
-              commands.append(argv)
+              run_bazel(subcommand, *configs, *extra, '--', *targets)
           if os.environ['TEST_COMMAND'] == 'coverage':
               # coverage_tool owns interpretation, justifications and the gate.
               # This workflow only connects its report to the artifact upload.
-              argv = ['bazel', 'run', *common, '@score_coverage//:generate_coverage_html', '--',
-                      '--archive-dir', os.environ['COVERAGE_REPORT_DIRECTORY']]
+              reporter_args = ['--archive-dir', os.environ['COVERAGE_REPORT_DIRECTORY']]
               if os.environ['COVERAGE_JUSTIFICATIONS']:
-                  argv.extend(['--yaml', os.environ['COVERAGE_JUSTIFICATIONS']])
-              commands.append(argv)
-          for argv in commands:
-              print(f'::group::{shlex.join(argv)}', flush=True)
-              result = subprocess.run(argv, check=False)
-              print('::endgroup::', flush=True)
-              # A failed build must stop the job before tests can hide its failure.
-              if result.returncode:
-                  raise SystemExit(result.returncode)
+                  reporter_args.extend(['--yaml', os.environ['COVERAGE_JUSTIFICATIONS']])
+              run_bazel('run', '@score_coverage//:generate_coverage_html', '--', *reporter_args)
 
       - name: Select coverage results
         id: coverage-results
@@ -270,20 +235,17 @@ jobs:
         shell: python
         env:
           COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
-          TEST_RESULT_PATHS: ${{ steps.prepare.outputs.result-paths }}
         run: |
           import os
           from pathlib import Path
-          import uuid
 
           report = Path(os.environ['COVERAGE_REPORT_DIRECTORY'])
-          # Test or reporter failures can leave no archive. Keep their XML and logs
-          # available for diagnosis without rerunning commands or masking the failure.
+          # Without an archive, leave this output empty so the upload falls back
+          # to test XML and logs while preserving the original command failure.
           has_report = report.is_dir() and any(path.is_file() for path in report.rglob('*'))
-          paths = str(report) if has_report else os.environ['TEST_RESULT_PATHS']
-          delimiter = f'paths_{uuid.uuid4().hex}'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'result-paths<<{delimiter}\n{paths}\n{delimiter}\n')
+              if has_report:
+                  output.write(f'result-paths={report}\n')
 
       - name: Upload results
         id: upload

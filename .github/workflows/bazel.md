@@ -132,8 +132,8 @@ while available result files remain eligible for upload.
   including when `test-command: coverage` is selected.
   Targets follow `--` so exclusions are not interpreted as Bazel options.
 - `working-directory` selects an existing Bazel workspace inside the checkout.
-  Cache setup and commands use it. For tests, every `result-paths` pattern is relative
-  to that workspace, including `!` exclusions. Defaults collect XML and test.log.
+  Cache setup and commands use it. Tests collect `bazel-testlogs/**/*.xml` and
+  `bazel-testlogs/**/test.log` relative to that workspace.
   Coverage uploads the generated coverage report instead. If no report files
   were archived, it falls back to the test result paths, preserving XML and logs
   for diagnosis without changing the command failure status.
