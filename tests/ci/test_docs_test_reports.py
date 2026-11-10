@@ -2,11 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Keep artifact collection format-neutral and reject ambiguous report trees."""
 
+import base64
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 
 import pytest
 import yaml
@@ -130,10 +135,86 @@ def test_rejects_file_directory_conflicts(tmp_path, reverse):
         reports.merge(sources[::-1] if reverse else sources, tmp_path / 'merged')
 
 
-@pytest.mark.parametrize('value', ['{}', 'null', '[]', '["same", "same"]', '[1]', '["../outside"]', '["*"]', '["."]', '[""]'])
-def test_rejects_invalid_or_pattern_artifact_names(value):
+@pytest.mark.parametrize('value', ['', '  \n  ', '[]', '["one", "two"]', '{}', '../outside', 'one?two', '[abc]', '.', '..', 'one|two'])
+def test_rejects_json_and_unsupported_pattern_syntax(value):
     with pytest.raises(ValueError):
-        reports.artifact_names(value)
+        reports.artifact_patterns(value)
+
+
+def test_multiline_patterns_ignore_blank_lines_and_surrounding_whitespace():
+    assert reports.artifact_patterns('  bazel-linux \n\n pytest-* \r\n') == ['bazel-linux', 'pytest-*']
+
+
+def test_star_patterns_match_case_sensitively_and_overlaps_download_once():
+    artifacts = [{'name': name, 'id': index} for index, name in enumerate([
+        'bazel-linux', 'pytest-cached', 'pytest-runtime', 'Pytest-other', 'unrelated',
+    ], 1)]
+    selected = reports.select_artifacts(['bazel-linux', 'pytest-*', '*-cached', 'pytest-*'], artifacts)
+    assert [artifact['name'] for artifact in selected] == ['bazel-linux', 'pytest-cached', 'pytest-runtime']
+
+
+@pytest.mark.parametrize('patterns', [['absent-*'], ['bazel-linux', 'absent-*'], ['bazel-*', 'absent']])
+def test_every_selector_requires_a_match_even_if_another_selector_matches(patterns):
+    with pytest.raises(ValueError, match='No test artifacts match: absent'):
+        reports.select_artifacts(patterns, [{'name': 'bazel-linux', 'id': 1}])
+
+
+def test_reruns_select_only_the_latest_artifact_with_each_name():
+    assert reports.select_artifacts(['unit-*'], [
+        {'name': 'unit-linux', 'id': 3}, {'name': 'unit-linux', 'id': 1},
+    ]) == [{'name': 'unit-linux', 'id': 3}]
+
+
+@pytest.mark.parametrize('name', ['../outside', '.', '..', 'name/child'])
+def test_wildcards_cannot_select_names_that_escape_download_directories(name):
+    with pytest.raises(ValueError, match='Unsupported test artifact name'):
+        reports.select_artifacts(['*'], [{'name': name, 'id': 1}])
+
+
+def test_lists_run_scoped_artifacts_without_additional_github_token_permissions(monkeypatch):
+    payload = base64.urlsafe_b64encode(json.dumps({'scp': 'Other.Scope Actions.Results:run-id:job-id'}).encode()).decode().rstrip('=')
+    token = f'header.{payload}.signature'
+    monkeypatch.setenv('ACTIONS_RUNTIME_TOKEN', token)
+    monkeypatch.setenv('ACTIONS_RESULTS_URL', 'https://artifacts.example/')
+
+    def open_request(request, timeout):
+        assert request.full_url == 'https://artifacts.example/twirp/github.actions.results.api.v1.ArtifactService/ListArtifacts'
+        assert request.get_header('Authorization') == f'Bearer {token}'
+        assert json.loads(request.data) == {'workflowRunBackendId': 'run-id', 'workflowJobRunBackendId': 'job-id'}
+        assert timeout == 60
+        return io.StringIO(json.dumps({'artifacts': [{'name': 'unit-linux', 'databaseId': '42'}]}))
+
+    monkeypatch.setattr(reports, 'urlopen', open_request)
+    assert reports.list_artifacts() == [{'name': 'unit-linux', 'id': 42}]
+
+
+@contextmanager
+def artifact_service(names):
+    """Serve the real action helper's metadata request without GitHub credentials."""
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            assert self.path.endswith('.ArtifactService/ListArtifacts')
+            self.rfile.read(int(self.headers['Content-Length']))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({'artifacts': [
+                {'name': name, 'databaseId': str(index)} for index, name in enumerate(names, 1)
+            ]}).encode())
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    payload = base64.urlsafe_b64encode(json.dumps({'scp': 'Actions.Results:run:job'}).encode()).decode().rstrip('=')
+    try:
+        yield {'ACTIONS_RUNTIME_TOKEN': f'header.{payload}.signature',
+               'ACTIONS_RESULTS_URL': f'http://127.0.0.1:{server.server_port}'}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
 def test_action_selects_only_requested_artifacts_and_combines_their_files(tmp_path):
@@ -148,13 +229,25 @@ def test_action_selects_only_requested_artifacts_and_combines_their_files(tmp_pa
     prepared = dict(line.split('=', 1) for line in output.read_text().splitlines())
     downloads = Path(prepared['downloads'])
     assert downloads.is_dir()
+    selection = next(step for step in action['runs']['steps'] if step.get('id') == 'reports')
+    # Exercise the JavaScript wrapper, environment handoff, service request and
+    # selector together. An unrelated artifact must never reach the download IDs.
+    selection_output = tmp_path / 'selection-output'
+    with artifact_service([*names, 'unrelated']) as runtime_env:
+        subprocess.run(['node', '-e', selection['with']['script']], check=True, env={
+            'PATH': os.environ['PATH'], **runtime_env, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
+            'ARTIFACTS': 'bazel-*\npytest-*\nbazel-linux', 'GITHUB_OUTPUT': str(selection_output),
+        })
+    selected = dict(line.split('=', 1) for line in selection_output.read_text().splitlines())
+    assert selected['ids'] == '1,2'
+    assert json.loads(selected['names']) == names
     artifact(downloads, names[0], {'pkg/test.xml': b'one'})
     artifact(downloads, names[1], {'pytest.xml': b'two'})
     artifact(downloads, 'unrelated', {'secret.txt': b'unselected'})
     destination = tmp_path / 'merged'
     merge = action['runs']['steps'][-1]
     subprocess.run(['bash', '-e', '-c', merge['run']], check=True, env={
-        **os.environ, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY), 'ARTIFACTS': json.dumps(names),
+        **os.environ, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY), 'NAMES': json.dumps(names),
         'DOWNLOADS': str(downloads), 'DESTINATION': str(destination),
     })
     assert sorted(path.relative_to(destination).as_posix() for path in destination.rglob('*') if path.is_file()) == ['pkg/test.xml', 'pytest.xml']
@@ -167,8 +260,8 @@ def test_cli_accepts_single_artifact_extracted_directly_into_download_root(tmp_p
     (downloads / 'test.xml').write_bytes(b'root report')
     (downloads / 'test.log').write_bytes(b'log')
     destination = tmp_path / 'merged'
-    subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'merge_reports.py'),
-                    '--artifacts', '["only-report"]', '--downloads', str(downloads),
+    subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'merge_reports.py'), 'merge',
+                    '--names', '["only-report"]', '--downloads', str(downloads),
                     '--destination', str(destination)], check=True)
     assert (destination / 'test.xml').read_bytes() == b'root report'
     assert (destination / 'test.log').read_bytes() == b'log'
@@ -180,18 +273,17 @@ def test_cli_rejects_missing_selection_even_when_one_match_is_flattened(tmp_path
     downloads.mkdir()
     if len(names) > 1:
         (downloads / 'test.xml').write_bytes(b'only present artifact was downloaded')
-    result = subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'merge_reports.py'),
-                             '--artifacts', json.dumps(names), '--downloads', str(downloads),
+    result = subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'merge_reports.py'), 'merge',
+                             '--names', json.dumps(names), '--downloads', str(downloads),
                              '--destination', str(tmp_path / 'merged')], capture_output=True, text=True)
     assert result.returncode != 0
     assert 'no files' in result.stderr or 'Missing test artifact directory' in result.stderr
 
 
 @pytest.mark.parametrize('single, multiple, success, selected', [
-    ('', '[]', True, False), ('legacy', '[]', True, False),
-    ('', '[ ]', True, False), ('', '["one", "two"]', True, True),
-    ('legacy', '["one"]', False, False), ('', '{}', False, False),
-    ('', 'invalid-json', False, False),
+    ('', '', True, False), ('legacy', '', True, False),
+    ('', ' \n ', True, False), ('', 'one\ntwo-*', True, True),
+    ('legacy', 'one', False, False), ('legacy', 'one-*', False, False),
 ])
 def test_workflow_preserves_legacy_input_and_rejects_ambiguous_selection(tmp_path, single, multiple, success, selected):
     workflow = yaml.safe_load((ROOT / '.github/workflows/docs.yml').read_text())

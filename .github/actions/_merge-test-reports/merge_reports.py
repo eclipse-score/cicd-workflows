@@ -3,20 +3,76 @@
 """Combine selected artifact trees without interpreting their report formats."""
 
 import argparse
+import base64
+from fnmatch import fnmatchcase
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+from urllib.request import Request, urlopen
 
 
-def artifact_names(value):
-    """Use exact, plain names so artifact selection cannot expand a glob."""
-    names = json.loads(value)
-    if (not isinstance(names, list) or not names or
-            any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', name)
-                or name in ('.', '..') for name in names) or len(set(names)) != len(names)):
-        raise ValueError('Expected a nonempty JSON array of unique plain artifact names')
-    return names
+def artifact_patterns(value):
+    """Read one exact artifact name or star pattern per nonblank line."""
+    patterns = [line.strip() for line in value.splitlines() if line.strip()]
+    if (not patterns or
+            any(not re.fullmatch(r'[A-Za-z0-9_.*-]+', pattern)
+                or pattern in ('.', '..') for pattern in patterns)):
+        raise ValueError('Expected artifact names or * patterns, one per line')
+    return patterns
+
+
+def list_artifacts():
+    """Use the same run-scoped artifact service as download-artifact.
+
+    The runtime token limits listing to this workflow run without requiring
+    additional GITHUB_TOKEN permissions from reusable-workflow callers. The
+    backend IDs and request follow actions/toolkit's artifact client:
+    https://github.com/actions/toolkit/tree/main/packages/artifact/src/internal
+    """
+    token = os.environ['ACTIONS_RUNTIME_TOKEN']
+    payload = token.split('.')[1]
+    claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+    scope = next(part.split(':') for part in claims['scp'].split()
+                 if part.startswith('Actions.Results:'))
+    if len(scope) != 3:
+        raise ValueError('Missing artifact service backend IDs')
+    request = Request(
+        os.environ['ACTIONS_RESULTS_URL'].rstrip('/') +
+        '/twirp/github.actions.results.api.v1.ArtifactService/ListArtifacts',
+        data=json.dumps({'workflowRunBackendId': scope[1], 'workflowJobRunBackendId': scope[2]}).encode(),
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+    )
+    with urlopen(request, timeout=60) as response:
+        return [{'name': artifact['name'], 'id': int(artifact['databaseId'])}
+                for artifact in json.load(response).get('artifacts', [])]
+
+
+def select_artifacts(patterns, artifacts):
+    """Require a match per selector and download each artifact once.
+
+    Reruns can leave several artifacts with the same name. Select the newest
+    upload, matching download-artifact's latest-artifact behavior.
+    """
+    latest = {}
+    for artifact in artifacts:
+        name = artifact['name']
+        if name not in latest or artifact['id'] > latest[name]['id']:
+            latest[name] = artifact
+    selected = {}
+    for pattern in patterns:
+        matches = [artifact for name, artifact in sorted(latest.items())
+                   if fnmatchcase(name, pattern)]
+        if not matches:
+            raise ValueError(f'No test artifacts match: {pattern}')
+        for artifact in matches:
+            # Artifact names become directory names during download. Only allow
+            # plain names before they can be interpreted as filesystem paths.
+            if not re.fullmatch(r'[A-Za-z0-9_.-]+', artifact['name']) or artifact['name'] in ('.', '..'):
+                raise ValueError(f'Unsupported test artifact name: {artifact["name"]}')
+            selected[artifact['id']] = artifact
+    return list(selected.values())
 
 
 def merge(sources, destination):
@@ -74,15 +130,26 @@ def merge(sources, destination):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--artifacts', required=True)
-    parser.add_argument('--downloads', type=Path, required=True)
-    parser.add_argument('--destination', type=Path, required=True)
+    subparsers = parser.add_subparsers(dest='command', required=True)
+    select = subparsers.add_parser('select')
+    select.add_argument('--artifacts', required=True)
+    select.add_argument('--output', type=Path, required=True)
+    collect = subparsers.add_parser('merge')
+    collect.add_argument('--names', required=True)
+    collect.add_argument('--downloads', type=Path, required=True)
+    collect.add_argument('--destination', type=Path, required=True)
     args = parser.parse_args()
-    names = artifact_names(args.artifacts)
-    # The pinned download action flattens exactly one matching artifact into
-    # its download root, even when merge-multiple is false. Only use that layout
-    # for a one-name selection; a multi-name selection must supply every named
-    # directory rather than treating one downloaded artifact as several reports.
+    if args.command == 'select':
+        patterns = artifact_patterns(args.artifacts)
+        selected = select_artifacts(patterns, list_artifacts())
+        with args.output.open('a') as output:
+            output.write(f'ids={",".join(str(artifact["id"]) for artifact in selected)}\n')
+            output.write(f'names={json.dumps([artifact["name"] for artifact in selected])}\n')
+        return
+    names = json.loads(args.names)
+    # download-artifact flattens a single match even with merge-multiple false.
+    # Resolve names before download so a missing selection cannot masquerade as
+    # the flattened layout of one successfully downloaded artifact.
     sources = ([(names[0], args.downloads)] if len(names) == 1 else
                [(name, args.downloads / name) for name in names])
     print(f'Merged {merge(sources, args.destination)} test report files')

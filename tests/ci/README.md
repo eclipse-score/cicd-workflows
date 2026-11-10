@@ -101,5 +101,6 @@ checks in GitHub Actions using the candidate workflow implementation.
 The internal report collection action also has real-artifact self-tests in
 [the report self-test workflow](../../.github/workflows/_test_merge_test_reports.yml).
 They upload fixtures and invoke the candidate action for single and multiple
-artifacts, identical files, conflicts and missing artifacts. The PR workflow's
+artifacts, star patterns with one or multiple matches, overlapping selections,
+identical files, conflicts and missing exact names or patterns. The PR workflow's
 `CI success` gate requires these self-tests as well as consumer compatibility.

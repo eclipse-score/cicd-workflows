@@ -27,9 +27,9 @@ on:
         type: string
         default: "//:docs"
       tests-report-artifacts:
-        description: JSON array of test report artifact names to combine; cannot be used with tests-report-artifact
+        description: Test report artifact names or * patterns, one per line; cannot be used with tests-report-artifact
         required: false
-        default: '[]'
+        default: ""
         type: string
       tests-report-artifact:
         description: "Name of the artifact that contains test reports"
@@ -92,11 +92,11 @@ jobs:
           REPORTS: ${{ inputs.tests-report-artifacts }}
         shell: bash
         run: |
-          if ! jq -e 'type == "array"' <<< "$REPORTS" > /dev/null; then
-            echo '::error::tests-report-artifacts must be a JSON array'
-            exit 1
+          reports=${REPORTS//[[:space:]]/}
+          multiple=false
+          if [[ -n "$reports" ]]; then
+            multiple=true
           fi
-          multiple=$(jq 'length > 0' <<< "$REPORTS")
           if [[ "$multiple" == true && -n "$SINGLE_REPORT" ]]; then
             echo '::error::Use either tests-report-artifact or tests-report-artifacts, not both'
             exit 1

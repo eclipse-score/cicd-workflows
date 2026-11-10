@@ -107,7 +107,7 @@ the same version twice is intended.
 | `retention-days` | `1` | Number of days to retain the documentation artifact. |
 | `bazel-target` | `//:docs` | Bazel target invoked with `bazel run`. |
 | `tests-report-artifact` | empty | Optional artifact downloaded to `tests-report` before the docs build. |
-| `tests-report-artifacts` | `[]` | JSON array of exact artifact names to combine into `tests-report`; mutually exclusive with `tests-report-artifact`. |
+| `tests-report-artifacts` | empty | Artifact names or `*` patterns, one per line, to combine into `tests-report`; mutually exclusive with `tests-report-artifact`. |
 | `coverage-report-artifact` | empty | Optional artifact containing plain LCOV as `coverage.lcov` or `coverage_report.dat` at its root, downloaded to `coverage-report` before the docs build. |
 | `deployment_type` | `workflow` | Deprecated compatibility input; publishing is always handled by `docs-publish.yml`. |
 
@@ -128,17 +128,25 @@ jobs:
     needs: tests
     uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
     with:
-      tests-report-artifacts: '["tests-bazel-linux", "tests-pytest-cached", "tests-pytest-runtime"]'
+      tests-report-artifacts: |
+        tests-bazel-linux
+        tests-pytest-*
 ```
 
 Use either `tests-report-artifact` or `tests-report-artifacts`. Existing single
 artifact calls keep their behavior. Leaving both inputs at their defaults builds
 without downloading test reports.
 
-Names are exact and refer to the current workflow run. Use letters, numbers,
-underscores, hyphens and periods; globs and duplicate names are rejected. Every
-selected artifact must exist and contain files. Artifact directory prefixes are
-removed while relative paths inside each artifact are preserved. XML files,
+Names and patterns refer to the current workflow run. Put one selection on each
+line; surrounding whitespace and blank lines are ignored. Use letters, numbers,
+underscores, hyphens and periods, with `*` matching zero or more characters.
+Matching is case-sensitive. Other glob syntax such as `?` and bracket expressions
+is unsupported. JSON arrays are not accepted.
+
+Each line must match at least one artifact. Overlapping patterns select an
+artifact only once. When a rerun leaves multiple artifacts with the same name,
+the latest upload is selected. Every selected artifact must contain files.
+Artifact directory prefixes are removed while relative paths inside each artifact are preserved. XML files,
 logs and other companion files are copied without parsing or renaming.
 
 Files with identical relative paths and bytes are accepted once. Different
