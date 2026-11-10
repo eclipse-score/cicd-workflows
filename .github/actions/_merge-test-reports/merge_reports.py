@@ -13,6 +13,14 @@ import shutil
 from urllib.request import Request, urlopen
 
 
+class CollectionError(ValueError):
+    """Identify an expected report error separately from service/runtime failures."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def artifact_patterns(value):
     """Read one exact artifact name or star pattern per nonblank line."""
     patterns = [line.strip() for line in value.splitlines() if line.strip()]
@@ -41,11 +49,11 @@ def list_artifacts():
     request = Request(
         os.environ['ACTIONS_RESULTS_URL'].rstrip('/') +
         '/twirp/github.actions.results.api.v1.ArtifactService/ListArtifacts',
-        data=json.dumps({'workflowRunBackendId': scope[1], 'workflowJobRunBackendId': scope[2]}).encode(),
+        data=json.dumps({'workflow_run_backend_id': scope[1], 'workflow_job_run_backend_id': scope[2]}).encode(),
         headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
     )
     with urlopen(request, timeout=60) as response:
-        return [{'name': artifact['name'], 'id': int(artifact['databaseId'])}
+        return [{'name': artifact['name'], 'id': int(artifact['database_id'])}
                 for artifact in json.load(response).get('artifacts', [])]
 
 
@@ -65,7 +73,7 @@ def select_artifacts(patterns, artifacts):
         matches = [artifact for name, artifact in sorted(latest.items())
                    if fnmatchcase(name, pattern)]
         if not matches:
-            raise ValueError(f'No test artifacts match: {pattern}')
+            raise CollectionError('artifact-not-found', f'No test artifacts match: {pattern}')
         for artifact in matches:
             # Artifact names become directory names during download. Only allow
             # plain names before they can be interpreted as filesystem paths.
@@ -120,7 +128,7 @@ def merge(sources, destination):
                 raise ValueError(f'Test report destination contains a symlink: {relative}')
             if target.exists():
                 if not target.is_file() or target.read_bytes() != source.read_bytes():
-                    raise ValueError(f'Conflicting test report file: {relative} (artifact {name})')
+                    raise CollectionError('file-conflict', f'Conflicting test report file: {relative} (artifact {name})')
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
@@ -156,4 +164,12 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except CollectionError as error:
+        # Self-tests must distinguish the expected report rejection from an API
+        # or programming failure that also produces a nonzero process exit.
+        if output := os.environ.get('GITHUB_OUTPUT'):
+            with Path(output).open('a') as output_file:
+                output_file.write(f'error-code={error.code}\n')
+        raise

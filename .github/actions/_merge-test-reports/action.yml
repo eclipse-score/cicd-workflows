@@ -10,6 +10,10 @@ inputs:
   destination:
     description: Directory in which to combine reports while preserving relative paths
     required: true
+outputs:
+  error-code:
+    description: Expected report error (artifact-not-found or file-conflict); empty for unexpected failures
+    value: ${{ steps.reports.outputs.error-code || steps.merge.outputs.error-code }}
 runs:
   using: composite
   steps:
@@ -30,7 +34,7 @@ runs:
           const {execFileSync} = require('node:child_process');
           execFileSync('python3', [
             `${process.env.ACTION_DIRECTORY}/merge_reports.py`, 'select',
-            '--artifacts', process.env.ARTIFACTS, '--output', process.env.GITHUB_OUTPUT,
+            `--artifacts=${process.env.ARTIFACTS}`, '--output', process.env.GITHUB_OUTPUT,
           ], {stdio: 'inherit'});
     - name: Download selected test reports
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -43,6 +47,7 @@ runs:
     # consumer checkout. It copies only the resolved selection and checks file
     # conflicts before the documentation build.
     - name: Merge report files
+      id: merge
       shell: bash
       env:
         ACTION_DIRECTORY: ${{ github.action_path }}

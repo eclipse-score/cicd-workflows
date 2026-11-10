@@ -80,10 +80,16 @@ jobs:
         env:
           SCENARIO: ${{ matrix.scenario }}
           OUTCOME: ${{ steps.collect.outcome }}
+          ERROR_CODE: ${{ steps.collect.outputs.error-code }}
         run: |
           case "$SCENARIO" in
-            conflict|missing|missing-pattern|partial-missing-pattern)
+            conflict)
               test "$OUTCOME" = failure
+              test "$ERROR_CODE" = file-conflict
+              ;;
+            missing|missing-pattern|partial-missing-pattern)
+              test "$OUTCOME" = failure
+              test "$ERROR_CODE" = artifact-not-found
               ;;
             single|pattern-single|identical)
               test "$OUTCOME" = success

@@ -180,25 +180,28 @@ def test_lists_run_scoped_artifacts_without_additional_github_token_permissions(
     def open_request(request, timeout):
         assert request.full_url == 'https://artifacts.example/twirp/github.actions.results.api.v1.ArtifactService/ListArtifacts'
         assert request.get_header('Authorization') == f'Bearer {token}'
-        assert json.loads(request.data) == {'workflowRunBackendId': 'run-id', 'workflowJobRunBackendId': 'job-id'}
+        assert json.loads(request.data) == {'workflow_run_backend_id': 'run-id', 'workflow_job_run_backend_id': 'job-id'}
         assert timeout == 60
-        return io.StringIO(json.dumps({'artifacts': [{'name': 'unit-linux', 'databaseId': '42'}]}))
+        return io.StringIO(json.dumps({'artifacts': [{'name': 'unit-linux', 'database_id': '42'}]}))
 
     monkeypatch.setattr(reports, 'urlopen', open_request)
     assert reports.list_artifacts() == [{'name': 'unit-linux', 'id': 42}]
 
 
 @contextmanager
-def artifact_service(names):
+def artifact_service(names, artifacts=None):
     """Serve the real action helper's metadata request without GitHub credentials."""
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             assert self.path.endswith('.ArtifactService/ListArtifacts')
-            self.rfile.read(int(self.headers['Content-Length']))
+            request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if request != {'workflow_run_backend_id': 'run', 'workflow_job_run_backend_id': 'job'}:
+                self.send_error(400, 'Expected protobuf field names')
+                return
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(json.dumps({'artifacts': [
-                {'name': name, 'databaseId': str(index)} for index, name in enumerate(names, 1)
+            self.wfile.write(json.dumps({'artifacts': artifacts if artifacts is not None else [
+                {'name': name, 'database_id': str(index)} for index, name in enumerate(names, 1)
             ]}).encode())
 
         def log_message(self, *args):
@@ -295,3 +298,89 @@ def test_workflow_preserves_legacy_input_and_rejects_ambiguous_selection(tmp_pat
     assert (result.returncode == 0) == success
     if success:
         assert output.read_text() == f'multiple={str(selected).lower()}\n'
+
+
+def verify_failure_scenario(scenario, error_code):
+    workflow = yaml.safe_load((ROOT / '.github/workflows/_test_merge_test_reports.yml').read_text())
+    verify = workflow['jobs']['reports']['steps'][-1]['run']
+    return subprocess.run(['bash', '-e', '-c', verify], capture_output=True, text=True, env={
+        'PATH': os.environ['PATH'], 'SCENARIO': scenario, 'OUTCOME': 'failure', 'ERROR_CODE': error_code,
+    })
+
+
+@pytest.mark.parametrize('scenario, patterns', [
+    ('missing', 'present\nmissing'),
+    ('missing-pattern', 'absent-*'),
+    ('partial-missing-pattern', 'present\nabsent-*'),
+])
+def test_missing_selection_emits_the_reason_checked_by_the_real_selftest(tmp_path, scenario, patterns):
+    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
+    selection = next(step for step in action['runs']['steps'] if step.get('id') == 'reports')
+    output = tmp_path / 'output'
+    with artifact_service(['present']) as runtime_env:
+        result = subprocess.run(['node', '-e', selection['with']['script']], capture_output=True, text=True, env={
+            'PATH': os.environ['PATH'], **runtime_env, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
+            'ARTIFACTS': patterns, 'GITHUB_OUTPUT': str(output),
+        })
+    assert result.returncode != 0
+    assert 'No test artifacts match:' in result.stderr
+    assert output.read_text() == 'error-code=artifact-not-found\n'
+    assert verify_failure_scenario(scenario, 'artifact-not-found').returncode == 0
+
+
+def test_conflicting_files_emit_the_reason_checked_by_the_real_selftest(tmp_path):
+    downloads = tmp_path / 'downloads'
+    downloads.mkdir()
+    artifact(downloads, 'first', {'unit/test.xml': b'one'})
+    artifact(downloads, 'second', {'unit/test.xml': b'two'})
+    output = tmp_path / 'output'
+    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
+    merge = next(step for step in action['runs']['steps'] if step.get('id') == 'merge')
+    result = subprocess.run(['bash', '-e', '-c', merge['run']], capture_output=True, text=True, env={
+        'PATH': os.environ['PATH'], 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
+        'NAMES': '["first", "second"]', 'DOWNLOADS': str(downloads),
+        'DESTINATION': str(tmp_path / 'merged'), 'GITHUB_OUTPUT': str(output),
+    })
+    assert result.returncode != 0
+    assert 'Conflicting test report file: unit/test.xml' in result.stderr
+    assert output.read_text() == 'error-code=file-conflict\n'
+    assert verify_failure_scenario('conflict', 'file-conflict').returncode == 0
+
+
+def test_unexpected_service_schema_failure_is_not_a_successful_negative_test(tmp_path):
+    """A runtime KeyError must not be reported as an expected missing artifact."""
+    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
+    selection = next(step for step in action['runs']['steps'] if step.get('id') == 'reports')
+    output = tmp_path / 'output'
+    with artifact_service([], artifacts=[{'name': 'present', 'databaseId': '1'}]) as runtime_env:
+        result = subprocess.run(['node', '-e', selection['with']['script']], capture_output=True, text=True, env={
+            'PATH': os.environ['PATH'], **runtime_env, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
+            'ARTIFACTS': 'absent-*', 'GITHUB_OUTPUT': str(output),
+        })
+    assert result.returncode != 0
+    assert "KeyError: 'database_id'" in result.stderr
+    assert not output.exists()
+    assert verify_failure_scenario('missing-pattern', '').returncode != 0
+
+
+@pytest.mark.parametrize('scenario', ['conflict', 'missing', 'missing-pattern', 'partial-missing-pattern'])
+@pytest.mark.parametrize('error_code', ['', 'unexpected-error'])
+def test_negative_selftests_reject_unspecified_or_unexpected_failure_reasons(scenario, error_code):
+    assert verify_failure_scenario(scenario, error_code).returncode != 0
+
+
+@pytest.mark.parametrize('selector', ['-report', '-report*'])
+def test_action_passes_hyphen_prefixed_selectors_as_values(tmp_path, selector):
+    """Valid names and patterns beginning with '-' must reach artifact selection."""
+    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
+    selection = next(step for step in action['runs']['steps'] if step.get('id') == 'reports')
+    output = tmp_path / 'output'
+    with artifact_service(['-report', 'unrelated']) as runtime_env:
+        result = subprocess.run(['node', '-e', selection['with']['script']], capture_output=True, text=True, env={
+            'PATH': os.environ['PATH'], **runtime_env, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
+            'ARTIFACTS': selector, 'GITHUB_OUTPUT': str(output),
+        })
+    assert result.returncode == 0, result.stderr
+    selected = dict(line.split('=', 1) for line in output.read_text().splitlines())
+    assert selected['ids'] == '1'
+    assert json.loads(selected['names']) == ['-report']
