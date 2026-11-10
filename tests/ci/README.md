@@ -103,3 +103,31 @@ The internal report collection action also has real-artifact self-tests in
 They upload fixtures and invoke the candidate action for single and multiple
 artifacts, identical files, conflicts and missing artifacts. The PR workflow's
 `CI success` gate requires these self-tests as well as consumer compatibility.
+
+## Bazel workflow tests
+
+The [Bazel job guide](../../.github/workflows/bazel.md) describes the inputs and
+results for module callers. Its local tests cover two different boundaries:
+
+- `test_bazel_execute.py` imports the execution helper and calls `main()`
+  directly. It records the commands that would be passed to Bazel, using a
+  replacement for `subprocess.run`. The tests verify target selection,
+  argument order and quoting, shared configurations, coverage reporter setup
+  and stopping after a failed command. They do not parse workflow YAML or need
+  a Bazel installation.
+- `test_bazel_workflow.py` executes the workflow's remaining inline Python for
+  early validation, workspace selection and report paths. One test also runs
+  the actual composite-action launcher against a small fake Bazel executable
+  to check that the script and module workspace can live in different places.
+
+Run this focused subset from the repository root:
+
+```sh
+uv run --locked pytest tests/ci/test_bazel_execute.py tests/ci/test_bazel_workflow.py
+uv run --locked ruff check tests/ci .github/actions/_bazel-execute/execute.py
+```
+
+When changing execution behavior, update the direct Python tests. Changes to
+validation, report selection or the action launcher belong in the workflow
+tests. These local checks do not build modules, measure real coverage, resolve
+`$/` references on GitHub or upload/download real workflow artifacts.

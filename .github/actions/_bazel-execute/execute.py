@@ -1,6 +1,16 @@
 # Copyright (c) 2026 Contributors to the Eclipse Foundation
 # SPDX-License-Identifier: Apache-2.0
-"""Execute the validated Bazel request supplied by bazel.yml through its environment."""
+"""Run a module's selected Bazel phases in the current workspace.
+
+bazel.yml validates the request before setup and supplies its values through
+environment variables. The composite action selects the working directory;
+this helper uses the Bazel executable and cache already configured by setup.
+It does not resolve paths relative to its own source directory.
+
+Build and test targets independently enable their phases. Coverage replaces
+the test phase and then runs the shared reporter. The first failed command
+exits with its status; the workflow still collects available report files.
+"""
 
 import os
 import shlex
@@ -8,12 +18,14 @@ import subprocess
 
 
 def main():
+    """Execute the validated request in order, preserving module argument values."""
     # Split arguments without shell expansion. Target exclusions follow --;
     # build and test share one checkout and the same Bazel/cache context.
     common = ['--lockfile_mode=error', *shlex.split(os.environ['BAZEL_ARGS'])]
     configs = [f'--config={config}' for config in os.environ['BAZEL_CONFIGS'].split()]
 
     def run_bazel(command, *args):
+        """Stream a command's output into a log group and stop on failure."""
         argv = ['bazel', command, *common, *args]
         print(f'::group::{shlex.join(argv)}', flush=True)
         result = subprocess.run(argv, check=False)
@@ -31,7 +43,10 @@ def main():
         run_bazel(subcommand, *configs, *extra, '--', *targets)
     if os.environ['TEST_COMMAND'] == 'coverage':
         # coverage_tool owns interpretation, justifications and the gate.
-        # This workflow only connects its report to the artifact upload.
+        # The reporter runs on the host without the module's instrumentation
+        # configs or test-only flags, which could change how the tool is built.
+        # COVERAGE_THRESHOLD is inherited by the reporter as an environment
+        # variable; its archive directory connects the report to artifact upload.
         reporter_args = ['--archive-dir', os.environ['COVERAGE_REPORT_DIRECTORY']]
         if os.environ['COVERAGE_JUSTIFICATIONS']:
             reporter_args.extend(['--yaml', os.environ['COVERAGE_JUSTIFICATIONS']])

@@ -9,20 +9,20 @@ on:
   workflow_call:
     inputs:
       build-targets:
-        description: Space-separated Bazel build targets; empty skips the build
+        description: Space-separated targets to build before testing; empty skips this phase
         type: string
       test-targets:
-        description: Space-separated Bazel test targets, including exclusions; empty skips tests
+        description: Space-separated targets to test or collect coverage for, including exclusions; empty skips this phase
         type: string
       test-command:
-        description: Test-phase Bazel command, either test or coverage
+        description: Use test to run tests, or coverage to collect coverage and generate its report
         type: string
         default: test
       coverage-justifications:
-        description: Optional workspace-relative justification YAML for coverage_tool
+        description: Optional coverage justification YAML path, relative to the selected Bazel workspace
         type: string
       coverage-threshold:
-        description: Minimum effective line coverage percentage, enforced by coverage_tool
+        description: Minimum line coverage percentage after applying justifications; 0 disables the coverage gate
         type: number
         default: 100
       bazel-configs:
@@ -42,7 +42,7 @@ on:
         type: string
         default: .
       cache-key:
-        description: Stable disk-cache key; set a distinct value for each matrix variant
+        description: Stable cache name; choose a distinct value for each job and matrix variant
         type: string
       packages:
         description: Additional APT packages, such as qemu-user for emulated Linux tests
@@ -62,7 +62,7 @@ on:
         description: Result artifact name; empty generates a unique name for this invocation
         type: string
       retention-days:
-        description: Result artifact retention
+        description: Number of days to keep uploaded reports
         type: number
         default: 7
       github-app-client-id:
@@ -178,7 +178,7 @@ jobs:
           packages: ${{ inputs.packages }}
           cache: false
 
-      # This revision supports nested workspaces for lockfile and cache identity.
+      # Use the selected workspace's lockfile and Bazel version for cache setup.
       - name: Setup Bazel with shared caching
         uses: eclipse-score/cicd-actions/setup-bazel-cache@ee1eb410c572e2a97ae27488f8401887ec331de3
         with:
@@ -188,6 +188,9 @@ jobs:
       # The sandbox action needs Bazel on PATH to locate its install base.
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
 
+      # $/ loads this internal action from the same repository and commit as
+      # this workflow, even when a module in another repository calls it.
+      # The job environment carries the validated request into the action.
       - name: Execute Bazel commands
         uses: $/.github/actions/_bazel-execute
         with:

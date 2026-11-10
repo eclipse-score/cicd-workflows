@@ -21,6 +21,7 @@ DEFAULTS = dict(BUILD_TARGETS='', TEST_TARGETS='', BAZEL_ARGS='', BUILD_ARGS='',
 
 
 def run_step(name, root, **values):
+    """Run one inline workflow step with local paths replacing GitHub's runner environment."""
     environment = {**os.environ, **DEFAULTS, 'GITHUB_WORKSPACE': str(root),
                    'GITHUB_OUTPUT': str(root / 'output'),
                    'COVERAGE_REPORT_DIRECTORY': str(root / 'coverage-report'), **values}
@@ -32,6 +33,7 @@ def run_step(name, root, **values):
 
 @pytest.fixture
 def bazel(tmp_path):
+    """Record the composite wrapper's command and directory without a Bazel installation."""
     executable = tmp_path / 'bazel'
     executable.write_text('#!' + sys.executable + '\n' +
                           'import json, os, sys\n'
