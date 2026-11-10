@@ -52,7 +52,7 @@ on:
         type: boolean
         default: false
       setup-qemu:
-        description: Install qemu-system and enable KVM access; the module's Bazel targets start the VM
+        description: Install qemu-system and qemu-utils and enable KVM access; the module's Bazel targets start the VM
         type: boolean
         default: false
       qnx-license-server:
@@ -185,7 +185,7 @@ jobs:
           # Resolve standard Bazel test reports inside the selected workspace.
           # These test reports also serve as the fallback if coverage cannot be archived.
           paths = [str(directory / pattern) for pattern in
-                   ('bazel-testlogs/**/*.xml', 'bazel-testlogs/**/test.log')]
+                   ('bazel-testlogs/**/*.xml', 'bazel-testlogs/**/*.log')]
           name = os.environ['ARTIFACT_NAME'] or f'bazel-tests-{uuid.uuid4().hex}'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'artifact-name={name}\n')

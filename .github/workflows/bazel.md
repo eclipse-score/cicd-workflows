@@ -104,8 +104,9 @@ your SDK download does not need it. Netrc credentials for other hosts can coexis
 Set `qnx-license-server` if needed; the workspace's `.bazelrc` must import
 `user.bazelrc` when using a license server at the checkout root.
 
-QEMU setup installs `qemu-system` and enables KVM access on a runner with KVM and
-sudo/udev support. Your Bazel targets or test wrapper start and stop the VM.
+QEMU setup installs `qemu-system` and `qemu-utils` (including `qemu-img` for disk
+images), and enables KVM access on a runner with KVM and sudo/udev support.
+Your Bazel targets or test wrapper start and stop the VM.
 Enable it independently for other platforms; omit it for QNX build-only jobs.
 For Linux user-mode emulation, continue to use `packages: qemu-user`.
 
@@ -132,7 +133,8 @@ test and report-generation errors still fail the job. Omit
 
 ## Find and reuse reports
 
-Test jobs upload XML results and `test.log` files; coverage jobs upload the
+Test jobs upload XML results and all `.log` files under `bazel-testlogs`, including
+logs written by test tools alongside `test.log`. Coverage jobs upload the
 coverage report. Find them under **Artifacts** on the GitHub Actions run page.
 Results are kept for seven days by default; change this with `retention-days`.
 Build-only jobs do not upload reports.

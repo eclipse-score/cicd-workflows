@@ -1,14 +1,14 @@
 # Copyright (c) 2026 Contributors to the Eclipse Foundation
 # SPDX-License-Identifier: Apache-2.0
 name: Setup QEMU
-description: Install full-system emulators and allow the runner user to access KVM.
+description: Install full-system emulators and disk utilities, and allow the runner user to access KVM.
 runs:
   using: composite
   steps:
-    - name: Install QEMU system emulators
+    - name: Install QEMU emulators and disk utilities
       uses: eclipse-score/apt-install@d545215b973c4151236fcb3f75480dffcb914835
       with:
-        packages: qemu-system
+        packages: qemu-system qemu-utils
         cache: false
     - name: Enable KVM access
       shell: bash

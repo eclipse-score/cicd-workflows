@@ -167,7 +167,7 @@ def test_nested_workspace_selects_standard_test_reports_and_retains_explicit_nam
     assert 'artifact-name=existing-docs-input\n' in outputs
     assert outputs.splitlines()[2:-1] == [
         f'{tmp_path}/examples/integration/bazel-testlogs/**/*.xml',
-        f'{tmp_path}/examples/integration/bazel-testlogs/**/test.log',
+        f'{tmp_path}/examples/integration/bazel-testlogs/**/*.log',
     ]
 
 
@@ -226,6 +226,8 @@ def test_coverage_upload_selects_archive_or_nested_workspace_test_reports(tmp_pa
     logs.mkdir(parents=True)
     (logs / 'test.xml').write_text('<testsuite/>')
     (logs / 'test.log').write_text('test output')
+    (logs / 'tool.log').write_text('additional test tool output')
+    (logs / 'temporary.txt').write_text('not a report')
     if archive:
         report = tmp_path / 'coverage-report'
         report.mkdir()
@@ -241,5 +243,9 @@ def test_coverage_upload_selects_archive_or_nested_workspace_test_reports(tmp_pa
     # The upload expression falls back to the prepared XML/log paths without an archive.
     paths = [coverage_path] if coverage_path else test_paths
     assert paths == ([str(tmp_path / 'coverage-report')] if archive else [
-        str(workspace / 'bazel-testlogs/**/*.xml'), str(workspace / 'bazel-testlogs/**/test.log'),
+        str(workspace / 'bazel-testlogs/**/*.xml'), str(workspace / 'bazel-testlogs/**/*.log'),
     ])
+    # Extra tool logs must survive the fallback, while unrelated files stay out.
+    selected_reports = {path.name for pattern in test_paths
+                        for path in workspace.glob(str(Path(pattern).relative_to(workspace)))}
+    assert selected_reports == {'test.xml', 'test.log', 'tool.log'}
