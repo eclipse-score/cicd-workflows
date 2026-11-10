@@ -2,16 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Keep artifact collection format-neutral and reject ambiguous report trees."""
 
-import base64
-from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import io
-import json
 import os
 from pathlib import Path
 import subprocess
 import sys
-import threading
+import stat
+from zipfile import ZipFile, ZipInfo
 
 import pytest
 import yaml
@@ -145,142 +141,211 @@ def test_multiline_patterns_ignore_blank_lines_and_surrounding_whitespace():
     assert reports.artifact_patterns('  bazel-linux \n\n pytest-* \r\n') == ['bazel-linux', 'pytest-*']
 
 
-def test_star_patterns_match_case_sensitively_and_overlaps_download_once():
-    artifacts = [{'name': name, 'id': index} for index, name in enumerate([
-        'bazel-linux', 'pytest-cached', 'pytest-runtime', 'Pytest-other', 'unrelated',
-    ], 1)]
-    selected = reports.select_artifacts(['bazel-linux', 'pytest-*', '*-cached', 'pytest-*'], artifacts)
-    assert [artifact['name'] for artifact in selected] == ['bazel-linux', 'pytest-cached', 'pytest-runtime']
+
+def download(root, relative, files):
+    """Model download-artifact's raw ZIP output without depending on ZIP names."""
+    target = root / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with ZipFile(target, 'w') as archive:
+        for name, data in files.items():
+            archive.writestr(name, data)
+    return target
 
 
-@pytest.mark.parametrize('patterns', [['absent-*'], ['bazel-linux', 'absent-*'], ['bazel-*', 'absent']])
-def test_every_selector_requires_a_match_even_if_another_selector_matches(patterns):
-    with pytest.raises(ValueError, match='No test artifacts match: absent'):
-        reports.select_artifacts(patterns, [{'name': 'bazel-linux', 'id': 1}])
+def run_merge(downloads, destination, output):
+    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
+    merge = next(step for step in action['runs']['steps'] if step.get('id') == 'merge')
+    return subprocess.run(['bash', '-e', '-c', merge['run']], capture_output=True, text=True, env={
+        'PATH': os.environ['PATH'], 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
+        'DOWNLOADS': str(downloads), 'DESTINATION': str(destination), 'GITHUB_OUTPUT': str(output),
+    })
 
 
-def test_reruns_select_only_the_latest_artifact_with_each_name():
-    assert reports.select_artifacts(['unit-*'], [
-        {'name': 'unit-linux', 'id': 3}, {'name': 'unit-linux', 'id': 1},
-    ]) == [{'name': 'unit-linux', 'id': 3}]
-
-
-@pytest.mark.parametrize('name', ['../outside', '.', '..', 'name/child'])
-def test_wildcards_cannot_select_names_that_escape_download_directories(name):
-    with pytest.raises(ValueError, match='Unsupported test artifact name'):
-        reports.select_artifacts(['*'], [{'name': name, 'id': 1}])
-
-
-def test_lists_run_scoped_artifacts_without_additional_github_token_permissions(monkeypatch):
-    payload = base64.urlsafe_b64encode(json.dumps({'scp': 'Other.Scope Actions.Results:run-id:job-id'}).encode()).decode().rstrip('=')
-    token = f'header.{payload}.signature'
-    monkeypatch.setenv('ACTIONS_RUNTIME_TOKEN', token)
-    monkeypatch.setenv('ACTIONS_RESULTS_URL', 'https://artifacts.example/')
-
-    def open_request(request, timeout):
-        assert request.full_url == 'https://artifacts.example/twirp/github.actions.results.api.v1.ArtifactService/ListArtifacts'
-        assert request.get_header('Authorization') == f'Bearer {token}'
-        assert json.loads(request.data) == {'workflow_run_backend_id': 'run-id', 'workflow_job_run_backend_id': 'job-id'}
-        assert timeout == 60
-        return io.StringIO(json.dumps({'artifacts': [{'name': 'unit-linux', 'database_id': '42'}]}))
-
-    monkeypatch.setattr(reports, 'urlopen', open_request)
-    assert reports.list_artifacts() == [{'name': 'unit-linux', 'id': 42}]
-
-
-@contextmanager
-def artifact_service(names, artifacts=None):
-    """Serve the real action helper's metadata request without GitHub credentials."""
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self):
-            assert self.path.endswith('.ArtifactService/ListArtifacts')
-            request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-            if request != {'workflow_run_backend_id': 'run', 'workflow_job_run_backend_id': 'job'}:
-                self.send_error(400, 'Expected protobuf field names')
-                return
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(json.dumps({'artifacts': artifacts if artifacts is not None else [
-                {'name': name, 'database_id': str(index)} for index, name in enumerate(names, 1)
-            ]}).encode())
-
-        def log_message(self, *args):
-            pass
-
-    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    payload = base64.urlsafe_b64encode(json.dumps({'scp': 'Actions.Results:run:job'}).encode()).decode().rstrip('=')
-    try:
-        yield {'ACTIONS_RUNTIME_TOKEN': f'header.{payload}.signature',
-               'ACTIONS_RESULTS_URL': f'http://127.0.0.1:{server.server_port}'}
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join()
-
-
-def test_action_selects_only_requested_artifacts_and_combines_their_files(tmp_path):
-    """Run the actual preparation and merge steps around a simulated download."""
-    names = ['bazel-linux', 'pytest-runtime']
-    output = tmp_path / 'output'
+@pytest.mark.parametrize('selectors, pattern', [
+    ('bazel-linux\npytest-*', '@(bazel-linux|pytest-*)'),
+    (' tests-* \n\n *-linux\ntests-*', '@(tests-*|*-linux)'),
+    ('-report', '@(-report)'), ('-report*', '@(-report*)'),
+])
+def test_action_prepares_a_download_pattern_without_listing_artifacts(tmp_path, selectors, pattern):
     action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
     prepare = next(step for step in action['runs']['steps'] if step.get('id') == 'selection')
-    subprocess.run(['bash', '-e', '-c', prepare['run']], check=True, env={
-        **os.environ, 'RUNNER_TEMP': str(tmp_path), 'GITHUB_OUTPUT': str(output),
+    output = tmp_path / 'outputs'
+    result = subprocess.run(['bash', '-e', '-c', prepare['run']], capture_output=True, text=True, env={
+        'PATH': os.environ['PATH'], 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
+        'ARTIFACTS': selectors, 'RUNNER_TEMP': str(tmp_path), 'GITHUB_OUTPUT': str(output),
     })
+    assert result.returncode == 0, result.stderr
     prepared = dict(line.split('=', 1) for line in output.read_text().splitlines())
-    downloads = Path(prepared['downloads'])
-    assert downloads.is_dir()
-    selection = next(step for step in action['runs']['steps'] if step.get('id') == 'reports')
-    # Exercise the JavaScript wrapper, environment handoff, service request and
-    # selector together. An unrelated artifact must never reach the download IDs.
-    selection_output = tmp_path / 'selection-output'
-    with artifact_service([*names, 'unrelated']) as runtime_env:
-        subprocess.run(['node', '-e', selection['with']['script']], check=True, env={
-            'PATH': os.environ['PATH'], **runtime_env, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
-            'ARTIFACTS': 'bazel-*\npytest-*\nbazel-linux', 'GITHUB_OUTPUT': str(selection_output),
-        })
-    selected = dict(line.split('=', 1) for line in selection_output.read_text().splitlines())
-    assert selected['ids'] == '1,2'
-    assert json.loads(selected['names']) == names
-    artifact(downloads, names[0], {'pkg/test.xml': b'one'})
-    artifact(downloads, names[1], {'pytest.xml': b'two'})
-    artifact(downloads, 'unrelated', {'secret.txt': b'unselected'})
+    assert prepared['pattern'] == pattern
+    assert Path(prepared['downloads']).is_dir()
+    downloader = next(step for step in action['runs']['steps'] if 'actions/download-artifact@' in step.get('uses', ''))
+    assert downloader['with']['pattern'] == '${{ steps.selection.outputs.pattern }}'
+    assert downloader['with']['skip-decompress'] is True
+    assert downloader['with']['merge-multiple'] is False
+    assert 'artifact-ids' not in downloader['with']
+
+
+def test_merges_downloaded_archives_and_preserves_relative_paths_and_logs(tmp_path):
+    downloads = tmp_path / 'downloads'
+    download(downloads, 'bazel-linux/artifact.zip', {'pkg/unit/test.xml': b'unit', 'pkg/unit/test.log': b'log'})
+    download(downloads, 'pytest-runtime/artifact.zip', {'docs_bzl_3.12_runtime.xml': b'pytest'})
     destination = tmp_path / 'merged'
-    merge = action['runs']['steps'][-1]
-    subprocess.run(['bash', '-e', '-c', merge['run']], check=True, env={
-        **os.environ, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY), 'NAMES': json.dumps(names),
-        'DOWNLOADS': str(downloads), 'DESTINATION': str(destination),
+    result = run_merge(downloads, destination, tmp_path / 'outputs')
+    assert result.returncode == 0, result.stderr
+    assert sorted(p.relative_to(destination).as_posix() for p in destination.rglob('*') if p.is_file()) == [
+        'docs_bzl_3.12_runtime.xml', 'pkg/unit/test.log', 'pkg/unit/test.xml',
+    ]
+    assert (destination / 'pkg/unit/test.log').read_bytes() == b'log'
+
+
+def test_single_match_uses_archive_contents_without_guessing_artifact_directory_names(tmp_path):
+    """The flattened ZIP can contain directories that resemble artifact selectors."""
+    downloads = tmp_path / 'downloads'
+    download(downloads, 'arbitrary-archive-name.zip', {
+        'tests-unit/pkg/test.xml': b'unit', 'tests-integration/pkg/test.xml': b'integration',
     })
-    assert sorted(path.relative_to(destination).as_posix() for path in destination.rglob('*') if path.is_file()) == ['pkg/test.xml', 'pytest.xml']
-
-
-def test_cli_accepts_single_artifact_extracted_directly_into_download_root(tmp_path):
-    """Match download-artifact v8's ordinary one-artifact layout."""
-    downloads = tmp_path / 'downloads'
-    downloads.mkdir()
-    (downloads / 'test.xml').write_bytes(b'root report')
-    (downloads / 'test.log').write_bytes(b'log')
     destination = tmp_path / 'merged'
-    subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'merge_reports.py'), 'merge',
-                    '--names', '["only-report"]', '--downloads', str(downloads),
-                    '--destination', str(destination)], check=True)
-    assert (destination / 'test.xml').read_bytes() == b'root report'
-    assert (destination / 'test.log').read_bytes() == b'log'
+    assert reports.merge_downloads(downloads, destination) == 2
+    assert (destination / 'tests-unit/pkg/test.xml').read_bytes() == b'unit'
+    assert (destination / 'tests-integration/pkg/test.xml').read_bytes() == b'integration'
 
 
-@pytest.mark.parametrize('names', [['missing'], ['present', 'missing']])
-def test_cli_rejects_missing_selection_even_when_one_match_is_flattened(tmp_path, names):
+def test_partially_matching_selection_keeps_the_reports_that_were_downloaded(tmp_path):
+    """An unmatched input line is allowed when another selector downloads reports."""
+    downloads = tmp_path / 'downloads'
+    download(downloads, 'only-match.zip', {'unit/test.xml': b'present'})
+    destination = tmp_path / 'merged'
+    result = run_merge(downloads, destination, tmp_path / 'outputs')
+    assert result.returncode == 0, result.stderr
+    assert (destination / 'unit/test.xml').read_bytes() == b'present'
+
+
+@pytest.mark.parametrize('identical', [False, True])
+def test_archive_duplicates_preserve_identical_files_and_reject_conflicts(tmp_path, identical):
+    downloads = tmp_path / 'downloads'
+    download(downloads, 'first/artifact.zip', {'unit/test.xml': b'one'})
+    download(downloads, 'second/artifact.zip', {'unit/test.xml': b'one' if identical else b'two'})
+    destination = tmp_path / 'merged'
+    if identical:
+        assert reports.merge_downloads(downloads, destination) == 1
+    else:
+        with pytest.raises(reports.CollectionError, match='Conflicting test report file'):
+            reports.merge_downloads(downloads, destination)
+    assert (destination / 'unit/test.xml').read_bytes() == b'one'
+
+
+@pytest.mark.parametrize('filename', ['../outside/test.xml', '/absolute/test.xml', 'dir/../../outside/test.xml', 'dir\\test.xml'])
+def test_rejects_unsafe_archive_paths_before_extracting(tmp_path, filename):
+    downloads = tmp_path / 'downloads'
+    download(downloads, 'artifact.zip', {filename: b'outside'})
+    with pytest.raises(ValueError, match='Unsafe'):
+        reports.merge_downloads(downloads, tmp_path / 'merged')
+    assert not (tmp_path / 'outside').exists()
+    assert not (tmp_path / 'merged').exists()
+
+
+def test_rejects_symlinks_stored_in_archives(tmp_path):
     downloads = tmp_path / 'downloads'
     downloads.mkdir()
-    if len(names) > 1:
-        (downloads / 'test.xml').write_bytes(b'only present artifact was downloaded')
-    result = subprocess.run([sys.executable, str(ACTION_DIRECTORY / 'merge_reports.py'), 'merge',
-                             '--names', json.dumps(names), '--downloads', str(downloads),
-                             '--destination', str(tmp_path / 'merged')], capture_output=True, text=True)
+    with ZipFile(downloads / 'artifact.zip', 'w') as archive:
+        entry = ZipInfo('linked.xml')
+        entry.create_system = 3
+        entry.external_attr = (stat.S_IFLNK | 0o777) << 16
+        archive.writestr(entry, '/outside/test.xml')
+    with pytest.raises(ValueError, match='symlink'):
+        reports.merge_downloads(downloads, tmp_path / 'merged')
+
+
+def test_rejects_symlinks_in_the_download_tree(tmp_path):
+    downloads = tmp_path / 'downloads'
+    downloads.mkdir()
+    outside = download(tmp_path, 'outside.zip', {'test.xml': b'outside'})
+    (downloads / 'linked.zip').symlink_to(outside)
+    with pytest.raises(ValueError, match='symlink'):
+        reports.merge_downloads(downloads, tmp_path / 'merged')
+
+
+@pytest.mark.parametrize('same', [True, False])
+def test_duplicate_zip_entries_cannot_silently_replace_a_report(tmp_path, same):
+    downloads = tmp_path / 'downloads'
+    downloads.mkdir()
+    with ZipFile(downloads / 'artifact.zip', 'w') as archive:
+        archive.writestr('unit/test.xml', b'one')
+        with pytest.warns(UserWarning, match='Duplicate name'):
+            archive.writestr('unit/test.xml', b'one' if same else b'two')
+    destination = tmp_path / 'merged'
+    if same:
+        assert reports.merge_downloads(downloads, destination) == 1
+    else:
+        with pytest.raises(reports.CollectionError, match='Conflicting'):
+            reports.merge_downloads(downloads, destination)
+        assert not destination.exists()
+
+
+@pytest.mark.parametrize('alias', ['unit//test.xml', 'unit/./test.xml'])
+def test_equivalent_zip_paths_cannot_bypass_conflict_detection(tmp_path, alias):
+    """ZIP extraction normalizes separators and dot components to one file."""
+    downloads = tmp_path / 'downloads'
+    download(downloads, 'artifact.zip', {'unit/test.xml': b'one', alias: b'two'})
+    with pytest.raises(reports.CollectionError, match='Conflicting'):
+        reports.merge_downloads(downloads, tmp_path / 'merged')
+    assert not (tmp_path / 'merged').exists()
+
+
+def test_empty_archives_do_not_produce_a_successful_documentation_report(tmp_path):
+    downloads = tmp_path / 'downloads'
+    download(downloads, 'empty.zip', {})
+    with pytest.raises(ValueError, match='no files'):
+        reports.merge_downloads(downloads, tmp_path / 'merged')
+
+
+def verify_failure_scenario(scenario, error_code):
+    workflow = yaml.safe_load((ROOT / '.github/workflows/_test_merge_test_reports.yml').read_text())
+    verify = workflow['jobs']['reports']['steps'][-1]['run']
+    return subprocess.run(['bash', '-e', '-c', verify], capture_output=True, text=True, env={
+        'PATH': os.environ['PATH'], 'SCENARIO': scenario, 'OUTCOME': 'failure', 'ERROR_CODE': error_code,
+    })
+
+
+@pytest.mark.parametrize('scenario', ['missing-name', 'missing-pattern'])
+def test_no_downloads_emit_the_specific_error_checked_by_the_selftest(tmp_path, scenario):
+    downloads = tmp_path / 'downloads'
+    downloads.mkdir()
+    output = tmp_path / 'outputs'
+    result = run_merge(downloads, tmp_path / 'merged', output)
     assert result.returncode != 0
-    assert 'no files' in result.stderr or 'Missing test artifact directory' in result.stderr
+    assert 'No test report artifacts were downloaded' in result.stderr
+    assert output.read_text() == 'error-code=no-reports\n'
+    assert verify_failure_scenario(scenario, 'no-reports').returncode == 0
+
+
+def test_conflicting_files_emit_the_specific_error_checked_by_the_selftest(tmp_path):
+    downloads = tmp_path / 'downloads'
+    download(downloads, 'first/artifact.zip', {'unit/test.xml': b'one'})
+    download(downloads, 'second/artifact.zip', {'unit/test.xml': b'two'})
+    output = tmp_path / 'outputs'
+    result = run_merge(downloads, tmp_path / 'merged', output)
+    assert result.returncode != 0
+    assert output.read_text() == 'error-code=file-conflict\n'
+    assert verify_failure_scenario('conflict', 'file-conflict').returncode == 0
+
+
+def test_corrupt_download_does_not_pass_as_an_expected_missing_report(tmp_path):
+    downloads = tmp_path / 'downloads'
+    downloads.mkdir()
+    (downloads / 'broken.zip').write_bytes(b'not an archive')
+    output = tmp_path / 'outputs'
+    result = run_merge(downloads, tmp_path / 'merged', output)
+    assert result.returncode != 0
+    assert 'BadZipFile' in result.stderr
+    assert not output.exists()
+    assert verify_failure_scenario('missing-pattern', '').returncode != 0
+
+
+@pytest.mark.parametrize('scenario', ['conflict', 'missing-name', 'missing-pattern'])
+@pytest.mark.parametrize('error_code', ['', 'unexpected-error'])
+def test_negative_selftests_reject_unexpected_failure_reasons(scenario, error_code):
+    assert verify_failure_scenario(scenario, error_code).returncode != 0
 
 
 @pytest.mark.parametrize('single, multiple, success, selected', [
@@ -298,89 +363,3 @@ def test_workflow_preserves_legacy_input_and_rejects_ambiguous_selection(tmp_pat
     assert (result.returncode == 0) == success
     if success:
         assert output.read_text() == f'multiple={str(selected).lower()}\n'
-
-
-def verify_failure_scenario(scenario, error_code):
-    workflow = yaml.safe_load((ROOT / '.github/workflows/_test_merge_test_reports.yml').read_text())
-    verify = workflow['jobs']['reports']['steps'][-1]['run']
-    return subprocess.run(['bash', '-e', '-c', verify], capture_output=True, text=True, env={
-        'PATH': os.environ['PATH'], 'SCENARIO': scenario, 'OUTCOME': 'failure', 'ERROR_CODE': error_code,
-    })
-
-
-@pytest.mark.parametrize('scenario, patterns', [
-    ('missing', 'present\nmissing'),
-    ('missing-pattern', 'absent-*'),
-    ('partial-missing-pattern', 'present\nabsent-*'),
-])
-def test_missing_selection_emits_the_reason_checked_by_the_real_selftest(tmp_path, scenario, patterns):
-    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
-    selection = next(step for step in action['runs']['steps'] if step.get('id') == 'reports')
-    output = tmp_path / 'output'
-    with artifact_service(['present']) as runtime_env:
-        result = subprocess.run(['node', '-e', selection['with']['script']], capture_output=True, text=True, env={
-            'PATH': os.environ['PATH'], **runtime_env, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
-            'ARTIFACTS': patterns, 'GITHUB_OUTPUT': str(output),
-        })
-    assert result.returncode != 0
-    assert 'No test artifacts match:' in result.stderr
-    assert output.read_text() == 'error-code=artifact-not-found\n'
-    assert verify_failure_scenario(scenario, 'artifact-not-found').returncode == 0
-
-
-def test_conflicting_files_emit_the_reason_checked_by_the_real_selftest(tmp_path):
-    downloads = tmp_path / 'downloads'
-    downloads.mkdir()
-    artifact(downloads, 'first', {'unit/test.xml': b'one'})
-    artifact(downloads, 'second', {'unit/test.xml': b'two'})
-    output = tmp_path / 'output'
-    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
-    merge = next(step for step in action['runs']['steps'] if step.get('id') == 'merge')
-    result = subprocess.run(['bash', '-e', '-c', merge['run']], capture_output=True, text=True, env={
-        'PATH': os.environ['PATH'], 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
-        'NAMES': '["first", "second"]', 'DOWNLOADS': str(downloads),
-        'DESTINATION': str(tmp_path / 'merged'), 'GITHUB_OUTPUT': str(output),
-    })
-    assert result.returncode != 0
-    assert 'Conflicting test report file: unit/test.xml' in result.stderr
-    assert output.read_text() == 'error-code=file-conflict\n'
-    assert verify_failure_scenario('conflict', 'file-conflict').returncode == 0
-
-
-def test_unexpected_service_schema_failure_is_not_a_successful_negative_test(tmp_path):
-    """A runtime KeyError must not be reported as an expected missing artifact."""
-    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
-    selection = next(step for step in action['runs']['steps'] if step.get('id') == 'reports')
-    output = tmp_path / 'output'
-    with artifact_service([], artifacts=[{'name': 'present', 'databaseId': '1'}]) as runtime_env:
-        result = subprocess.run(['node', '-e', selection['with']['script']], capture_output=True, text=True, env={
-            'PATH': os.environ['PATH'], **runtime_env, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
-            'ARTIFACTS': 'absent-*', 'GITHUB_OUTPUT': str(output),
-        })
-    assert result.returncode != 0
-    assert "KeyError: 'database_id'" in result.stderr
-    assert not output.exists()
-    assert verify_failure_scenario('missing-pattern', '').returncode != 0
-
-
-@pytest.mark.parametrize('scenario', ['conflict', 'missing', 'missing-pattern', 'partial-missing-pattern'])
-@pytest.mark.parametrize('error_code', ['', 'unexpected-error'])
-def test_negative_selftests_reject_unspecified_or_unexpected_failure_reasons(scenario, error_code):
-    assert verify_failure_scenario(scenario, error_code).returncode != 0
-
-
-@pytest.mark.parametrize('selector', ['-report', '-report*'])
-def test_action_passes_hyphen_prefixed_selectors_as_values(tmp_path, selector):
-    """Valid names and patterns beginning with '-' must reach artifact selection."""
-    action = yaml.safe_load((ACTION_DIRECTORY / 'action.yml').read_text())
-    selection = next(step for step in action['runs']['steps'] if step.get('id') == 'reports')
-    output = tmp_path / 'output'
-    with artifact_service(['-report', 'unrelated']) as runtime_env:
-        result = subprocess.run(['node', '-e', selection['with']['script']], capture_output=True, text=True, env={
-            'PATH': os.environ['PATH'], **runtime_env, 'ACTION_DIRECTORY': str(ACTION_DIRECTORY),
-            'ARTIFACTS': selector, 'GITHUB_OUTPUT': str(output),
-        })
-    assert result.returncode == 0, result.stderr
-    selected = dict(line.split('=', 1) for line in output.read_text().splitlines())
-    assert selected['ids'] == '1'
-    assert json.loads(selected['names']) == ['-report']

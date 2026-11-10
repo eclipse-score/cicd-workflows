@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [single, multiple, pattern-single, pattern-multiple, overlap, identical, conflict, missing, missing-pattern, partial-missing-pattern]
+        scenario: [single, multiple, pattern-single, pattern-multiple, overlap, identical, conflict, missing-name, missing-pattern, partial-missing-name, partial-missing-pattern]
     steps:
       # Use real artifacts to exercise download layout and expression handling.
       # The self reference loads the candidate action without a source checkout.
@@ -45,6 +45,7 @@ jobs:
                 echo "$FIRST"
                 echo "selftest-reports-$SCENARIO-*-${{ github.run_attempt }}"
                 ;;
+              missing-name) echo "selftest-reports-$SCENARIO-absent-${{ github.run_attempt }}" ;;
               missing-pattern) echo "selftest-reports-$SCENARIO-absent-*" ;;
               partial-missing-pattern)
                 echo "$FIRST"
@@ -62,7 +63,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
       - name: Upload second report
-        if: ${{ !contains(fromJSON('["single", "pattern-single", "missing", "missing-pattern", "partial-missing-pattern"]'), matrix.scenario) }}
+        if: ${{ !contains(fromJSON('["single", "pattern-single", "missing-name", "missing-pattern", "partial-missing-name", "partial-missing-pattern"]'), matrix.scenario) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: selftest-reports-${{ matrix.scenario }}-second-${{ github.run_attempt }}
@@ -71,7 +72,7 @@ jobs:
           retention-days: 1
       - name: Collect selected reports
         id: collect
-        continue-on-error: ${{ contains(fromJSON('["conflict", "missing", "missing-pattern", "partial-missing-pattern"]'), matrix.scenario) }}
+        continue-on-error: ${{ contains(fromJSON('["conflict", "missing-name", "missing-pattern"]'), matrix.scenario) }}
         uses: $/.github/actions/_merge-test-reports
         with:
           artifacts: ${{ steps.fixtures.outputs.artifacts }}
@@ -87,11 +88,11 @@ jobs:
               test "$OUTCOME" = failure
               test "$ERROR_CODE" = file-conflict
               ;;
-            missing|missing-pattern|partial-missing-pattern)
+            missing-name|missing-pattern)
               test "$OUTCOME" = failure
-              test "$ERROR_CODE" = artifact-not-found
+              test "$ERROR_CODE" = no-reports
               ;;
-            single|pattern-single|identical)
+            single|pattern-single|identical|partial-missing-name|partial-missing-pattern)
               test "$OUTCOME" = success
               diff -r fixtures/first merged-reports
               ;;

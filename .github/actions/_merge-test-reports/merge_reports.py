@@ -3,14 +3,13 @@
 """Combine selected artifact trees without interpreting their report formats."""
 
 import argparse
-import base64
-from fnmatch import fnmatchcase
-import json
 import os
 from pathlib import Path
 import re
 import shutil
-from urllib.request import Request, urlopen
+import stat
+import tempfile
+from zipfile import ZipFile
 
 
 class CollectionError(ValueError):
@@ -31,56 +30,45 @@ def artifact_patterns(value):
     return patterns
 
 
-def list_artifacts():
-    """Use the same run-scoped artifact service as download-artifact.
+def merge_downloads(downloads, destination):
+    """Extract separate ZIP downloads before checking their report paths.
 
-    The runtime token limits listing to this workflow run without requiring
-    additional GITHUB_TOKEN permissions from reusable-workflow callers. The
-    backend IDs and request follow actions/toolkit's artifact client:
-    https://github.com/actions/toolkit/tree/main/packages/artifact/src/internal
+    download-artifact flattens a single match but creates artifact directories
+    for multiple matches. Keeping ZIPs intact makes both layouts unambiguous:
+    every downloaded file is one archive, regardless of its enclosing directory.
     """
-    token = os.environ['ACTIONS_RUNTIME_TOKEN']
-    payload = token.split('.')[1]
-    claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
-    scope = next(part.split(':') for part in claims['scp'].split()
-                 if part.startswith('Actions.Results:'))
-    if len(scope) != 3:
-        raise ValueError('Missing artifact service backend IDs')
-    request = Request(
-        os.environ['ACTIONS_RESULTS_URL'].rstrip('/') +
-        '/twirp/github.actions.results.api.v1.ArtifactService/ListArtifacts',
-        data=json.dumps({'workflow_run_backend_id': scope[1], 'workflow_job_run_backend_id': scope[2]}).encode(),
-        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-    )
-    with urlopen(request, timeout=60) as response:
-        return [{'name': artifact['name'], 'id': int(artifact['database_id'])}
-                for artifact in json.load(response).get('artifacts', [])]
-
-
-def select_artifacts(patterns, artifacts):
-    """Require a match per selector and download each artifact once.
-
-    Reruns can leave several artifacts with the same name. Select the newest
-    upload, matching download-artifact's latest-artifact behavior.
-    """
-    latest = {}
-    for artifact in artifacts:
-        name = artifact['name']
-        if name not in latest or artifact['id'] > latest[name]['id']:
-            latest[name] = artifact
-    selected = {}
-    for pattern in patterns:
-        matches = [artifact for name, artifact in sorted(latest.items())
-                   if fnmatchcase(name, pattern)]
-        if not matches:
-            raise CollectionError('artifact-not-found', f'No test artifacts match: {pattern}')
-        for artifact in matches:
-            # Artifact names become directory names during download. Only allow
-            # plain names before they can be interpreted as filesystem paths.
-            if not re.fullmatch(r'[A-Za-z0-9_.-]+', artifact['name']) or artifact['name'] in ('.', '..'):
-                raise ValueError(f'Unsupported test artifact name: {artifact["name"]}')
-            selected[artifact['id']] = artifact
-    return list(selected.values())
+    downloads = Path(downloads)
+    archives = []
+    for path in sorted(downloads.rglob('*')):
+        if path.is_symlink():
+            raise ValueError('Test artifact download contains a symlink')
+        if path.is_file():
+            archives.append(path)
+    if not archives:
+        raise CollectionError('no-reports', 'No test report artifacts were downloaded')
+    with tempfile.TemporaryDirectory(prefix='docs-report-extract-') as temporary:
+        sources = []
+        for index, path in enumerate(archives):
+            root = Path(temporary) / str(index)
+            root.mkdir()
+            with ZipFile(path) as archive:
+                entries = {}
+                for entry in archive.infolist():
+                    relative = Path(entry.filename)
+                    if relative.is_absolute() or '..' in relative.parts or '\\' in entry.filename:
+                        raise ValueError(f'Unsafe test report archive path: {entry.filename}')
+                    if stat.S_ISLNK(entry.external_attr >> 16):
+                        raise ValueError(f'Test report archive contains a symlink: {entry.filename}')
+                    # Duplicate ZIP entries participate in conflict detection too;
+                    # extraction must not silently overwrite a different result.
+                    key = relative.as_posix()
+                    if key in entries and not entry.is_dir():
+                        if archive.read(entries[key]) != archive.read(entry):
+                            raise CollectionError('file-conflict', f'Conflicting test report file: {entry.filename}')
+                    entries[key] = entry
+                archive.extractall(root)
+            sources.append((path.relative_to(downloads).as_posix(), root))
+        return merge(sources, destination)
 
 
 def merge(sources, destination):
@@ -139,28 +127,19 @@ def merge(sources, destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest='command', required=True)
-    select = subparsers.add_parser('select')
-    select.add_argument('--artifacts', required=True)
-    select.add_argument('--output', type=Path, required=True)
+    prepare = subparsers.add_parser('pattern')
+    prepare.add_argument('--artifacts', required=True)
+    prepare.add_argument('--output', type=Path, required=True)
     collect = subparsers.add_parser('merge')
-    collect.add_argument('--names', required=True)
     collect.add_argument('--downloads', type=Path, required=True)
     collect.add_argument('--destination', type=Path, required=True)
     args = parser.parse_args()
-    if args.command == 'select':
-        patterns = artifact_patterns(args.artifacts)
-        selected = select_artifacts(patterns, list_artifacts())
+    if args.command == 'pattern':
+        patterns = list(dict.fromkeys(artifact_patterns(args.artifacts)))
         with args.output.open('a') as output:
-            output.write(f'ids={",".join(str(artifact["id"]) for artifact in selected)}\n')
-            output.write(f'names={json.dumps([artifact["name"] for artifact in selected])}\n')
+            output.write(f'pattern=@({"|".join(patterns)})\n')
         return
-    names = json.loads(args.names)
-    # download-artifact flattens a single match even with merge-multiple false.
-    # Resolve names before download so a missing selection cannot masquerade as
-    # the flattened layout of one successfully downloaded artifact.
-    sources = ([(names[0], args.downloads)] if len(names) == 1 else
-               [(name, args.downloads / name) for name in names])
-    print(f'Merged {merge(sources, args.destination)} test report files')
+    print(f'Merged {merge_downloads(args.downloads, args.destination)} test report files')
 
 
 if __name__ == '__main__':

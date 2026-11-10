@@ -12,48 +12,38 @@ inputs:
     required: true
 outputs:
   error-code:
-    description: Expected report error (artifact-not-found or file-conflict); empty for unexpected failures
-    value: ${{ steps.reports.outputs.error-code || steps.merge.outputs.error-code }}
+    description: Expected report error (no-reports or file-conflict); empty for unexpected failures
+    value: ${{ steps.merge.outputs.error-code }}
 runs:
   using: composite
   steps:
-    - name: Create download directory
+    - name: Prepare download pattern and directory
       id: selection
       shell: bash
-      run: echo "downloads=$(mktemp -d "$RUNNER_TEMP/docs-test-reports.XXXXXX")" >> "$GITHUB_OUTPUT"
-    - name: Resolve artifact selection
-      id: reports
-      # JavaScript actions receive the run-scoped artifact service credentials;
-      # ordinary shell steps do not. Pass that environment to the helper.
-      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
       env:
         ACTION_DIRECTORY: ${{ github.action_path }}
         ARTIFACTS: ${{ inputs.artifacts }}
-      with:
-        script: |
-          const {execFileSync} = require('node:child_process');
-          execFileSync('python3', [
-            `${process.env.ACTION_DIRECTORY}/merge_reports.py`, 'select',
-            `--artifacts=${process.env.ARTIFACTS}`, '--output', process.env.GITHUB_OUTPUT,
-          ], {stdio: 'inherit'});
+      run: |
+        echo "downloads=$(mktemp -d "$RUNNER_TEMP/docs-test-reports.XXXXXX")" >> "$GITHUB_OUTPUT"
+        python3 "$ACTION_DIRECTORY/merge_reports.py" pattern --artifacts="$ARTIFACTS" --output "$GITHUB_OUTPUT"
     - name: Download selected test reports
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        artifact-ids: ${{ steps.reports.outputs.ids }}
+        pattern: ${{ steps.selection.outputs.pattern }}
         path: ${{ steps.selection.outputs.downloads }}
-        # Keep each artifact separate until every file can be checked for conflicts.
+        # Preserve archive boundaries even when exactly one match is downloaded.
+        skip-decompress: true
         merge-multiple: false
     # The Python helper belongs to this action's revision, independently of the
-    # consumer checkout. It copies only the resolved selection and checks file
+    # consumer checkout. It extracts the downloaded archives and checks file
     # conflicts before the documentation build.
     - name: Merge report files
       id: merge
       shell: bash
       env:
         ACTION_DIRECTORY: ${{ github.action_path }}
-        NAMES: ${{ steps.reports.outputs.names }}
         DOWNLOADS: ${{ steps.selection.outputs.downloads }}
         DESTINATION: ${{ inputs.destination }}
       run: >-
         python3 "$ACTION_DIRECTORY/merge_reports.py" merge
-        --names "$NAMES" --downloads "$DOWNLOADS" --destination "$DESTINATION"
+        --downloads "$DOWNLOADS" --destination "$DESTINATION"
