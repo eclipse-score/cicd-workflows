@@ -135,3 +135,9 @@ When changing execution behavior, update the direct Python tests. Changes to
 validation, report selection or the action launcher belong in the workflow
 tests. These local checks do not build modules, measure real coverage, resolve
 `$/` references on GitHub or upload/download real workflow artifacts.
+
+The Bazel tests also cover QNX credential validation, independent QNX/QEMU setup
+and cache policy, absolute download helpers and license-server configuration in
+nested workspaces. The QEMU shell step runs against a fake `sudo` to verify KVM
+rule installation and error propagation without changing the host. They do not
+download a QNX SDK, validate a license, install QEMU or boot a guest system.

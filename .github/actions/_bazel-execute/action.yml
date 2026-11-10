@@ -6,6 +6,7 @@
 # BAZEL_ARGS, BAZEL_CONFIGS, BUILD_ARGS and TEST_ARGS through the job environment.
 # Coverage additionally uses COVERAGE_JUSTIFICATIONS, COVERAGE_THRESHOLD and
 # COVERAGE_REPORT_DIRECTORY from the calling step's environment.
+# Optional QNX setup supplies SETUP_QNX_SDP, QNX_BAZELRC and QNX_CREDENTIAL_HELPER.
 name: Execute Bazel commands
 description: Execute a validated build, test or coverage request in one workspace
 inputs:

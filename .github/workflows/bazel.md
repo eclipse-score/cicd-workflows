@@ -78,6 +78,37 @@ The temporary file is private to the runner user and removed during job cleanup;
 an existing `~/.netrc` is untouched. Omit the secret to keep existing authentication.
 GitHub dependency credentials above can be supplied alongside it.
 
+## QNX and virtual machines
+
+The two setup switches are independent and default to `false`. For QNX tests
+that run in a VM, extend the job with:
+
+```yaml
+with:
+  setup-qnx-sdp: true
+  setup-qemu: true
+  bazel-configs: score-qnx-x86_64
+  test-targets: //score/...
+  cache-key: qnx-x86_64
+secrets:
+  qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
+  qnx-user: ${{ secrets.SCORE_QNX_USER }}
+  qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
+```
+
+QNX setup requires all three secrets; the license is a base64-encoded license
+file. It disables SDK download/extraction caches while keeping the build-output
+cache. The default download helper is `.github/tools/qnx_credential_helper.py`
+in the checkout root; set `qnx-credential-helper` to another path or to `''` if
+your SDK download does not need it. Netrc credentials for other hosts can coexist.
+Set `qnx-license-server` if needed; the workspace's `.bazelrc` must import
+`user.bazelrc` when using a license server at the checkout root.
+
+QEMU setup installs `qemu-system` and enables KVM access on a runner with KVM and
+sudo/udev support. Your Bazel targets or test wrapper start and stop the VM.
+Enable it independently for other platforms; omit it for QNX build-only jobs.
+For Linux user-mode emulation, continue to use `packages: qemu-user`.
+
 ## Coverage
 
 For a module with a coverage configuration and the `coverage_tool` dependency,

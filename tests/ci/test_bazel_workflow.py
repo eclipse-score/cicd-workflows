@@ -17,7 +17,8 @@ STEPS = yaml.safe_load(WORKFLOW.read_text())['jobs']['bazel']['steps']
 EXECUTE = WORKFLOW.parents[1] / 'actions/_bazel-execute/execute.py'
 DEFAULTS = dict(BUILD_TARGETS='', TEST_TARGETS='', BAZEL_ARGS='', BUILD_ARGS='', TEST_ARGS='',
                 EVENT_NAME='pull_request', WORKING_DIRECTORY='.', ARTIFACT_NAME='', BAZEL_CONFIGS='',
-                TEST_COMMAND='test', COVERAGE_JUSTIFICATIONS='', COVERAGE_THRESHOLD='100')
+                TEST_COMMAND='test', COVERAGE_JUSTIFICATIONS='', COVERAGE_THRESHOLD='100',
+                SETUP_QNX_SDP='false', QNX_CREDENTIALS_PRESENT='false', QNX_BAZELRC='')
 
 
 def run_step(name, root, **values):
@@ -93,6 +94,68 @@ def test_netrc_is_available_to_cache_setup_and_cleaned_after_its_post_step():
 def test_build_only_validation_disables_report_upload(tmp_path):
     assert run_step('Validate request', tmp_path, BUILD_TARGETS='//...').returncode == 0
     assert (tmp_path / 'output').read_text() == 'has-results=false\n'
+
+
+def test_qnx_setup_requires_all_credentials_before_checkout(tmp_path):
+    result = run_step('Validate request', tmp_path, BUILD_TARGETS='//...', SETUP_QNX_SDP='true')
+    assert result.returncode != 0
+    assert 'setup-qnx-sdp requires qnx-license, qnx-user and qnx-password secrets.' in result.stderr
+    assert not (tmp_path / 'output').exists()
+
+
+@pytest.mark.parametrize('enabled, credentials', [('false', 'false'), ('false', 'true'), ('true', 'true')])
+def test_optional_qnx_setup_accepts_normal_jobs_and_complete_credentials(tmp_path, enabled, credentials):
+    result = run_step('Validate request', tmp_path, BUILD_TARGETS='//...',
+                      SETUP_QNX_SDP=enabled, QNX_CREDENTIALS_PRESENT=credentials)
+    assert result.returncode == 0, result.stderr
+
+
+def test_qnx_and_qemu_setup_are_independent_and_preserve_cache_defaults():
+    """QEMU is explicit even for QNX tests; only SDK setup changes cache policy."""
+    qnx = next(step for step in STEPS if step.get('name') == 'Setup QNX SDP')
+    qemu = next(step for step in STEPS if step.get('name') == 'Setup QEMU')
+    cache = next(step for step in STEPS if step.get('name') == 'Setup Bazel with shared caching')
+    execute = next(step for step in STEPS if step.get('name') == 'Execute Bazel commands')
+    assert qnx['if'] == '${{ inputs.setup-qnx-sdp }}'
+    assert qemu['if'] == '${{ inputs.setup-qemu }}'
+    assert STEPS.index(qnx) < STEPS.index(cache) < STEPS.index(execute)
+    assert STEPS.index(qemu) < STEPS.index(execute)
+    assert 'GITHUB_WORKSPACE' not in qnx.get('env', {})
+    for key in ('repository-cache-restore', 'repository-cache-save'):
+        assert cache['with'][key] == "${{ inputs.setup-qnx-sdp && 'false' || 'auto' }}"
+    for key in ('external-cache-restore', 'external-cache-save'):
+        assert cache['with'][key] == '${{ !inputs.setup-qnx-sdp }}'
+    assert not any(key.startswith('disk-cache-') and key != 'disk-cache-key' for key in cache['with'])
+
+
+@pytest.mark.parametrize('failed', ['', 'tee', 'control', 'trigger'])
+def test_qemu_host_preparation_installs_kvm_rule_and_propagates_failures(tmp_path, failed):
+    """Record privileged commands without running sudo or modifying device permissions."""
+    action = yaml.safe_load((WORKFLOW.parents[1] / 'actions/_setup-qemu/action.yml').read_text())
+    step = next(step for step in action['runs']['steps'] if step.get('name') == 'Enable KVM access')
+    sudo = tmp_path / 'sudo'
+    sudo.write_text('#!' + sys.executable + '\n'
+                    'import json, os, sys\n'
+                    'payload = sys.stdin.read() if sys.argv[1] == "tee" else ""\n'
+                    'with open(os.environ["COMMAND_LOG"], "a") as output:\n'
+                    '    output.write(json.dumps([sys.argv[1:], payload]) + "\\n")\n'
+                    'sys.exit(23 if os.environ["FAIL_COMMAND"] in sys.argv[1:] else 0)\n')
+    sudo.chmod(0o755)
+    log = tmp_path / 'commands'
+    environment = {**os.environ, 'PATH': str(tmp_path) + os.pathsep + os.environ['PATH'],
+                   'COMMAND_LOG': str(log), 'FAIL_COMMAND': failed}
+    result = subprocess.run([step['shell'], '-c', step['run']], env=environment, capture_output=True, text=True)
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert calls[0] == [['tee', '/etc/udev/rules.d/99-kvm4all.rules'],
+                        'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"\n']
+    if failed:
+        assert result.returncode == 23
+        assert failed in calls[-1][0]
+    else:
+        assert result.returncode == 0, result.stderr
+        assert [args for args, _ in calls[1:]] == [
+            ['udevadm', 'control', '--reload-rules'], ['udevadm', 'trigger', '--name-match=kvm'],
+        ]
 
 
 def test_nested_workspace_selects_standard_test_reports_and_retains_explicit_name(tmp_path):

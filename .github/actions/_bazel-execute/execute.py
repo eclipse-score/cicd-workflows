@@ -21,12 +21,24 @@ def main():
     """Execute the validated request in order, preserving module argument values."""
     # Split arguments without shell expansion. Target exclusions follow --;
     # build and test share one checkout and the same Bazel/cache context.
-    common = ['--lockfile_mode=error', *shlex.split(os.environ['BAZEL_ARGS'])]
+    common = ['--lockfile_mode=error']
+    # QNX setup exports an absolute helper path, independent of the checkout's
+    # .bazelrc spelling. The helper uses the QNX action's home .netrc entry;
+    # a separate NETRC file can still supply credentials for other download hosts.
+    helper = os.environ.get('QNX_CREDENTIAL_HELPER', '')
+    if os.environ.get('SETUP_QNX_SDP') == 'true' and helper:
+        common.append(f'--credential_helper=*.qnx.com={helper}')
+    common.extend(shlex.split(os.environ['BAZEL_ARGS']))
+    # setup-qnx-sdp writes license-server flags in the checkout root. An explicit
+    # extra bazelrc also loads those flags when the selected workspace is nested.
+    # Startup options precede the subcommand and remain one literal argument.
+    bazelrc = os.environ.get('QNX_BAZELRC', '') if os.environ.get('SETUP_QNX_SDP') == 'true' else ''
+    startup = [f'--bazelrc={bazelrc}'] if bazelrc else []
     configs = [f'--config={config}' for config in os.environ['BAZEL_CONFIGS'].split()]
 
     def run_bazel(command, *args):
         """Stream a command's output into a log group and stop on failure."""
-        argv = ['bazel', command, *common, *args]
+        argv = ['bazel', *startup, command, *common, *args]
         print(f'::group::{shlex.join(argv)}', flush=True)
         result = subprocess.run(argv, check=False)
         print('::endgroup::', flush=True)

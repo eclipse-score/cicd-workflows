@@ -19,7 +19,7 @@ repos:
           # TODO: Remove when actionlint supports GitHub's $/ self-repository syntax.
           # Match only these internal actions; other malformed uses still fail.
           - -ignore
-          - '^specifying action "\$/\.github/actions/(_merge-test-reports|_bazel-execute|_setup-netrc)" in invalid format because ref is missing\.'
+          - '^specifying action "\$/\.github/actions/(_merge-test-reports|_bazel-execute|_setup-netrc|_setup-qemu)" in invalid format because ref is missing\.'
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:

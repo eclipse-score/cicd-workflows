@@ -47,6 +47,21 @@ on:
       packages:
         description: Additional APT packages, such as qemu-user for emulated Linux tests
         type: string
+      setup-qnx-sdp:
+        description: Configure QNX licensing and SDK download access; requires the three qnx secrets
+        type: boolean
+        default: false
+      setup-qemu:
+        description: Install qemu-system and enable KVM access; the module's Bazel targets start the VM
+        type: boolean
+        default: false
+      qnx-license-server:
+        description: Optional QNX license server address, such as 6287@license-server
+        type: string
+      qnx-credential-helper:
+        description: QNX download helper relative to the checkout root; empty disables helper setup
+        type: string
+        default: .github/tools/qnx_credential_helper.py
       disk-space-level:
         description: Disk cleanup level (0-4), passed to more-disk-space
         type: number
@@ -69,6 +84,15 @@ on:
         description: Optional GitHub App client ID for private dependencies
         type: string
     secrets:
+      qnx-license:
+        description: Base64-encoded QNX license file; required when setup-qnx-sdp is true
+        required: false
+      qnx-user:
+        description: QNX account username; required when setup-qnx-sdp is true
+        required: false
+      qnx-password:
+        description: QNX account password; required when setup-qnx-sdp is true
+        required: false
       netrc:
         description: Optional complete .netrc content for authenticated Bazel dependency downloads
         required: false
@@ -108,6 +132,8 @@ jobs:
         shell: python
         env:
           EVENT_NAME: ${{ github.event_name }}
+          SETUP_QNX_SDP: ${{ inputs.setup-qnx-sdp }}
+          QNX_CREDENTIALS_PRESENT: ${{ secrets.qnx-license != '' && secrets.qnx-user != '' && secrets.qnx-password != '' }}
         run: |
           import os
           import re
@@ -115,6 +141,8 @@ jobs:
 
           if os.environ['EVENT_NAME'] == 'pull_request_target':
               raise SystemExit('This workflow must not run on pull_request_target.')
+          if os.environ['SETUP_QNX_SDP'] == 'true' and os.environ['QNX_CREDENTIALS_PRESENT'] != 'true':
+              raise SystemExit('setup-qnx-sdp requires qnx-license, qnx-user and qnx-password secrets.')
           if os.environ['TEST_COMMAND'] not in ('test', 'coverage'):
               raise SystemExit('test-command must be test or coverage.')
           values = {key: shlex.split(os.environ[key]) for key in
@@ -180,6 +208,18 @@ jobs:
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
 
+      # Configure licensing before cache setup, including any dependency resolution
+      # it performs. Cleanup then runs after the cache action's post step.
+      - name: Setup QNX SDP
+        if: ${{ inputs.setup-qnx-sdp }}
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@212bbf86267e9381da9d2daf962d12f6feafbc90
+        with:
+          qnx-license: ${{ secrets.qnx-license }}
+          qnx-user: ${{ secrets.qnx-user }}
+          qnx-password: ${{ secrets.qnx-password }}
+          qnx-license-server: ${{ inputs.qnx-license-server }}
+          qnx-credential-helper: ${{ inputs.qnx-credential-helper }}
+
       - name: Install dependencies
         if: ${{ inputs.packages != '' }}
         uses: eclipse-score/apt-install@d545215b973c4151236fcb3f75480dffcb914835
@@ -187,12 +227,22 @@ jobs:
           packages: ${{ inputs.packages }}
           cache: false
 
+      - name: Setup QEMU
+        if: ${{ inputs.setup-qemu }}
+        uses: $/.github/actions/_setup-qemu
+
       # Use the selected workspace's lockfile and Bazel version for cache setup.
+      # QNX SDK archives and extracted SDK files must stay out of Actions caches.
+      # The disk cache contains build outputs and test results and remains enabled.
       - name: Setup Bazel with shared caching
         uses: eclipse-score/cicd-actions/setup-bazel-cache@ee1eb410c572e2a97ae27488f8401887ec331de3
         with:
           disk-cache-key: ${{ inputs.cache-key || github.job }}
           working-directory: ${{ inputs.working-directory }}
+          repository-cache-restore: ${{ inputs.setup-qnx-sdp && 'false' || 'auto' }}
+          repository-cache-save: ${{ inputs.setup-qnx-sdp && 'false' || 'auto' }}
+          external-cache-restore: ${{ !inputs.setup-qnx-sdp }}
+          external-cache-save: ${{ !inputs.setup-qnx-sdp }}
 
       # The sandbox action needs Bazel on PATH to locate its install base.
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
@@ -205,6 +255,10 @@ jobs:
         with:
           working-directory: ${{ inputs.working-directory }}
         env:
+          SETUP_QNX_SDP: ${{ inputs.setup-qnx-sdp }}
+          # QNX setup writes the license-server configuration at the checkout root.
+          # Nested workspaces must read that file as well as their own Bazel config.
+          QNX_BAZELRC: ${{ inputs.setup-qnx-sdp && inputs.qnx-license-server != '' && inputs.working-directory != '.' && format('{0}/user.bazelrc', github.workspace) || '' }}
           COVERAGE_JUSTIFICATIONS: ${{ inputs.coverage-justifications }}
           COVERAGE_THRESHOLD: ${{ inputs.coverage-threshold }}
           COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
