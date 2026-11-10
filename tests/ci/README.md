@@ -107,7 +107,7 @@ artifacts, identical files, conflicts and missing artifacts. The PR workflow's
 ## Bazel workflow tests
 
 The [Bazel job guide](../../.github/workflows/bazel.md) describes the inputs and
-results for module callers. Its local tests cover two different boundaries:
+results for module callers. Its local tests cover these boundaries:
 
 - `test_bazel_execute.py` imports the execution helper and calls `main()`
   directly. It records the commands that would be passed to Bazel, using a
@@ -119,11 +119,15 @@ results for module callers. Its local tests cover two different boundaries:
   early validation, workspace selection and report paths. One test also runs
   the actual composite-action launcher against a small fake Bazel executable
   to check that the script and module workspace can live in different places.
+- `test_setup_netrc.py` runs the credential action's Node entry points directly.
+  It checks private file permissions, literal content, omitted secrets, isolated
+  invocations and cleanup after setup failures. Node.js 24 must be on `PATH`.
+  The workflow boundary test checks ordering so cache post steps retain access.
 
 Run this focused subset from the repository root:
 
 ```sh
-uv run --locked pytest tests/ci/test_bazel_execute.py tests/ci/test_bazel_workflow.py
+uv run --locked pytest tests/ci/test_bazel_execute.py tests/ci/test_bazel_workflow.py tests/ci/test_setup_netrc.py
 uv run --locked ruff check tests/ci .github/actions/_bazel-execute/execute.py
 ```
 

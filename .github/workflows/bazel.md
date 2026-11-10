@@ -63,6 +63,21 @@ For private dependencies, pass either the `token` secret or
 `github-app-client-id` with the `github-app-private-key` secret.
 All inputs, defaults and secret descriptions are listed in [bazel.yml](bazel.yml).
 
+For authenticated HTTP downloads, store complete `.netrc` content in a repository
+or organization secret (for example `machine packages.example.com login ci password TOKEN`).
+Pass it alongside the job's `with:` block:
+
+```yaml
+secrets:
+  netrc: ${{ secrets.BAZEL_NETRC }}
+```
+
+Multiple hosts may share one file. The workflow sets `NETRC` before cache setup
+for [Bazel download rules that support Netrc](https://bazel.build/rules/lib/repo/utils#read_user_netrc).
+The temporary file is private to the runner user and removed during job cleanup;
+an existing `~/.netrc` is untouched. Omit the secret to keep existing authentication.
+GitHub dependency credentials above can be supplied alongside it.
+
 ## Coverage
 
 For a module with a coverage configuration and the `coverage_tool` dependency,

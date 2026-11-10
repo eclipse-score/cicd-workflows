@@ -78,6 +78,18 @@ def test_invalid_requests_fail_before_setup(tmp_path, values):
     assert run_step('Validate request', tmp_path, **values).returncode != 0
 
 
+def test_netrc_is_available_to_cache_setup_and_cleaned_after_its_post_step():
+    """Post actions run in reverse order; credentials must outlive cache finalization."""
+    setup = next(step for step in STEPS if step.get('name') == 'Configure Netrc for dependency downloads')
+    cache = next(step for step in STEPS if step.get('name') == 'Setup Bazel with shared caching')
+    assert setup['uses'] == '$/.github/actions/_setup-netrc'
+    assert setup['with']['content'] == '${{ secrets.netrc }}'
+    assert STEPS.index(setup) < STEPS.index(cache)
+    action = yaml.safe_load((WORKFLOW.parents[1] / 'actions/_setup-netrc/action.yml').read_text())
+    assert action['runs']['post'] == 'cleanup.cjs'
+    assert action['runs']['post-if'] == 'always()'
+
+
 def test_build_only_validation_disables_report_upload(tmp_path):
     assert run_step('Validate request', tmp_path, BUILD_TARGETS='//...').returncode == 0
     assert (tmp_path / 'output').read_text() == 'has-results=false\n'

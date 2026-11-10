@@ -69,6 +69,9 @@ on:
         description: Optional GitHub App client ID for private dependencies
         type: string
     secrets:
+      netrc:
+        description: Optional complete .netrc content for authenticated Bazel dependency downloads
+        required: false
       github-app-private-key:
         description: Optional private key paired with github-app-client-id
         required: false
@@ -159,6 +162,12 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'artifact-name={name}\n')
               output.write('result-paths<<REPORT_PATHS\n' + '\n'.join(paths) + '\nREPORT_PATHS\n')
+
+      # Register cleanup before cache setup so credentials outlive its post step.
+      - name: Configure Netrc for dependency downloads
+        uses: $/.github/actions/_setup-netrc
+        with:
+          content: ${{ secrets.netrc }}
 
       - name: Configure access to private dependencies
         uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90
