@@ -22,7 +22,7 @@ on:
         description: Space-separated Bazel config names, applied in order to build and test or coverage
         type: string
       bazel-args:
-        description: Additional Bazel flags applied to all commands, after the default --lockfile_mode=error
+        description: Additional Bazel command options applied to all commands, after --lockfile_mode=error; startup options are not supported
         type: string
       build-args:
         description: Additional flags applied only to the build
@@ -46,10 +46,10 @@ on:
         type: number
         default: 100
 
-      packages:
+      apt-packages:
         description: Additional APT packages, such as qemu-user for emulated Linux tests
         type: string
-      disk-space-level:
+      disk-cleanup-level:
         description: Disk cleanup level (0-4), passed to more-disk-space
         type: number
         default: 2
@@ -104,8 +104,8 @@ on:
       github-app-private-key:
         description: Optional private key paired with github-app-client-id
         required: false
-      token:
-        description: Optional token for private dependencies, as an alternative to GitHub App credentials
+      github-token:
+        description: Optional GitHub token for private dependencies, as an alternative to GitHub App credentials
         required: false
     outputs:
       artifact-name:
@@ -164,7 +164,7 @@ jobs:
 
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
         with:
-          level: ${{ inputs.disk-space-level }}
+          level: ${{ inputs.disk-cleanup-level }}
 
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -206,10 +206,10 @@ jobs:
         uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90
         env:
           HAS_KEY: ${{ secrets.github-app-private-key != '' }}
-          HAS_TOKEN: ${{ secrets.token != '' }}
+          HAS_TOKEN: ${{ secrets.github-token != '' }}
         if: ${{ env.HAS_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.github-app-client-id != '' }}
         with:
-          token: ${{ secrets.token }}
+          token: ${{ secrets.github-token }}
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
 
@@ -226,10 +226,10 @@ jobs:
           qnx-credential-helper: ${{ inputs.qnx-credential-helper }}
 
       - name: Install dependencies
-        if: ${{ inputs.packages != '' }}
+        if: ${{ inputs.apt-packages != '' }}
         uses: eclipse-score/apt-install@d545215b973c4151236fcb3f75480dffcb914835
         with:
-          packages: ${{ inputs.packages }}
+          packages: ${{ inputs.apt-packages }}
           cache: false
 
       - name: Setup QEMU
