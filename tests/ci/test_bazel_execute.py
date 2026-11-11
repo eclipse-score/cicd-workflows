@@ -85,14 +85,17 @@ def test_target_exclusions_and_quoted_arguments_remain_literal(execution):
     ]
 
 
-def test_coverage_runs_before_reporter_without_leaking_instrumentation_configs(tmp_path, execution):
+@pytest.mark.parametrize(('setup_qnx_sdp', 'platform'), [('false', 'linux'), ('true', 'qnx')])
+def test_coverage_runs_before_reporter_without_leaking_instrumentation_configs(
+    tmp_path, execution, setup_qnx_sdp, platform,
+):
     assert execution.run(TEST_TARGETS='//score/... -//score:excluded', TEST_COMMAND='coverage',
-                         BAZEL_CONFIGS='llvm_cov', TEST_ARGS='--build_tests_only',
+                         BAZEL_CONFIGS='llvm_cov', TEST_ARGS='--build_tests_only', SETUP_QNX_SDP=setup_qnx_sdp,
                          COVERAGE_JUSTIFICATIONS='quality/coverage/coverage_justifications.yaml') == [
         ['bazel', 'coverage', '--lockfile_mode=error', '--config=llvm_cov', '--build_tests_only',
          '--', '//score/...', '-//score:excluded'],
         ['bazel', 'run', '--lockfile_mode=error', '@score_coverage//:generate_coverage_html', '--',
-         '--archive-dir', str(tmp_path / 'coverage-report'),
+         '--archive-dir', str(tmp_path / 'coverage-report'), '--platform', platform,
          '--yaml', 'quality/coverage/coverage_justifications.yaml'],
     ]
 

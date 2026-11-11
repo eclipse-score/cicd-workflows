@@ -18,13 +18,6 @@ on:
         description: Use test to run tests, or coverage to collect coverage and generate its report
         type: string
         default: test
-      coverage-justifications:
-        description: Optional coverage justification YAML path, relative to the selected Bazel workspace
-        type: string
-      coverage-threshold:
-        description: Minimum line coverage percentage after applying justifications; 0 disables the coverage gate
-        type: number
-        default: 100
       bazel-configs:
         description: Space-separated Bazel config names, applied in order to build and test or coverage
         type: string
@@ -44,15 +37,24 @@ on:
       cache-key:
         description: Stable cache name; choose a distinct value for each job and matrix variant
         type: string
+
+      coverage-justifications:
+        description: Optional coverage justification YAML path, relative to the selected Bazel workspace
+        type: string
+      coverage-threshold:
+        description: Minimum line coverage percentage after applying justifications; 0 disables the coverage gate
+        type: number
+        default: 100
+
       packages:
         description: Additional APT packages, such as qemu-user for emulated Linux tests
         type: string
+      disk-space-level:
+        description: Disk cleanup level (0-4), passed to more-disk-space
+        type: number
+        default: 2
       setup-qnx-sdp:
         description: Configure QNX licensing and SDK download access; requires the three qnx secrets
-        type: boolean
-        default: false
-      setup-qemu:
-        description: Install qemu-system and qemu-utils and enable KVM access; the module's Bazel targets start the VM
         type: boolean
         default: false
       qnx-license-server:
@@ -62,10 +64,11 @@ on:
         description: QNX download helper relative to the checkout root; empty disables helper setup
         type: string
         default: .github/tools/qnx_credential_helper.py
-      disk-space-level:
-        description: Disk cleanup level (0-4), passed to more-disk-space
-        type: number
-        default: 2
+      setup-qemu:
+        description: Install qemu-system and qemu-utils and enable KVM access; the module's Bazel targets start the VM
+        type: boolean
+        default: false
+
       runner-labels:
         description: Optional JSON runner label or array, overriding repository runner variables
         type: string
@@ -73,6 +76,7 @@ on:
         description: Job timeout, including setup, build and tests
         type: number
         default: 360
+
       artifact-name:
         description: Result artifact name; empty generates a unique name for this invocation
         type: string
@@ -80,6 +84,7 @@ on:
         description: Number of days to keep uploaded reports
         type: number
         default: 7
+
       github-app-client-id:
         description: Optional GitHub App client ID for private dependencies
         type: string
@@ -245,11 +250,12 @@ jobs:
           external-cache-save: ${{ !inputs.setup-qnx-sdp }}
 
       # The sandbox action needs Bazel on PATH to locate its install base.
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
+      - name: Enable Bazel sandbox
+        uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@f540b4ba52b0ea29cd81e5a5b80b2088a39dfb98
+        with:
+          working-directory: ${{ inputs.working-directory }}
 
-      # $/ loads this internal action from the same repository and commit as
-      # this workflow, even when a module in another repository calls it.
-      # The job environment carries the validated request into the action.
+      # $/ selects the action from this workflow's repository and revision.
       - name: Execute Bazel commands
         uses: $/.github/actions/_bazel-execute
         with:

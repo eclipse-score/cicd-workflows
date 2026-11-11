@@ -1,7 +1,8 @@
 # Build, test and collect coverage with Bazel
 
-Use `bazel.yml` to run one Linux Bazel job. It handles checkout, setup, caching
-and report uploads. Your workflow controls triggers, matrices and dependencies.
+Use `bazel.yml` to run one Bazel build, test or coverage job on a Linux runner.
+It handles checkout, setup, caching and report uploads. Your workflow controls
+triggers, matrices and dependencies.
 
 ## Build and test
 
@@ -130,6 +131,9 @@ The workflow collects coverage, generates the report and uploads it automaticall
 The threshold defaults to 100 percent. Set it to 0 for report-only use; build,
 test and report-generation errors still fail the job. Omit
 `coverage-justifications` when you have no justification file.
+
+For QNX coverage, set `setup-qnx-sdp: true`. The report then applies QNX
+justifications. Otherwise the report applies Linux justifications.
 
 ## Find and reuse reports
 

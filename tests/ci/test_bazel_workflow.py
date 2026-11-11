@@ -39,8 +39,7 @@ def bazel(tmp_path):
     executable.write_text('#!' + sys.executable + '\n' +
                           'import json, os, sys\n'
                           'with open(os.environ["COMMAND_LOG"], "a") as output:\n'
-                          '    output.write(json.dumps([os.getcwd(), sys.argv[1:]]) + "\\n")\n'
-                          'sys.exit(23 if sys.argv[1] == os.environ.get("FAIL_COMMAND") else 0)\n')
+                          '    output.write(json.dumps([os.getcwd(), sys.argv[1:]]) + "\\n")\n')
     executable.chmod(0o755)
     return {'PATH': str(tmp_path) + os.pathsep + os.environ['PATH'],
             'COMMAND_LOG': str(tmp_path / 'commands')}
@@ -68,6 +67,14 @@ def test_internal_action_launches_its_script_in_the_selected_workspace(tmp_path,
     assert json.loads((tmp_path / 'commands').read_text()) == [
         str(workspace), ['test', '--lockfile_mode=error', '--', '//...'],
     ]
+
+
+@pytest.mark.parametrize('action', ['setup-bazel-cache', 'unblock-user-namespace-for-linux-sandbox'])
+def test_bazel_setup_uses_the_selected_workspace(action):
+    """Cache and sandbox setup must use the module workspace's Bazel version."""
+    step = next(step for step in STEPS
+                if step.get('uses', '').startswith(f'eclipse-score/cicd-actions/{action}@'))
+    assert step['with']['working-directory'] == '${{ inputs.working-directory }}'
 
 
 @pytest.mark.parametrize('values', [
