@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [single, multiple, identical, conflict, missing]
+        scenario: [single, multiple, pattern-single, pattern-multiple, overlap, identical, conflict, missing-name, missing-pattern, partial-missing-name, partial-missing-pattern]
     steps:
       # Use real artifacts to exercise download layout and expression handling.
       # The self reference loads the candidate action without a source checkout.
@@ -36,12 +36,25 @@ jobs:
               fi
               ;;
           esac
-          if [[ "$SCENARIO" == single ]]; then
-            artifacts=$(jq -cn --arg first "$FIRST" '[$first]')
-          else
-            artifacts=$(jq -cn --arg first "$FIRST" --arg second "$SECOND" '[$first, $second]')
-          fi
-          echo "artifacts=$artifacts" >> "$GITHUB_OUTPUT"
+          {
+            echo 'artifacts<<REPORT_PATTERNS'
+            case "$SCENARIO" in
+              single) echo "$FIRST" ;;
+              pattern-single|pattern-multiple) echo "selftest-reports-$SCENARIO-*-${{ github.run_attempt }}" ;;
+              overlap)
+                echo "$FIRST"
+                echo "selftest-reports-$SCENARIO-*-${{ github.run_attempt }}"
+                ;;
+              missing-name) echo "selftest-reports-$SCENARIO-absent-${{ github.run_attempt }}" ;;
+              missing-pattern) echo "selftest-reports-$SCENARIO-absent-*" ;;
+              partial-missing-pattern)
+                echo "$FIRST"
+                echo "selftest-reports-$SCENARIO-absent-*"
+                ;;
+              *) printf '%s\n' "$FIRST" "$SECOND" ;;
+            esac
+            echo 'REPORT_PATTERNS'
+          } >> "$GITHUB_OUTPUT"
       - name: Upload first report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -50,7 +63,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
       - name: Upload second report
-        if: ${{ matrix.scenario != 'single' && matrix.scenario != 'missing' }}
+        if: ${{ !contains(fromJSON('["single", "pattern-single", "missing-name", "missing-pattern", "partial-missing-name", "partial-missing-pattern"]'), matrix.scenario) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: selftest-reports-${{ matrix.scenario }}-second-${{ github.run_attempt }}
@@ -59,7 +72,7 @@ jobs:
           retention-days: 1
       - name: Collect selected reports
         id: collect
-        continue-on-error: ${{ matrix.scenario == 'conflict' || matrix.scenario == 'missing' }}
+        continue-on-error: ${{ contains(fromJSON('["conflict", "missing-name", "missing-pattern"]'), matrix.scenario) }}
         uses: $/.github/actions/_merge-test-reports
         with:
           artifacts: ${{ steps.fixtures.outputs.artifacts }}
@@ -68,16 +81,22 @@ jobs:
         env:
           SCENARIO: ${{ matrix.scenario }}
           OUTCOME: ${{ steps.collect.outcome }}
+          ERROR_CODE: ${{ steps.collect.outputs.error-code }}
         run: |
           case "$SCENARIO" in
-            conflict|missing)
+            conflict)
               test "$OUTCOME" = failure
+              test "$ERROR_CODE" = file-conflict
               ;;
-            single|identical)
+            missing-name|missing-pattern)
+              test "$OUTCOME" = failure
+              test "$ERROR_CODE" = no-reports
+              ;;
+            single|pattern-single|identical|partial-missing-name|partial-missing-pattern)
               test "$OUTCOME" = success
               diff -r fixtures/first merged-reports
               ;;
-            multiple)
+            multiple|pattern-multiple|overlap)
               test "$OUTCOME" = success
               diff fixtures/first/unit/test.xml merged-reports/unit/test.xml
               diff fixtures/first/unit/test.log merged-reports/unit/test.log

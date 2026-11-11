@@ -107,7 +107,7 @@ the same version twice is intended.
 | `retention-days` | `1` | Number of days to retain the documentation artifact. |
 | `bazel-target` | `//:docs` | Bazel target invoked with `bazel run`. |
 | `tests-report-artifact` | empty | Optional artifact downloaded to `tests-report` before the docs build. |
-| `tests-report-artifacts` | `[]` | JSON array of exact artifact names to combine into `tests-report`; mutually exclusive with `tests-report-artifact`. |
+| `tests-report-artifacts` | empty | Artifact names or `*` patterns, one per line, to combine into `tests-report`; mutually exclusive with `tests-report-artifact`. |
 | `coverage-report-artifact` | empty | Optional artifact containing plain LCOV as `coverage.lcov` or `coverage_report.dat` at its root, downloaded to `coverage-report` before the docs build. |
 | `deployment_type` | `workflow` | Deprecated compatibility input; publishing is always handled by `docs-publish.yml`. |
 
@@ -128,18 +128,30 @@ jobs:
     needs: tests
     uses: eclipse-score/cicd-workflows/.github/workflows/docs.yml@main
     with:
-      tests-report-artifacts: '["tests-bazel-linux", "tests-pytest-cached", "tests-pytest-runtime"]'
+      tests-report-artifacts: |
+        tests-bazel-linux
+        tests-pytest-*
 ```
 
-Use either `tests-report-artifact` or `tests-report-artifacts`. Existing single
-artifact calls keep their behavior. Leaving both inputs at their defaults builds
-without downloading test reports.
+Set only one of `tests-report-artifact` and `tests-report-artifacts`. Leave both
+empty to build without downloading test reports.
 
-Names are exact and refer to the current workflow run. Use letters, numbers,
-underscores, hyphens and periods; globs and duplicate names are rejected. Every
-selected artifact must exist and contain files. Artifact directory prefixes are
-removed while relative paths inside each artifact are preserved. XML files,
-logs and other companion files are copied without parsing or renaming.
+Names and patterns refer to the current workflow run. Put one selection on each
+line; surrounding whitespace and blank lines are ignored. Use letters, numbers,
+underscores, hyphens and periods, with `*` matching zero or more characters.
+Matching is case-sensitive. Other glob syntax such as `?` and bracket expressions
+is unsupported.
+
+Upload reports with `actions/upload-artifact` using its default ZIP format, and
+include the producing jobs in `needs` so their uploads finish before Docs starts.
+At least one artifact must match the supplied names and patterns. Individual
+lines may match nothing; overlapping patterns include an artifact only once.
+The build fails if no artifacts match or a selected artifact contains no files.
+
+Reports are combined in `tests-report` using their paths within each artifact.
+For example, `unit/test.xml` becomes `tests-report/unit/test.xml`, without an
+extra artifact-name directory. XML files, logs and other companion files keep
+their names and contents.
 
 Files with identical relative paths and bytes are accepted once. Different
 contents at the same path fail before the documentation build, including conflicts
@@ -148,9 +160,7 @@ file/directory conflicts also fail. Select a representative platform run when
 multiple platforms produce different reports at the same paths, or arrange for
 non-overlapping paths in the producing jobs.
 
-The private `_merge-test-reports` action uses GitHub's `$/` self-repository reference, so its code comes
-from the same commit as the reusable workflow. It requires runner version
-2.336.0 or newer and does not depend on the consumer checkout.
+Use a runner at version 2.336.0 or newer for multiple report artifacts.
 
 This combines files, not testcase results. The docs-as-code parser currently
 looks for files named `test.xml`. A pytest producer can use paths such as

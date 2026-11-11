@@ -101,8 +101,19 @@ checks in GitHub Actions using the candidate workflow implementation.
 The internal report collection action also has real-artifact self-tests in
 [the report self-test workflow](../../.github/workflows/_test_merge_test_reports.yml).
 They upload fixtures and invoke the candidate action for single and multiple
-artifacts, identical files, conflicts and missing artifacts. The PR workflow's
-`CI success` gate requires these self-tests as well as consumer compatibility.
+artifacts, star patterns with one or multiple matches, overlapping selections,
+identical files, conflicts and missing exact names or patterns. Partially matched
+selections succeed when at least one artifact is downloaded; completely unmatched
+selections fail. Negative cases require the matching collection error code, so
+an API or runtime failure cannot pass as an expected report rejection. The PR
+workflow's `CI success` gate requires these self-tests as well as consumer
+compatibility.
+
+Local report tests execute the composite action's pattern preparation and merge
+commands. ZIP fixtures cover the flat single-artifact download layout and the
+per-artifact directories used for multiple matches, plus archive path validation
+and file conflicts. Selection and downloading use `actions/download-artifact`;
+real service behavior is covered by the GitHub self-tests.
 
 ## Bazel workflow tests
 

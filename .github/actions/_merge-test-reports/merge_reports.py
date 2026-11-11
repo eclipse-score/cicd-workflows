@@ -3,20 +3,72 @@
 """Combine selected artifact trees without interpreting their report formats."""
 
 import argparse
-import json
+import os
 from pathlib import Path
 import re
 import shutil
+import stat
+import tempfile
+from zipfile import ZipFile
 
 
-def artifact_names(value):
-    """Use exact, plain names so artifact selection cannot expand a glob."""
-    names = json.loads(value)
-    if (not isinstance(names, list) or not names or
-            any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', name)
-                or name in ('.', '..') for name in names) or len(set(names)) != len(names)):
-        raise ValueError('Expected a nonempty JSON array of unique plain artifact names')
-    return names
+class CollectionError(ValueError):
+    """Identify an expected report error separately from service/runtime failures."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+def artifact_patterns(value):
+    """Read one exact artifact name or star pattern per nonblank line."""
+    patterns = [line.strip() for line in value.splitlines() if line.strip()]
+    if (not patterns or
+            any(not re.fullmatch(r'[A-Za-z0-9_.*-]+', pattern)
+                or pattern in ('.', '..') for pattern in patterns)):
+        raise ValueError('Expected artifact names or * patterns, one per line')
+    return patterns
+
+
+def merge_downloads(downloads, destination):
+    """Extract separate ZIP downloads before checking their report paths.
+
+    download-artifact flattens a single match but creates artifact directories
+    for multiple matches. Keeping ZIPs intact makes both layouts unambiguous:
+    every downloaded file is one archive, regardless of its enclosing directory.
+    """
+    downloads = Path(downloads)
+    archives = []
+    for path in sorted(downloads.rglob('*')):
+        if path.is_symlink():
+            raise ValueError('Test artifact download contains a symlink')
+        if path.is_file():
+            archives.append(path)
+    if not archives:
+        raise CollectionError('no-reports', 'No test report artifacts were downloaded')
+    with tempfile.TemporaryDirectory(prefix='docs-report-extract-') as temporary:
+        sources = []
+        for index, path in enumerate(archives):
+            root = Path(temporary) / str(index)
+            root.mkdir()
+            with ZipFile(path) as archive:
+                entries = {}
+                for entry in archive.infolist():
+                    relative = Path(entry.filename)
+                    if relative.is_absolute() or '..' in relative.parts or '\\' in entry.filename:
+                        raise ValueError(f'Unsafe test report archive path: {entry.filename}')
+                    if stat.S_ISLNK(entry.external_attr >> 16):
+                        raise ValueError(f'Test report archive contains a symlink: {entry.filename}')
+                    # Duplicate ZIP entries participate in conflict detection too;
+                    # extraction must not silently overwrite a different result.
+                    key = relative.as_posix()
+                    if key in entries and not entry.is_dir():
+                        if archive.read(entries[key]) != archive.read(entry):
+                            raise CollectionError('file-conflict', f'Conflicting test report file: {entry.filename}')
+                    entries[key] = entry
+                archive.extractall(root)
+            sources.append((path.relative_to(downloads).as_posix(), root))
+        return merge(sources, destination)
 
 
 def merge(sources, destination):
@@ -64,7 +116,7 @@ def merge(sources, destination):
                 raise ValueError(f'Test report destination contains a symlink: {relative}')
             if target.exists():
                 if not target.is_file() or target.read_bytes() != source.read_bytes():
-                    raise ValueError(f'Conflicting test report file: {relative} (artifact {name})')
+                    raise CollectionError('file-conflict', f'Conflicting test report file: {relative} (artifact {name})')
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
@@ -74,19 +126,29 @@ def merge(sources, destination):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--artifacts', required=True)
-    parser.add_argument('--downloads', type=Path, required=True)
-    parser.add_argument('--destination', type=Path, required=True)
+    subparsers = parser.add_subparsers(dest='command', required=True)
+    prepare = subparsers.add_parser('pattern')
+    prepare.add_argument('--artifacts', required=True)
+    prepare.add_argument('--output', type=Path, required=True)
+    collect = subparsers.add_parser('merge')
+    collect.add_argument('--downloads', type=Path, required=True)
+    collect.add_argument('--destination', type=Path, required=True)
     args = parser.parse_args()
-    names = artifact_names(args.artifacts)
-    # The pinned download action flattens exactly one matching artifact into
-    # its download root, even when merge-multiple is false. Only use that layout
-    # for a one-name selection; a multi-name selection must supply every named
-    # directory rather than treating one downloaded artifact as several reports.
-    sources = ([(names[0], args.downloads)] if len(names) == 1 else
-               [(name, args.downloads / name) for name in names])
-    print(f'Merged {merge(sources, args.destination)} test report files')
+    if args.command == 'pattern':
+        patterns = list(dict.fromkeys(artifact_patterns(args.artifacts)))
+        with args.output.open('a') as output:
+            output.write(f'pattern=@({"|".join(patterns)})\n')
+        return
+    print(f'Merged {merge_downloads(args.downloads, args.destination)} test report files')
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except CollectionError as error:
+        # Self-tests must distinguish the expected report rejection from an API
+        # or programming failure that also produces a nonzero process exit.
+        if output := os.environ.get('GITHUB_OUTPUT'):
+            with Path(output).open('a') as output_file:
+                output_file.write(f'error-code={error.code}\n')
+        raise
