@@ -2,7 +2,8 @@
 
 Use `bazel.yml` to run one Bazel job on a Linux runner. It handles checkout,
 setup, caching and report uploads. You choose the targets, Bazel configurations,
-triggers, matrices and job dependencies.
+triggers, matrices and job dependencies. Start with [Run a job](#run-a-job), or
+look up a setting in the [Reference](#reference).
 
 ## Run a job
 
@@ -55,7 +56,7 @@ Commands use `--lockfile_mode=error`. Update the module's dependency lockfile if
 CI reports that dependency resolution would change it. Runner selection comes
 from repository variables, falling back to Ubuntu 24.04. Use `runner-labels`
 for a job-specific requirement and `disk-cleanup-level` to adjust disk cleanup.
-See [bazel.yml](bazel.yml) for the complete input and secret reference.
+See the [Reference](#reference) for all inputs, secrets and outputs.
 
 ## Collect coverage
 
@@ -145,3 +146,66 @@ generate a unique name. Use `needs.<job>.outputs.artifact-name` to download the
 artifact from a dependent job. The output is empty if nothing was uploaded.
 For matrix jobs, choose distinct names such as `bazel-testlogs-${{ matrix.name }}`
 to retrieve each variant's report.
+
+## Reference
+
+### Inputs
+
+Pass inputs under the calling job's `with:` key. Empty means the input can be
+omitted. Supply at least one of `build-targets` and `test-targets`.
+
+| Input | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `build-targets` | string | Empty | Targets to build before testing. Empty skips the build phase. |
+| `test-targets` | string | Empty | Targets to test or measure coverage for, including exclusions. Empty skips this phase. |
+| `test-command` | string | `test` | `test` or `coverage`. Coverage requires `test-targets` and the shared reporter target. |
+| `bazel-configs` | string | Empty | Whitespace-separated config names, applied in order to build and test/coverage. |
+| `bazel-args` | string | Empty | Extra command options for every Bazel invocation, including the coverage reporter. Follow the default `--lockfile_mode=error`. |
+| `build-args` | string | Empty | Extra command options for the build phase. |
+| `test-args` | string | Empty | Extra command options for the test or coverage phase. |
+| `working-directory` | string | `.` | Bazel workspace relative to the checkout. Must be an existing directory inside it. |
+| `cache-key` | string | Empty | Stable build-output cache name. Empty uses `bazel`; choose a distinct key for each job and matrix variant. |
+| `coverage-justifications` | string | Empty | Justification YAML path relative to the Bazel workspace, used for coverage reports. |
+| `coverage-threshold` | number | `100` | Minimum line coverage percentage after applying justifications. `0` disables the coverage gate. |
+| `apt-packages` | string | Empty | Additional APT packages to install, separated by whitespace. |
+| `disk-cleanup-level` | number | `2` | Disk cleanup level from 0 to 4, passed to `more-disk-space`. |
+| `setup-qnx-sdp` | boolean | `false` | Configure QNX licensing and download access. Requires all three QNX secrets. Selects QNX justifications for coverage reports. |
+| `qnx-license-server` | string | Empty | Optional license server, such as `6287@license-server`, used with QNX setup. |
+| `qnx-credential-helper` | string | `.github/tools/qnx_credential_helper.py` | Download helper path relative to the checkout root, used with QNX setup. The file must exist. Empty disables helper setup. |
+| `setup-qemu` | boolean | `false` | Install `qemu-system` and `qemu-utils` and enable KVM access. Requires a runner with KVM, sudo and udev. |
+| `runner-labels` | string | Empty | JSON runner label or array, such as `["self-hosted", "linux", "x64"]`. Overrides repository runner variables. |
+| `timeout-minutes` | number | `360` | Job timeout, including setup and execution. |
+| `artifact-name` | string | Empty | Uploaded report artifact name. Empty generates a unique name for the invocation. |
+| `retention-days` | number | `7` | Number of days to keep uploaded reports. |
+| `github-app-client-id` | string | Empty | GitHub App client ID for private dependencies. Supply `github-app-private-key` as a secret. |
+
+Without `runner-labels`, selection uses repository variable
+`runner_labels_ghub_standard_x64`, then `REPO_RUNNER_LABELS`, then
+`ubuntu-24.04`. Both variables contain a JSON label or array.
+
+Target lists and argument inputs support quoted values. `bazel-args`,
+`build-args` and `test-args` accept command options, with no shell expansion.
+Bazel startup options are unsupported. Per-phase options follow `bazel-args`,
+so a phase can override a shared option such as `--lockfile_mode`.
+
+### Secrets
+
+Pass secrets under the calling job's `secrets:` key. All are optional unless
+the corresponding setup is enabled.
+
+| Secret | Required when | Meaning |
+| --- | --- | --- |
+| `qnx-license` | `setup-qnx-sdp: true` | Base64-encoded QNX client license file. |
+| `qnx-user` | `setup-qnx-sdp: true` | QNX account username for downloads. |
+| `qnx-password` | `setup-qnx-sdp: true` | QNX account password for downloads. |
+| `netrc` | Using Netrc authentication | Complete file content for authenticated HTTP downloads. Omission keeps existing authentication. |
+| `github-app-private-key` | Using `github-app-client-id` | Private key for the GitHub App used to access private dependencies. |
+| `github-token` | Using token-based GitHub authentication | GitHub token with access to the required private dependencies, as an alternative to App credentials. |
+
+### Outputs
+
+Read outputs from a dependent job through `needs.<job>.outputs.<name>`.
+
+| Output | Meaning |
+| --- | --- |
+| `artifact-name` | Name of the uploaded report artifact. Empty if no artifact was created, including build-only jobs and runs with no report files. |
