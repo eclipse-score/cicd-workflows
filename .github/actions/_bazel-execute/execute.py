@@ -71,7 +71,14 @@ def run_resolution_attempt(argv: list[str], attempt: int) -> tuple[int, str]:
             lines.append(line)
         returncode = process.wait()
     print("::endgroup::", flush=True)
-    return returncode, "".join(lines)
+    output = "".join(lines)
+    # run --nobuild leaves no built target for RunCommand to select. --norun
+    # also prevents execution if an executable already exists in the cache.
+    # The actual run still checks the target and propagates its own failures.
+    if (returncode == 2 and "--nobuild" in argv and "--norun" in argv
+            and output.rstrip().endswith("ERROR: No targets found to run")):
+        returncode = 0
+    return returncode, output
 
 
 def download_dependencies(argv: list[str]) -> None:
@@ -128,10 +135,9 @@ def main() -> None:
         separator = args.index('--')
         before_separator, after_separator = args[:separator], args[separator:]
         if command == 'run':
-            # For run, -- introduces program arguments. Analyze the tool using
-            # build and omit its program arguments from dependency resolution.
-            command = 'build'
-            after_separator = ()
+            # Keep run-specific rc options. Its -- introduces program arguments,
+            # which are unnecessary here; --norun prevents program execution.
+            after_separator = ('--norun',)
         # Place --nobuild after caller flags so retries cannot execute actions.
         return ['bazel', *startup, command, *common_args,
                 *before_separator, '--nobuild', *after_separator]

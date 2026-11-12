@@ -175,9 +175,9 @@ def test_resolution_uses_phase_flags_and_forces_analysis_only(execution, command
         assert resolution == [*argv[:separator], '--nobuild', *argv[separator:]]
     if command == 'coverage':
         assert execution.resolutions[-1] == [
-            'bazel', '--bazelrc=/checkout/user.bazelrc', 'build', '--lockfile_mode=error',
+            'bazel', '--bazelrc=/checkout/user.bazelrc', 'run', '--lockfile_mode=error',
             '--credential_helper=*.qnx.com=/checkout/helper', '--build',
-            '@score_coverage//:generate_coverage_html', '--nobuild',
+            '@score_coverage//:generate_coverage_html', '--nobuild', '--norun',
         ]
 
 
@@ -310,3 +310,72 @@ def test_resolution_failure_prevents_execution_and_later_phases(execution, monke
         execution.run(BUILD_TARGETS='//lib/...', TEST_TARGETS='//...')
     assert error.value.code == 7
     assert execution.calls == []
+
+
+@pytest.mark.parametrize('command, flags, status, output, expected', [
+    ('run', ['--nobuild', '--norun'], 2, 'ERROR: No targets found to run\n', 0),
+    ('run', ['--nobuild', '--norun'], 2, 'ERROR: invalid configuration\n', 2),
+    ('run', ['--nobuild', '--norun'], 1, DOWNLOAD_ERROR, 1),
+    ('run', ['--nobuild', '--norun'], 2,
+     'ERROR: No targets found to run\nERROR: Build failed. Not running target\n', 2),
+    ('run', [], 2, 'ERROR: No targets found to run\n', 2),
+    ('build', ['--nobuild'], 2, 'ERROR: No targets found to run\n', 2),
+])
+def test_only_expected_analysis_only_run_completion_is_success(
+    resolution_process, command: str, flags: list[str], status: int, output: str, expected: int,
+):
+    """Accept run's post-analysis result without hiding analysis or actual run failures."""
+    resolution_process.results.append((status, output))
+    result, captured = execute.run_resolution_attempt(['bazel', command, *flags, '//:tool'], 1)
+    assert result == expected
+    assert captured == output
+
+
+@pytest.mark.skipif(not os.environ.get('BAZEL_TEST_BINARY'), reason='Set BAZEL_TEST_BINARY for real Bazel tests')
+@pytest.mark.parametrize('already_built', [False, True])
+def test_real_bazel_reporter_preparation_preserves_run_rc_without_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, already_built: bool,
+):
+    """With Bazel 8.8.2, build has an invalid platform while run selects a valid one.
+
+    Preparation must work in a fresh workspace and with cached outputs, without
+    building or running the program. BAZEL_TEST_BINARY selects the executable
+    explicitly so the regular Python suite does not require a Bazel install.
+    """
+    import subprocess
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / '.bazelversion').write_text('8.8.2\n')
+    (tmp_path / 'WORKSPACE').write_text('workspace(name="reporter_test")\n')
+    (tmp_path / '.bazelrc').write_text(
+        'common --enable_bzlmod=false\n'
+        'common --enable_workspace=true\n'
+        'common --incompatible_autoload_externally=\n'
+        'build --platforms=//:missing_build_platform\n'
+        'run --platforms=//:host\n')
+    (tmp_path / 'BUILD.bazel').write_text('''
+platform(name = "host")
+genrule(
+    name = "reporter",
+    outs = ["reporter.sh"],
+    cmd = "echo '#!/bin/sh' > $@; echo 'touch PROGRAM_EXECUTED' >> $@; chmod +x $@",
+    executable = True,
+)
+''')
+    bazel = [os.environ['BAZEL_TEST_BINARY'], '--batch', '--nosystem_rc', '--nohome_rc']
+    wrong_configuration = subprocess.run([*bazel, 'build', '--nobuild', '//:reporter'],
+                                         capture_output=True, text=True)
+    assert wrong_configuration.returncode != 0
+    assert 'missing_build_platform' in wrong_configuration.stderr
+    if already_built:
+        subprocess.run([*bazel, 'build', '--platforms=//:host', '//:reporter'], check=True)
+    executable = tmp_path / 'bazel-bin/reporter.sh'
+    assert executable.exists() == already_built
+
+    execute.download_dependencies([*bazel, 'run', '//:reporter', '--nobuild', '--norun'])
+
+    assert executable.exists() == already_built
+    assert not list(tmp_path.rglob('PROGRAM_EXECUTED'))
+    # The actual run still works with its rc override and executes exactly once.
+    subprocess.run([*bazel, 'run', '//:reporter'], check=True)
+    assert len(list(tmp_path.rglob('PROGRAM_EXECUTED'))) == 1
