@@ -65,7 +65,6 @@ def test_internal_action_launches_its_script_in_the_selected_workspace(tmp_path,
                             env=environment, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     assert [json.loads(line) for line in (tmp_path / 'commands').read_text().splitlines()] == [
-        [str(workspace), ['test', '--lockfile_mode=error', '--nobuild', '--', '//...']],
         [str(workspace), ['test', '--lockfile_mode=error', '--', '//...']],
     ]
 

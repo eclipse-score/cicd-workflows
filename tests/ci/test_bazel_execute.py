@@ -163,22 +163,24 @@ def test_qnx_helper_is_not_forced_when_setup_or_helper_is_disabled(execution, en
 
 
 @pytest.mark.parametrize('command', ['test', 'coverage'])
-def test_resolution_uses_phase_flags_and_forces_analysis_only(execution, command: str):
-    """The preparation must select the same dependencies even with per-command configs."""
-    execution.run(BUILD_TARGETS='//lib/...', TEST_TARGETS='//... -//slow/...',
+@pytest.mark.parametrize('build_targets', ['', '//lib/...'])
+def test_only_build_prepares_dependencies_and_preserves_phase_flags(execution, command: str, build_targets: str):
+    """Test, coverage and the reporter bypass preparation, including without a build phase."""
+    execution.run(BUILD_TARGETS=build_targets, TEST_TARGETS='//... -//slow/...',
                   TEST_COMMAND=command, BAZEL_CONFIGS='qnx', BAZEL_ARGS='--build',
                   BUILD_ARGS='--keep_going', TEST_ARGS='--test_timeout=600',
                   SETUP_QNX_SDP='true', QNX_BAZELRC='/checkout/user.bazelrc',
                   QNX_CREDENTIAL_HELPER='/checkout/helper')
-    for (argv, _, _), resolution in zip(execution.calls[:2], execution.resolutions[:2], strict=True):
+    if build_targets:
+        argv = execution.calls[0][0]
         separator = argv.index('--')
-        assert resolution == [*argv[:separator], '--nobuild', *argv[separator:]]
+        assert execution.resolutions == [[*argv[:separator], '--nobuild', *argv[separator:]]]
+    else:
+        assert execution.resolutions == []
+    expected_commands = (['build'] if build_targets else []) + [command]
     if command == 'coverage':
-        assert execution.resolutions[-1] == [
-            'bazel', '--bazelrc=/checkout/user.bazelrc', 'run', '--lockfile_mode=error',
-            '--credential_helper=*.qnx.com=/checkout/helper', '--build',
-            '@score_coverage//:generate_coverage_html', '--nobuild', '--norun',
-        ]
+        expected_commands.append('run')
+    assert [argv[2] for argv, _, _ in execution.calls] == expected_commands
 
 
 @pytest.mark.parametrize('diagnostic', [

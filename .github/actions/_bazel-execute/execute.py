@@ -3,8 +3,8 @@
 """Execute a validated Bazel request in the caller's selected workspace.
 
 Build and test targets enable their phases. Coverage runs the shared reporter
-after measurement. Dependency analysis retries recognized download failures
-before execution. A failed command stops execution with its exit status.
+after measurement. Build dependency analysis retries recognized download
+failures before execution. A failed command stops execution with its exit status.
 """
 
 import os
@@ -146,7 +146,10 @@ def main() -> None:
 
     def run_bazel(command: str, *args: str) -> None:
         """Prepare dependencies, stream command output and stop on failure."""
-        download_dependencies(dependency_download_command(command, *args))
+        # Only build supports --nobuild without a post-analysis execution error.
+        # Other phases execute directly and propagate their own exit status.
+        if command == 'build':
+            download_dependencies(dependency_download_command(command, *args))
         argv = ['bazel', *startup, command, *common_args, *args]
         print(f'::group::{shlex.join(argv)}', flush=True)
         result = subprocess.run(argv, check=False)
