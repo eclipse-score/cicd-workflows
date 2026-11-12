@@ -72,11 +72,13 @@ def run_resolution_attempt(argv: list[str], attempt: int) -> tuple[int, str]:
         returncode = process.wait()
     print("::endgroup::", flush=True)
     output = "".join(lines)
+    # Ignore ANSI colors for matching, preserving the original output for logs.
+    plain_output = re.sub(r"\x1b\[[0-9;]*m", "", output)
     # run --nobuild leaves no built target for RunCommand to select. --norun
     # also prevents execution if an executable already exists in the cache.
     # The actual run still checks the target and propagates its own failures.
     if (returncode == 2 and "--nobuild" in argv and "--norun" in argv
-            and output.rstrip().endswith("ERROR: No targets found to run")):
+            and plain_output.rstrip().endswith("ERROR: No targets found to run")):
         returncode = 0
     return returncode, output
 

@@ -312,6 +312,7 @@ def test_resolution_failure_prevents_execution_and_later_phases(execution, monke
     assert execution.calls == []
 
 
+@pytest.mark.parametrize('color', [False, True])
 @pytest.mark.parametrize('command, flags, status, output, expected', [
     ('run', ['--nobuild', '--norun'], 2, 'ERROR: No targets found to run\n', 0),
     ('run', ['--nobuild', '--norun'], 2, 'ERROR: invalid configuration\n', 2),
@@ -323,12 +324,16 @@ def test_resolution_failure_prevents_execution_and_later_phases(execution, monke
 ])
 def test_only_expected_analysis_only_run_completion_is_success(
     resolution_process, command: str, flags: list[str], status: int, output: str, expected: int,
+    color: bool, capsys: pytest.CaptureFixture[str],
 ):
     """Accept run's post-analysis result without hiding analysis or actual run failures."""
+    if color:
+        output = '\x1b[31m\x1b[1m' + output.replace('ERROR: ', 'ERROR: \x1b[0m') + '\x1b[0m'
     resolution_process.results.append((status, output))
     result, captured = execute.run_resolution_attempt(['bazel', command, *flags, '//:tool'], 1)
     assert result == expected
     assert captured == output
+    assert output in capsys.readouterr().out
 
 
 @pytest.mark.skipif(not os.environ.get('BAZEL_TEST_BINARY'), reason='Set BAZEL_TEST_BINARY for real Bazel tests')
@@ -348,17 +353,18 @@ def test_real_bazel_reporter_preparation_preserves_run_rc_without_execution(
     (tmp_path / '.bazelversion').write_text('8.8.2\n')
     (tmp_path / 'WORKSPACE').write_text('workspace(name="reporter_test")\n')
     (tmp_path / '.bazelrc').write_text(
+        'common --color=yes\n'
         'common --enable_bzlmod=false\n'
         'common --enable_workspace=true\n'
         'common --incompatible_autoload_externally=\n'
         'build --platforms=//:missing_build_platform\n'
         'run --platforms=//:host\n')
-    (tmp_path / 'BUILD.bazel').write_text('''
+    (tmp_path / 'BUILD.bazel').write_text(r'''
 platform(name = "host")
 genrule(
     name = "reporter",
     outs = ["reporter.sh"],
-    cmd = "echo '#!/bin/sh' > $@; echo 'touch PROGRAM_EXECUTED' >> $@; chmod +x $@",
+    cmd = "echo '#!/bin/sh' > $@; echo 'echo executed >> \"$$BUILD_WORKSPACE_DIRECTORY/PROGRAM_EXECUTED\"' >> $@; chmod +x $@",
     executable = True,
 )
 ''')
@@ -370,12 +376,13 @@ genrule(
     if already_built:
         subprocess.run([*bazel, 'build', '--platforms=//:host', '//:reporter'], check=True)
     executable = tmp_path / 'bazel-bin/reporter.sh'
+    marker = tmp_path / 'PROGRAM_EXECUTED'
     assert executable.exists() == already_built
 
     execute.download_dependencies([*bazel, 'run', '//:reporter', '--nobuild', '--norun'])
 
     assert executable.exists() == already_built
-    assert not list(tmp_path.rglob('PROGRAM_EXECUTED'))
+    assert not marker.exists()
     # The actual run still works with its rc override and executes exactly once.
     subprocess.run([*bazel, 'run', '//:reporter'], check=True)
-    assert len(list(tmp_path.rglob('PROGRAM_EXECUTED'))) == 1
+    assert marker.read_text() == 'executed\n'
