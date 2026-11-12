@@ -3,17 +3,110 @@
 """Execute a validated Bazel request in the caller's selected workspace.
 
 Build and test targets enable their phases. Coverage runs the shared reporter
-after measurement. A failed command stops execution with its exit status.
+after measurement. Dependency analysis retries recognized download failures
+before execution. A failed command stops execution with its exit status.
 """
 
 import os
+import re
 import shlex
 import subprocess
+import time
 
 
-def main():
+RESOLUTION_ATTEMPTS = 6
+RESOLUTION_RETRY_DELAY = 30
+
+
+def retryable_download_failure(output: str) -> bool:
+    """Recognize retry causes in dependency resolution output.
+
+    Only the --nobuild preparation uses this matcher. Compilation and test
+    failures are handled separately and never retried.
+    """
+    output = output.lower()
+    retryable_causes = (
+        "checksum was",
+        "socketexception",
+        "sockettimeoutexception",
+        "unknownhostexception",
+        "contentlengthmismatchexception",
+        "timed out",
+        "connection reset",
+        "connection refused",
+        "network is unreachable",
+        "temporary failure in name resolution",
+    )
+    if any(cause in output for cause in retryable_causes):
+        return True
+    # Retry HTTP timeouts, rate limits and selected server errors. The word
+    # boundary matches complete status codes, so e.g. 5030 cannot match 503.
+    return bool(
+        re.search(
+            r"(?:get returned|http|response code:)\s+(?:408|429|500|502|503|504)\b",
+            output,
+        )
+    )
+
+
+def run_resolution_attempt(argv: list[str], attempt: int) -> tuple[int, str]:
+    """Stream one resolution attempt and retain its output for error recognition."""
+    print(
+        f"::group::Resolve dependencies ({attempt}/{RESOLUTION_ATTEMPTS}): "
+        + shlex.join(argv),
+        flush=True,
+    )
+    lines: list[str] = []
+    process: subprocess.Popen[str]
+    with subprocess.Popen(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+    ) as process:
+        assert process.stdout is not None
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            lines.append(line)
+        returncode = process.wait()
+    print("::endgroup::", flush=True)
+    return returncode, "".join(lines)
+
+
+def download_dependencies(argv: list[str]) -> None:
+    """Retry transient download failures, retaining successful downloads locally."""
+    for attempt in range(1, RESOLUTION_ATTEMPTS + 1):
+        returncode, output = run_resolution_attempt(argv, attempt)
+        if returncode == 0:
+            return
+
+        if not retryable_download_failure(output):
+            print(
+                "Dependency resolution failed without a recognized download error; "
+                + "not retrying.",
+                flush=True,
+            )
+            raise SystemExit(returncode)
+        if attempt == RESOLUTION_ATTEMPTS:
+            print(
+                f"::error::Dependency download failed; all {RESOLUTION_ATTEMPTS} "
+                + "resolution attempts exhausted.",
+                flush=True,
+            )
+            raise SystemExit(returncode)
+
+        print(
+            f"::warning::Dependency download failed on attempt {attempt}/{RESOLUTION_ATTEMPTS}; "
+            + f"retrying in {RESOLUTION_RETRY_DELAY} seconds.",
+            flush=True,
+        )
+        time.sleep(RESOLUTION_RETRY_DELAY)
+
+
+def main() -> None:
     """Execute the validated request in order, preserving module argument values."""
-    startup = []
+    startup: list[str] = []
     common_args = ['--lockfile_mode=error']
     setup_qnx_sdp = os.environ.get('SETUP_QNX_SDP') == 'true'
     if setup_qnx_sdp:
@@ -30,8 +123,22 @@ def main():
     common_args.extend(shlex.split(os.environ['BAZEL_ARGS']))
     configs = [f'--config={config}' for config in os.environ['BAZEL_CONFIGS'].split()]
 
-    def run_bazel(command, *args):
-        """Stream a command's output into a log group and stop on failure."""
+    def dependency_download_command(command: str, *args: str) -> list[str]:
+        """Construct the phase's download command without executing build actions."""
+        separator = args.index('--')
+        before_separator, after_separator = args[:separator], args[separator:]
+        if command == 'run':
+            # For run, -- introduces program arguments. Analyze the tool using
+            # build and omit its program arguments from dependency resolution.
+            command = 'build'
+            after_separator = ()
+        # Place --nobuild after caller flags so retries cannot execute actions.
+        return ['bazel', *startup, command, *common_args,
+                *before_separator, '--nobuild', *after_separator]
+
+    def run_bazel(command: str, *args: str) -> None:
+        """Prepare dependencies, stream command output and stop on failure."""
+        download_dependencies(dependency_download_command(command, *args))
         argv = ['bazel', *startup, command, *common_args, *args]
         print(f'::group::{shlex.join(argv)}', flush=True)
         result = subprocess.run(argv, check=False)

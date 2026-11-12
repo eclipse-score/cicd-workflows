@@ -33,6 +33,8 @@ def execution(monkeypatch, tmp_path):
         return SimpleNamespace(returncode=23 if command == os.environ.get('FAIL_COMMAND') else 0)
 
     monkeypatch.setattr(execute.subprocess, 'run', subprocess_run)
+    resolutions: list[list[str]] = []
+    monkeypatch.setattr(execute, 'download_dependencies', resolutions.append)
 
     def run(**values):
         for key, value in values.items():
@@ -40,7 +42,7 @@ def execution(monkeypatch, tmp_path):
         execute.main()
         return [argv for argv, _, _ in calls]
 
-    return SimpleNamespace(run=run, calls=calls)
+    return SimpleNamespace(run=run, calls=calls, resolutions=resolutions)
 
 
 @pytest.mark.parametrize('build, test, expected', [
@@ -158,3 +160,153 @@ def test_nested_qnx_workspace_also_reads_generated_license_server_config(executi
 def test_qnx_helper_is_not_forced_when_setup_or_helper_is_disabled(execution, enabled, helper):
     commands = execution.run(TEST_TARGETS='//...', SETUP_QNX_SDP=enabled, QNX_CREDENTIAL_HELPER=helper)
     assert commands == [['bazel', 'test', '--lockfile_mode=error', '--', '//...']]
+
+
+@pytest.mark.parametrize('command', ['test', 'coverage'])
+def test_resolution_uses_phase_flags_and_forces_analysis_only(execution, command: str):
+    """The preparation must select the same dependencies even with per-command configs."""
+    execution.run(BUILD_TARGETS='//lib/...', TEST_TARGETS='//... -//slow/...',
+                  TEST_COMMAND=command, BAZEL_CONFIGS='qnx', BAZEL_ARGS='--build',
+                  BUILD_ARGS='--keep_going', TEST_ARGS='--test_timeout=600',
+                  SETUP_QNX_SDP='true', QNX_BAZELRC='/checkout/user.bazelrc',
+                  QNX_CREDENTIAL_HELPER='/checkout/helper')
+    for (argv, _, _), resolution in zip(execution.calls[:2], execution.resolutions[:2], strict=True):
+        separator = argv.index('--')
+        assert resolution == [*argv[:separator], '--nobuild', *argv[separator:]]
+    if command == 'coverage':
+        assert execution.resolutions[-1] == [
+            'bazel', '--bazelrc=/checkout/user.bazelrc', 'build', '--lockfile_mode=error',
+            '--credential_helper=*.qnx.com=/checkout/helper', '--build',
+            '@score_coverage//:generate_coverage_html', '--nobuild',
+        ]
+
+
+@pytest.mark.parametrize('diagnostic', [
+    'java.net.SocketException: Connection reset',
+    'java.net.SocketTimeoutException: Read timed out',
+    'java.net.UnknownHostException: downloads.example.com',
+    'ContentLengthMismatchException: expected 100 bytes',
+    'Checksum was abc123 but wanted def456',
+    'GET returned 503 Service Unavailable',
+    'GET returned 429 Too Many Requests',
+    'Network is unreachable',
+])
+def test_known_resolution_causes_allow_retries(diagnostic: str):
+    assert execute.retryable_download_failure(
+        f'Error in download_and_extract: java.io.IOException: Error downloading '
+        f'[https://downloads.example.com/sdk.tar] to /tmp/sdk: {diagnostic}\n')
+    assert execute.retryable_download_failure(diagnostic)
+
+
+@pytest.mark.parametrize('output', [
+    'ERROR: Analysis of target failed: invalid configuration',
+    'Error downloading [https://example.com/sdk]: GET returned 401 Unauthorized',
+    'Error downloading [https://example.com/sdk]: GET returned 403 Forbidden',
+    'Error downloading [https://example.com/sdk]: GET returned 404 Not Found',
+    'Error downloading [https://example.com/sdk]: certificate verify failed',
+])
+def test_other_failures_are_not_retryable(output: str):
+    assert not execute.retryable_download_failure(output)
+
+
+@pytest.mark.parametrize('continuation', [
+    '    Connection reset',
+    'Caused by: java.net.SocketTimeoutException: Read timed out',
+    'java.net.UnknownHostException: downloads.example.com',
+    '    Checksum was abc123\n    but wanted def456',
+    '    GET returned 503 Service Unavailable',
+])
+def test_download_cause_can_follow_on_continuation_lines(continuation: str):
+    assert execute.retryable_download_failure(
+        'ERROR: Error downloading [https://example.com/sdk]:\n' + continuation)
+
+
+def test_http_status_must_be_a_complete_code():
+    assert not execute.retryable_download_failure(
+        'Error downloading [https://example.com/sdk]: HTTP 5030')
+
+
+@pytest.fixture
+def resolution_process(monkeypatch: pytest.MonkeyPatch):
+    """Provide streamed process results and record real retry orchestration without sleeping."""
+    from io import StringIO
+
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    delays: list[int] = []
+    results: list[tuple[int, str]] = []
+
+    class Process:
+        def __init__(self, argv: list[str], **kwargs: object):
+            calls.append((argv, kwargs))
+            self.returncode, output = results.pop(0)
+            self.stdout = StringIO(output)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.stdout.close()
+
+        def wait(self):
+            return self.returncode
+
+    monkeypatch.setattr(execute.subprocess, 'Popen', Process)
+    monkeypatch.setattr(execute.time, 'sleep', delays.append)
+    return SimpleNamespace(calls=calls, delays=delays, results=results)
+
+
+DOWNLOAD_ERROR = ('Error downloading [https://example.com/sdk]: '
+                  'Checksum was abc123 but wanted def456\n')
+
+
+def test_resolution_succeeds_after_five_cooldowns(resolution_process, capsys: pytest.CaptureFixture[str]):
+    """Six attempts includes the first invocation; only failed attempts have a cooldown."""
+    state = resolution_process
+    state.results.extend([(1, DOWNLOAD_ERROR)] * 5 + [(0, 'Dependencies ready\n')])
+    argv = ['bazel', 'test', '--nobuild', '--', '//...']
+    execute.download_dependencies(argv)
+    assert len(state.calls) == 6
+    assert all(command == argv for command, _ in state.calls)
+    assert state.delays == [30] * 5
+    output = capsys.readouterr().out
+    assert 'retrying in 30 seconds' in output
+    assert 'Resolve dependencies (6/6)' in output
+    assert 'Dependencies ready' in output
+    assert 'exhausted' not in output
+
+
+@pytest.mark.parametrize('status, output, attempts, delays', [
+    (0, 'Ready\n', 1, []),
+    (7, 'ERROR: invalid configuration\n', 1, []),
+    (23, DOWNLOAD_ERROR, 6, [30] * 5),
+])
+def test_resolution_stops_on_success_unknown_error_or_exhaustion(
+    resolution_process, capsys: pytest.CaptureFixture[str], status: int, output: str,
+    attempts: int, delays: list[int],
+):
+    state = resolution_process
+    state.results.extend([(status, output)] * attempts)
+    if status:
+        with pytest.raises(SystemExit) as error:
+            execute.download_dependencies(['bazel', 'build', '--nobuild', '//...'])
+        assert error.value.code == status
+    else:
+        execute.download_dependencies(['bazel', 'build', '--nobuild', '//...'])
+    assert len(state.calls) == attempts
+    assert state.delays == delays
+    log = capsys.readouterr().out
+    if attempts == 6:
+        assert 'all 6 resolution attempts exhausted' in log
+    elif status:
+        assert 'not retrying' in log
+
+
+def test_resolution_failure_prevents_execution_and_later_phases(execution, monkeypatch: pytest.MonkeyPatch):
+    def fail_resolution(argv: list[str]):
+        raise SystemExit(7)
+
+    monkeypatch.setattr(execute, 'download_dependencies', fail_resolution)
+    with pytest.raises(SystemExit) as error:
+        execution.run(BUILD_TARGETS='//lib/...', TEST_TARGETS='//...')
+    assert error.value.code == 7
+    assert execution.calls == []
