@@ -155,7 +155,7 @@ jobs:
       # Checks out the repository, runs `bazel run //:docs_link_check` and
       # creates or updates an issue listing the broken links it found.
       - name: Run docs-as-code link check
-        uses: eclipse-score/docs-as-code/.github/actions/link-check@6a19771a59036997daa28e2520a33a3fa2f78ebe # v8.5.1
+        uses: eclipse-score/docs-as-code/.github/actions/link-check@52d4a556de2f468483eb76471fa4522218754cd9 # v8.7.0
         with:
           github-token: ${{ github.token }}
 
