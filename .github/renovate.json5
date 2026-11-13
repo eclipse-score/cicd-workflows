@@ -12,7 +12,26 @@
 
   // Target following repositories
   repositories: [
-    "eclipse-score/baselibs",
+    {
+      repository: "eclipse-score/baselibs",
+      // The integration example is a separate Bazel root with its own lockfile.
+      // It consumes the checkout through local_path_override, so updates to the
+      // top-level MODULE.bazel also change its transitive dependencies.
+      // Renovate only refreshes the lockfile beside the MODULE.bazel it updates.
+      postUpgradeTasks: {
+        // Resolve dependencies from the consumer root to refresh its lockfile too.
+        workingDirTemplate: "examples/integration",
+        commands: ["bazelisk mod deps --lockfile_mode=update"],
+        // Ensure Bazelisk is available even when the consumer has no direct update.
+        // Bazelisk selects the Bazel version from the repository's .bazelversion.
+        installTools: { bazelisk: {} },
+        // Resolve once after all updates on a branch, including grouped updates.
+        executionMode: "branch",
+        // Include only the consumer lockfile from this additional command.
+        // Renovate still includes the normal manifest and lockfile updates.
+        fileFilters: ["examples/integration/MODULE.bazel.lock"],
+      },
+    },
     "eclipse-score/bazel_cpp_toolchains",
     "eclipse-score/communication",
     "eclipse-score/config_management",
@@ -72,6 +91,12 @@
 
   // Allow bazel lockfile updates via `bazel mod deps --lockfile_mode=update`
   allowedUnsafeExecutions: ["bazelModDeps"],
+
+  // Explicit post-upgrade commands require their own global allowlist.
+  // bazelModDeps above only permits Renovate's built-in lockfile refresh.
+  // Anchor the expression to permit exactly the consumer refresh command.
+  // Its repository and working directory are configured in repositories above.
+  allowedCommands: ["^bazelisk mod deps --lockfile_mode=update$"],
 
   // Update score packages only
   packageRules: [
