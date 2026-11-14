@@ -8,10 +8,11 @@ These workflows integrate with **Bazel** and provide a consistent way to run **d
 
 | Workflow                                       | Description                                                                                                                 |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **[Bazel Job](.github/workflows/bazel.md)** | Build and test your module or collect coverage, with shared setup, caching and reports |
 | **[PR Checks](.github/workflows/on-pr.md)**    | Main PR entry point: auto-detects capabilities and runs pre-commit, tests, format, copyright and lockfile checks in one job |
 | **[Bazel Cache Maintenance](.github/workflows/cache-maintenance.md)** | Maintains lockfile-keyed repository and job-specific Bazel caches                                                           |
 | **[Documentation](.github/workflows/docs.md)** | Builds and securely publishes documentation to GitHub Pages                                                                 |
-| **[Daily Maintenance](.github/workflows/daily.md)** | Handles stale pull requests, cleans old documentation, and prunes obsolete caches                                  |
+| **[Daily Maintenance](.github/workflows/daily.md)** | Handles stale pull requests, cleans old docs, checks docs for dead links, and prunes caches                        |
 | **License Check**                              | Verifies OSS licenses and compliance                                                                                        |
 | **Static Code Analysis**                       | Runs Clang-Tidy, Clippy, Pylint, and other linters                                                                          |
 | **Tests**                                      | Executes tests using GoogleTest, Rust test, or pytest                                                                       |
@@ -134,6 +135,13 @@ This workflow:
 ✅ Runs **GoogleTest** for C++  
 ✅ Runs **Rust Unit Tests**  
 ✅ Runs **pytest** for Python  
+
+With `upload-name` the test results are uploaded as an artifact and its name is exposed as output
+`artifact-name`.
+
+The workflow uses the triggering event's default checkout; `pull_request` tests the merge result.
+Calls from `pull_request_target` fail before checkout or credential setup. Use `pull_request`
+or `merge_group` for pull request testing.
 
 ---
 
@@ -262,12 +270,16 @@ jobs:
       score-qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
       score-qnx-user: ${{ secrets.SCORE_QNX_USER }}
       score-qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
+      qnx-sdp-github-token: ${{ secrets.SCORE_BOT_QNX_PKG_PAT }} # optional, for QNX SDP tarball release downloads
 ```
 
 **Notes**
 - Runs on `pull_request_target` so maintainers can approve the `workflow-approval` environment before secrets are used.
 - Installs the QNX license, builds with the configured Bazel target/config, and cleans up the license directory.
 - Additional Bazel flags are caller-controlled via `extra-bazel-flags`; the workflow does not enable `--lockfile_mode=error` by default.
+- The QNX build toolchain uses `qnx-sdp-github-token` to download the QNX SDP tarball stored as a release asset
+  in [eclipse-score/qnx_sdp_pkg](https://github.com/eclipse-score/qnx_sdp_pkg). The token must have read access to that private repository.
+  It is exposed as `GH_TOKEN` during dependency fetching, building, and testing; existing callers downloading the SDP from qnx.com can omit it.
 - When `bazel-test-target` is supplied, test logs are uploaded from `<working-directory>/bazel-testlogs/**` using `test-log-artifact-name`, which defaults to `qnx-testlogs`.
 - Matrix callers must supply a unique `test-log-artifact-name` for each job to avoid artifact-name conflicts.
 - Include `github.run_attempt` in the artifact name when rerunning jobs must not conflict with artifacts from earlier attempts.

@@ -1,0 +1,35 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "score-cicd-workflows"
+version = "0.1.0"
+description = "Maintainer tooling and consumer compatibility tests for SCORE CI workflows"
+requires-python = ">=3.12"
+dependencies = ["PyYAML>=6.0.3,<7"]
+
+[tool.uv]
+# These helpers run from the workflow checkout. They are repository tooling,
+# not a library to build or publish; uv manages their environment and lockfile.
+package = false
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true
+
+[tool.pytest.ini_options]
+# Keep the helpers beside their regression tests while making their imports
+# work identically under pytest locally and in the shared on-pr workflow.
+testpaths = ["tests/ci"]
+pythonpath = ["tests/ci"]
+
+[tool.ruff.lint]
+# Check undefined names and unused imports without imposing a formatting rewrite
+# on the existing helper code. Workflow/YAML checks remain in pre-commit.
+select = ["F"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]

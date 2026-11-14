@@ -73,6 +73,7 @@ not explicitly skipped — see [Skipping checks](#skipping-checks)).
 | Bazel copyright | `//:copyright.check` target exists       | `bazel run //:copyright.check`            |
 | Bzlmod tidy     | `MODULE.bazel.lock` exists               | `bazel mod tidy` + `git diff --exit-code` |
 | Bzlmod lockfile | `MODULE.bazel.lock` exists               | `bazel mod deps --lockfile_mode=error`    |
+| Lockfile required | `require-bzlmod-lock: true`, `MODULE.bazel` exists, lockfile missing | fails with guidance |
 
 Capability detection looks for:
 
@@ -81,12 +82,37 @@ Capability detection looks for:
 - **Python/uv** — both `pyproject.toml` and `uv.lock`
 - **pre-commit** — `.pre-commit-config.yaml`
 
-The presence of the Bazel `//:format.check` and `//:copyright.check` targets is
+The presence of the configured Bazel targets (by default `//:format.check` and
+`//:copyright.check`) is
 detected by querying Bazel directly, so those checks only run when the target
 actually exists.
 
 > A Bazel module-name check exists but is currently disabled until its detection
 > script is fixed.
+
+## Custom Bazel targets
+
+Callers can override the check targets with optional string inputs:
+
+| Input              | Default               | Command                  |
+| ------------------ | --------------------- | ------------------------ |
+| `format-target`    | `//:format.check`      | `bazel test <target>`    |
+| `copyright-target` | `//:copyright.check`   | `bazel run <target>`     |
+
+```yaml
+jobs:
+  common:
+    uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@main
+    with:
+      format-target: "//tools/format:check"
+      copyright-target: "//tools/license:check"
+    permissions:
+      contents: read
+```
+
+Each input accepts one Bazel target label, not a command or a list of targets.
+Both detection and execution use the configured label. A check is skipped if
+its target cannot be queried. Omitting these inputs preserves the default targets.
 
 ## Skipping checks
 
@@ -98,11 +124,13 @@ to `true`:
 | ------------------- | ---------------------------------------- |
 | `skip-pre-commit`   | pre-commit                               |
 | `skip-python-tests` | Python / pytest                          |
-| `skip-format`       | `bazel //:format.check`                  |
-| `skip-copyright`    | `bazel //:copyright.check`               |
+| `skip-format`       | configured Bazel formatting check       |
+| `skip-copyright`    | configured Bazel copyright check        |
 | `skip-bzlmod-lock`  | both the bzlmod tidy and lockfile checks |
 
-All inputs default to `false`, so existing callers are unaffected. Example:
+All skip inputs default to `false`, so existing callers are unaffected.
+`skip-bzlmod-lock` cannot be combined with
+[`require-bzlmod-lock`](#requiring-the-bazel-lockfile). Example:
 
 ```yaml
 jobs:
@@ -110,6 +138,35 @@ jobs:
     uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@main
     with:
       skip-pre-commit: true
+    permissions:
+      contents: read
+```
+
+## Requiring the Bazel lockfile
+
+By default, the bzlmod tidy and lockfile checks only run when `MODULE.bazel.lock`
+exists. If a repository uses bzlmod but the lockfile is missing (never committed,
+deleted, or git-ignored), those checks are **silently skipped**.
+
+Set `require-bzlmod-lock: true` to turn that into a failure:
+
+| Input                | Default | Meaning                                                                                  |
+| -------------------- | ------- | ---------------------------------------------------------------------------------------- |
+| `require-bzlmod-lock` | `false` | Fail the PR check if `MODULE.bazel` exists but `MODULE.bazel.lock` does not             |
+
+- Applies only to bzlmod repositories (`MODULE.bazel` present). `WORKSPACE`-only
+  repositories are unaffected, since they have no lockfile.
+- It only enforces that the lockfile **exists**. Whether it is tidy and up to date
+  is still verified by the regular bzlmod tidy and lockfile checks.
+- It is mutually exclusive with `skip-bzlmod-lock`. Setting both is a
+  configuration error: the job fails immediately and no other checks run.
+
+```yaml
+jobs:
+  common:
+    uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@main
+    with:
+      require-bzlmod-lock: true
     permissions:
       contents: read
 ```
@@ -150,3 +207,22 @@ permissions:
 `on-pr` uses the standard S-CORE runner-label resolution:
 `runner-labels` input → `runner_labels_ghub24_standard_x64` → `REPO_RUNNER_LABELS` → `ubuntu-24.04`. See
 [Runner Selection Logic](../../README.md#️-runner-selection-logic) for details.
+
+## Checkout and results
+
+By default, the workflow checks the calling repository using the event revision
+selected by `actions/checkout`. Optional inputs select a different checkout:
+
+| Input        | Default             | Meaning                                  |
+| ------------ | ------------------- | ---------------------------------------- |
+| `repository` | Calling repository  | Repository to check, as `owner/name`      |
+| `ref`        | Checkout default    | Commit SHA, tag or branch to check       |
+
+When `repository` selects a different repository and `ref` is omitted,
+`actions/checkout` selects that repository's default branch. Permissions and
+credentials must allow access to the selected repository.
+
+The `check-results` output is a JSON object containing the checked-out `commit`
+and a `checks` map with `pre-commit`, `python-tests`, `format`, `copyright`,
+`require-lock`, `module-tidy` and `lockfile` step outcomes. A skipped check is
+reported as `skipped`. Failed checks still fail the workflow.

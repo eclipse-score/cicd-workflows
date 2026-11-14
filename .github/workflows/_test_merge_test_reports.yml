@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+name: Test internal report collection
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  reports:
+    name: Reports / ${{ matrix.scenario }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [single, multiple, pattern-single, pattern-multiple, overlap, identical, conflict, missing-name, missing-pattern, partial-missing-name, partial-missing-pattern]
+    steps:
+      # Use real artifacts to exercise download layout and expression handling.
+      # The self reference loads the candidate action without a source checkout.
+      - name: Prepare reports
+        id: fixtures
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          FIRST: selftest-reports-${{ matrix.scenario }}-first-${{ github.run_attempt }}
+          SECOND: selftest-reports-${{ matrix.scenario }}-second-${{ github.run_attempt }}
+        run: |
+          mkdir -p fixtures/first/unit fixtures/second/integration
+          echo '<testsuite name="unit"/>' > fixtures/first/unit/test.xml
+          echo 'unit log' > fixtures/first/unit/test.log
+          echo '<testsuite name="integration"/>' > fixtures/second/integration/test.xml
+          case "$SCENARIO" in
+            identical|conflict)
+              rm -r fixtures/second
+              cp -r fixtures/first fixtures/second
+              if [[ "$SCENARIO" == conflict ]]; then
+                echo '<testsuite name="different-result"/>' > fixtures/second/unit/test.xml
+              fi
+              ;;
+          esac
+          {
+            echo 'artifacts<<REPORT_PATTERNS'
+            case "$SCENARIO" in
+              single) echo "$FIRST" ;;
+              pattern-single|pattern-multiple) echo "selftest-reports-$SCENARIO-*-${{ github.run_attempt }}" ;;
+              overlap)
+                echo "$FIRST"
+                echo "selftest-reports-$SCENARIO-*-${{ github.run_attempt }}"
+                ;;
+              missing-name) echo "selftest-reports-$SCENARIO-absent-${{ github.run_attempt }}" ;;
+              missing-pattern) echo "selftest-reports-$SCENARIO-absent-*" ;;
+              partial-missing-pattern)
+                echo "$FIRST"
+                echo "selftest-reports-$SCENARIO-absent-*"
+                ;;
+              *) printf '%s\n' "$FIRST" "$SECOND" ;;
+            esac
+            echo 'REPORT_PATTERNS'
+          } >> "$GITHUB_OUTPUT"
+      - name: Upload first report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: selftest-reports-${{ matrix.scenario }}-first-${{ github.run_attempt }}
+          path: fixtures/first
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload second report
+        if: ${{ !contains(fromJSON('["single", "pattern-single", "missing-name", "missing-pattern", "partial-missing-name", "partial-missing-pattern"]'), matrix.scenario) }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: selftest-reports-${{ matrix.scenario }}-second-${{ github.run_attempt }}
+          path: fixtures/second
+          if-no-files-found: error
+          retention-days: 1
+      - name: Collect selected reports
+        id: collect
+        continue-on-error: ${{ contains(fromJSON('["conflict", "missing-name", "missing-pattern"]'), matrix.scenario) }}
+        uses: $/.github/actions/_merge-test-reports
+        with:
+          artifacts: ${{ steps.fixtures.outputs.artifacts }}
+          destination: merged-reports
+      - name: Verify collection outcome and report contents
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          OUTCOME: ${{ steps.collect.outcome }}
+          ERROR_CODE: ${{ steps.collect.outputs.error-code }}
+        run: |
+          case "$SCENARIO" in
+            conflict)
+              test "$OUTCOME" = failure
+              test "$ERROR_CODE" = file-conflict
+              ;;
+            missing-name|missing-pattern)
+              test "$OUTCOME" = failure
+              test "$ERROR_CODE" = no-reports
+              ;;
+            single|pattern-single|identical|partial-missing-name|partial-missing-pattern)
+              test "$OUTCOME" = success
+              diff -r fixtures/first merged-reports
+              ;;
+            multiple|pattern-multiple|overlap)
+              test "$OUTCOME" = success
+              diff fixtures/first/unit/test.xml merged-reports/unit/test.xml
+              diff fixtures/first/unit/test.log merged-reports/unit/test.log
+              diff fixtures/second/integration/test.xml merged-reports/integration/test.xml
+              test "$(find merged-reports -type f | wc -l)" -eq 3
+              ;;
+          esac

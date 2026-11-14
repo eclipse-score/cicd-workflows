@@ -67,12 +67,12 @@ on:
         default: ''
         type: string
       fetch-attempts:
-        description: Maximum number of attempts for the `bazel fetch` step that downloads the QNX SDP
+        description: Maximum number of attempts for the fetch step (`bazel build --nobuild`) that downloads the QNX SDP
         required: false
         default: 3
         type: number
       fetch-retry-delay:
-        description: Seconds to wait between failed `bazel fetch` attempts
+        description: Seconds to wait between failed fetch attempts
         required: false
         default: 30
         type: number
@@ -108,6 +108,12 @@ on:
       token:
         description: Token for private dependencies; an alternative to GitHub App credentials
         required: false
+      qnx-sdp-github-token:
+        description: >-
+          GitHub token used by the QNX build toolchain to download the QNX SDP release asset
+          from https://github.com/eclipse-score/qnx_sdp_pkg. Requires read access to that repository;
+          optional for SDP downloads from qnx.com.
+        required: false
       score-qnx-license:
         description: Base64-encoded QNX license content
         required: true
@@ -134,7 +140,7 @@ jobs:
     runs-on: >-
       ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) ||
       vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
-      vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+      vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
       pull-requests: read
@@ -151,10 +157,13 @@ jobs:
     runs-on: >-
       ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) ||
       vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
-      vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+      vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
       pull-requests: read
+
+    env:
+      GH_TOKEN: ${{ secrets.qnx-sdp-github-token }}
 
     steps:
       - name: Free up disk space
@@ -184,10 +193,17 @@ jobs:
           github-app-client-id: ${{ inputs.github-app-client-id }}
           github-app-private-key: ${{ secrets.github-app-private-key }}
 
+      # The QNX SDP is proprietary and must not end up in the Actions cache.
+      # Its tarball lives in the repository cache and its extraction in the external cache, so both stay off.
+      # The disk cache only holds build outputs and test results, so it is kept.
       - name: Setup Bazel with shared caching
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@e2a2a587a759b681632040ec1e1294015a0405f5 # setup-bazel-cache/v0.1.0
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@b04e3349097576dd2f06850c62fb9423515d2963 # 2026-11-02
         with:
           disk-cache-key: ${{ github.job }}${{ inputs.bazel-disk-cache }}
+          repository-cache-restore: false
+          repository-cache-save: false
+          external-cache-restore: false
+          external-cache-save: false
 
       - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90 # 2025-06-04
 
@@ -207,9 +223,11 @@ jobs:
           set -euo pipefail
 
           # Retry only the download, so transient qnx.com timeouts do not fail the build.
+          # `bazel fetch` only covers the loading phase; the QNX SDP is a toolchain repo that is
+          # fetched during analysis, hence `bazel build --nobuild`.
           for attempt in $(seq 1 ${{ inputs.fetch-attempts }}); do
             # !! if changed also adapt the build command below
-            if bazel fetch --config ${{ inputs.bazel-config }} \
+            if bazel build --nobuild --config ${{ inputs.bazel-config }} \
               --credential_helper=*.qnx.com="${QNX_CREDENTIAL_HELPER}" ${{ inputs.extra-bazel-flags }} -- \
               ${{ inputs.bazel-target }}; then
               exit 0
@@ -256,7 +274,7 @@ jobs:
 
       - name: Upload test logs
         if: inputs.bazel-test-target != '' && always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.test-log-artifact-name }}
           path: "${{ inputs.working-directory }}/bazel-testlogs/**"

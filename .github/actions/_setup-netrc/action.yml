@@ -1,0 +1,13 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+name: Setup Netrc
+description: Provide temporary Bazel download credentials until all subsequent actions finish.
+inputs:
+  content:
+    description: Complete .netrc content; empty leaves existing credentials unchanged.
+    required: false
+runs:
+  using: node24
+  main: setup.cjs
+  post: cleanup.cjs
+  post-if: always()

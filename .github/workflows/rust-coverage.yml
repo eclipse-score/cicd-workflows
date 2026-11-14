@@ -80,12 +80,12 @@ on:
 jobs:
   rust-coverage:
     name: Rust Coverage
-    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
 
       - name: Checkout repository (Handle all events)
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v6
         with:
           lfs: true
           ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
@@ -149,7 +149,7 @@ jobs:
           echo "coverage_path=${coverage_path}" >> "$GITHUB_OUTPUT"
 
       - name: Upload coverage HTML
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ inputs.coverage-artifact-name }}
           path: ${{ steps.coverage.outputs.coverage_path }}

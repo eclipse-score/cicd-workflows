@@ -1,0 +1,121 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# One catalog drives the matrix and its assertions. To add a consumer, pin its
+# commit and describe which checks must run. A successful job with skipped checks
+# must not silently count as compatibility coverage. No consumer file is needed.
+#
+# required-checks describes each consumer's tested minimum compatibility profile.
+# Each listed check must run successfully, and the entire workflow must succeed.
+# Additional checks may run or be skipped. An omitted check is not evidence that
+# the repository cannot support it; it is simply outside this scenario's contract.
+# Review minimum requirements together with commit updates.
+#
+# Optional overrides document repository-specific exceptions inline, for example:
+#   overrides:
+#     format-target:
+#       value: //tools:format.check
+#       reason: The repository exposes its formatter only from //tools.
+#     skip-python-tests:
+#       value: true
+#       reason: These tests need a service that the common PR runner lacks.
+# Skip switches cannot disable required checks. Omit overrides for standard calls.
+consumers:
+  # The module template checks the standard SCORE repository entry points,
+  # including its pre-commit hooks and root Bazel format/copyright targets.
+  - name: module-template
+    repository: eclipse-score/module_template
+    ref: aa24d96011b2e31d372f80769c95243b46d3c16c
+    required-checks: [pre-commit, format, copyright, module-tidy, lockfile]
+
+  # Persistency exposes its tooling from //tools through root entry points.
+  # This exercises capability detection and check execution with a different
+  # tooling layout while keeping the same default on-pr.yml configuration.
+  - name: persistency
+    repository: eclipse-score/persistency
+    ref: 11f1c8a3b6894ae788126b485825acea270bb387
+    required-checks: [pre-commit, format, copyright, module-tidy, lockfile]
+
+  # Documentation tooling: pre-commit includes Bazel-backed IDE and type checks.
+  - name: docs-as-code
+    repository: eclipse-score/docs-as-code
+    ref: 3794d9bc1ce39d22c461ccab4b8bff303f643089
+    required-checks: [pre-commit, module-tidy, lockfile]
+
+  # Coverage tooling: Bazel-backed pre-commit hooks without root check targets.
+  - name: coverage-tool
+    repository: eclipse-score/coverage_tool
+    ref: 9ebc6bca8e0537b016a1de56891b5d96cf230e28
+    required-checks: [pre-commit, module-tidy, lockfile]
+
+  # Python tooling: covers the standalone uv/pytest path and pre-commit hooks.
+  - name: tools
+    repository: eclipse-score/tools
+    ref: 6b1829b13ec0800e90a54d83fee447b6fe2949cd
+    required-checks: [pre-commit, python-tests, copyright]
+
+  # Registry maintenance: covers Python checks in a repository without Bazel.
+  - name: bazel-registry
+    repository: eclipse-score/bazel_registry
+    ref: 9e44ded245eec85138663d480becc180ab26ae8c
+    required-checks: [pre-commit, python-tests]
+
+  # Toolchain definitions: root formatter/copyright checks without pre-commit.
+  - name: bazel-cpp-toolchains
+    repository: eclipse-score/bazel_cpp_toolchains
+    ref: e91b840c7832e4fcfdb98e1aae1a1604c4ad6425
+    required-checks: [format, copyright, module-tidy, lockfile]
+
+  # C++ foundations: checks live in //tools; match its existing PR configuration.
+  - name: baselibs
+    repository: eclipse-score/baselibs
+    ref: 785365e679c78f5d18d039da537d74c19501c0bb
+    required-checks: [format, copyright, module-tidy, lockfile]
+    overrides:
+      format-target:
+        value: //tools:format.check
+        reason: The formatter is exposed from //tools, as configured in the consumer PR workflow.
+      copyright-target:
+        value: //tools:copyright-check
+        reason: The copyright checker is exposed from //tools, as configured in the consumer PR workflow.
+      skip-pre-commit:
+        value: true
+        reason: The consumer PR workflow skips its auto-fixing hooks and uses the explicit Bazel checks instead.
+
+  # Time module: formatting and copyright entry points live in //tools.
+  - name: time
+    repository: eclipse-score/time
+    ref: 6833c113ccf15f1fdca6950bf654fc5100fcf0b6
+    required-checks: [format, copyright, module-tidy, lockfile]
+    overrides:
+      format-target:
+        value: //tools:format.check
+        reason: The formatter is exposed only from the //tools package.
+      copyright-target:
+        value: //tools:copyright-check
+        reason: The copyright checker is exposed only from the //tools package.
+
+  # SBOM tooling: checks live in //tools rather than the root package.
+  - name: sbom-tool
+    repository: eclipse-score/sbom-tool
+    ref: b343f785db50d2aa19830ad9ec7264986e220383
+    required-checks: [format, copyright, module-tidy, lockfile]
+    overrides:
+      format-target:
+        value: //tools:format.check
+        reason: The formatter is exposed only from the //tools package.
+      copyright-target:
+        value: //tools:copyright-check
+        reason: The copyright checker is exposed only from the //tools package.
+
+  # Process documentation: exercises a Bazel workspace with lockfile checks only.
+  - name: process-description
+    repository: eclipse-score/process_description
+    ref: 9f29bca8646bd554a28c0c770b910e82779c41ab
+    required-checks: [module-tidy, lockfile]
+
+  # Action implementations: a non-Bazel repository with Node-backed pre-commit builds.
+  - name: cicd-actions
+    repository: eclipse-score/cicd-actions
+    ref: b04e3349097576dd2f06850c62fb9423515d2963
+    required-checks: [pre-commit]
