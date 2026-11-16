@@ -23,16 +23,15 @@ permissions:
 
 jobs:
   tests:
-    uses: eclipse-score/cicd-workflows/.github/workflows/bazel.yml@qnx-fork-approval
+    uses: eclipse-score/cicd-workflows/.github/workflows/bazel.yml@<sha>
     with:
       test-targets: //score/...
       bazel-configs: x86_64-linux
       cache-key: linux-x86_64
 ```
 
-The examples use the review branch. Pin the reviewed commit SHA when adopting
-the workflow. `//score/...` selects targets below `score`; `//...` selects all
-targets. Configuration names come from your module's `.bazelrc` files.
+Replace `<sha>` with the full commit SHA of the reviewed workflow version.
+`//score/...` selects targets below `score`; `//...` selects all targets. Configuration names come from your module's `.bazelrc` files.
 
 - **Test only** — supply `test-targets`. Bazel builds the selected tests first.
 - **Build only** — supply `build-targets` and omit `test-targets`.

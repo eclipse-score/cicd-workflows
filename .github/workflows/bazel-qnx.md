@@ -70,8 +70,8 @@ for the license format and VM setup.
 ### Call the workflow
 
 Add this workflow to the repository's trusted default branch. Replace the Bazel
-configuration and targets with your module's values, and pin `@qnx-fork-approval`
-to the reviewed commit SHA.
+configuration and targets with your module's values, and replace `<sha>` with
+the full commit SHA of the reviewed workflow version.
 
 ```yaml
 name: QNX checks
@@ -92,7 +92,7 @@ concurrency:
 jobs:
   qnx:
     # Fork PRs require environment approval; internal PRs run automatically.
-    uses: eclipse-score/cicd-workflows/.github/workflows/bazel.yml@qnx-fork-approval
+    uses: eclipse-score/cicd-workflows/.github/workflows/bazel.yml@<sha>
     with:
       setup-qnx-sdp: true
       build-targets: //...
