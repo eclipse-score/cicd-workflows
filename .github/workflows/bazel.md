@@ -1,21 +1,29 @@
 # Build, test and collect coverage with Bazel
 
-Use `bazel.yml` to run one Bazel job on a Linux runner. It handles checkout,
-setup, caching and report uploads. You choose the targets, Bazel configurations,
-triggers, matrices and job dependencies. Start with [Run a job](#run-a-job), or
-look up a setting in the [Reference](#reference).
+Use `bazel.yml` to build, test or measure coverage on a Linux runner. You supply
+your targets and Bazel configurations; the workflow handles setup, caching and
+report uploads. Start with
+[Run a job](#run-a-job), or look up a setting in the [Reference](#reference).
 
 ## Run a job
 
-Add a job to your module's workflow. The selected targets and configurations
-must already work in your module.
+Create `.github/workflows/bazel-checks.yml` in your module with the following
+content, or add the `tests` job to an existing workflow. Replace the targets and
+configuration with ones that already work in your module.
 
 ```yaml
+name: Bazel checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   tests:
-    permissions:
-      contents: read
-    uses: eclipse-score/cicd-workflows/.github/workflows/bazel.yml@bazel-workflow
+    uses: eclipse-score/cicd-workflows/.github/workflows/bazel.yml@qnx-fork-approval
     with:
       test-targets: //score/...
       bazel-configs: x86_64-linux
@@ -36,16 +44,16 @@ Choose a stable `cache-key` for each job and matrix variant, for example
 
 ## Adjust the job
 
-| Need | Input and example |
-| --- | --- |
-| Multiple configurations or sanitizers | `bazel-configs: x86_64-linux asan_ubsan_lsan` |
-| Exclude tests | `test-targets: //... -//score/slow/...` |
-| Extra test or coverage options | `test-args: --test_timeout=600` |
-| Extra build options | `build-args: --keep_going` |
-| Command options for every Bazel invocation | `bazel-args: --verbose_failures` |
-| Nested Bazel workspace | `working-directory: examples/integration` |
-| Extra system packages | `apt-packages: qemu-user` |
-| Different job timeout | `timeout-minutes: 60` |
+| Need                                       | Input and example                             |
+| ------------------------------------------ | --------------------------------------------- |
+| Multiple configurations or sanitizers      | `bazel-configs: x86_64-linux asan_ubsan_lsan` |
+| Exclude tests                              | `test-targets: //... -//score/slow/...`       |
+| Extra test or coverage options             | `test-args: --test_timeout=600`               |
+| Extra build options                        | `build-args: --keep_going`                    |
+| Command options for every Bazel invocation | `bazel-args: --verbose_failures`              |
+| Nested Bazel workspace                     | `working-directory: examples/integration`     |
+| Extra system packages                      | `apt-packages: qemu-user`                     |
+| Different job timeout                      | `timeout-minutes: 60`                         |
 
 Pass configuration names without `--config=`. Arguments are literal, with no
 shell expansion. Quote values containing spaces, for example
@@ -130,6 +138,145 @@ wrapper start and stop the VM. Enable QEMU setup for other platforms as needed;
 QNX build-only jobs can omit it. For Linux user-mode emulation, use
 `apt-packages: qemu-user`.
 
+## Run QNX checks on pull requests
+
+Use this setup to run QNX checks on internal and fork PRs. Internal PRs run
+automatically; fork PRs require approval by a committer before code runs with
+QNX credentials. A merge queue and PR labels are optional.
+
+### Configure fork approval with Otterdog
+
+Before enabling the workflow, add the following `environments` field to the
+repository's Otterdog JSONnet object, using the existing `orgs` import from the
+Otterdog defaults:
+
+```jsonnet
+environments+: [
+  orgs.newEnvironment('workflow-approval') {
+    deployment_branch_policy: 'all',
+    reviewers+: ['@eclipse-score/automotive-score-committers'],
+  },
+],
+```
+
+Apply this configuration first so that `workflow-approval` requires approval
+from the `automotive-score-committers` team. Merely naming the environment in a
+workflow does not protect it. These environment approvals are separate from PR
+reviews. The configuration matches the organization's
+[existing QNX environments](https://github.com/eclipse-score/.eclipsefdn/blob/main/otterdog/eclipse-score.jsonnet).
+
+Store `SCORE_QNX_LICENSE`, `SCORE_QNX_USER` and `SCORE_QNX_PASSWORD` as repository
+or organization secrets. Secrets stored only on `workflow-approval` are not
+available to the build. See [Set up QNX and virtual machines](#set-up-qnx-and-virtual-machines)
+for the license format and VM setup.
+
+### Call the workflow
+
+Add this workflow to the repository's trusted default branch. Replace the Bazel
+configuration and targets with your module's values, and pin `@qnx-fork-approval`
+to the reviewed commit SHA.
+
+```yaml
+name: QNX checks
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+# A new PR revision cancels pending approval or execution of the previous one.
+concurrency:
+  group: qnx-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qnx:
+    # Fork PRs require environment approval; internal PRs run automatically.
+    uses: eclipse-score/cicd-workflows/.github/workflows/bazel.yml@qnx-fork-approval
+    with:
+      setup-qnx-sdp: true
+      build-targets: //...
+      bazel-configs: x86_64-qnx
+      cache-key: qnx-x86_64
+      # For VM tests, also supply test-targets and setup-qemu: true.
+    secrets:
+      qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
+      qnx-user: ${{ secrets.SCORE_QNX_USER }}
+      qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
+```
+
+For a fork PR, open the pending `approval` job and review the linked commit,
+including its Bazel rules and QNX credential helper, before approving execution.
+Rejection or cancellation leaves the build skipped. Each new PR revision needs
+approval again. Internal PRs run without this additional approval.
+
+The workflow tests the exact PR head commit recorded in the triggering event.
+Rerunning an older run still tests that older commit. Keep ordinary
+`pull_request` checks to test the PR's merge revision; `pull_request_target`
+checks the head commit and reports in the base context. QNX fork checks require
+`pull_request_target`; using `pull_request` for them fails with an explanation.
+`pull_request_target` is supported only with `setup-qnx-sdp: true`.
+
+### Select fork PRs by label (optional)
+
+Without a label filter, every fork PR waits for approval. To request QNX builds
+only for selected fork PRs, add `fork-pr-label` to the calling job's `with:` block:
+
+```yaml
+with:
+  fork-pr-label: test-qnx
+  # Keep the QNX settings from the example above.
+```
+
+Also extend the caller's PR event types so label changes trigger a new run:
+
+```yaml
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+```
+
+| PR | Without a label filter | With `fork-pr-label: test-qnx` |
+| --- | --- | --- |
+| Internal PR | Runs automatically | Runs automatically |
+| Fork PR without `test-qnx` | Waits for approval | Skipped |
+| Fork PR with `test-qnx` | Waits for approval | Waits for approval |
+
+Label matching is case-insensitive. Labels select which fork PRs need a build;
+they do not replace approval. The workflow reads labels from the event, so no
+additional token permission is needed. Pushes, manual dispatches and merge groups
+run independently of the filter when their triggers are configured.
+
+A label-filtered QNX check is optional: GitHub accepts skipped jobs as satisfied
+required checks. Requiring `Bazel` therefore does not enforce a QNX build or fork
+approval for every PR.
+
+### Use a merge queue (optional)
+
+To validate queued changes with QNX, add `merge_group` to the caller's triggers:
+
+```yaml
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  merge_group:
+    types: [checks_requested]
+```
+
+If you use the label filter, keep `labeled` and `unlabeled` in the PR event types.
+The existing `qnx` job builds the queue's merge-group revision (`github.sha`).
+Every merge group runs, regardless of PR labels, without additional fork approval.
+
+In the repository's Otterdog `rulesets`, enable the queue with
+`required_merge_queue` and configure `required_status_checks` to require the
+QNX `Bazel` check emitted by the caller for merge groups. See the
+[Otterdog ruleset fields](https://otterdog.readthedocs.io/en/latest/reference/organization/repository/ruleset/)
+for these settings. A failed check blocks the queued change. Use the merge-group
+check for queue validation; the `pull_request_target` check does not test the
+queue's combined revision.
+
 ## Find and reuse reports
 
 Find reports under **Artifacts** on the GitHub Actions run page. Test jobs
@@ -154,30 +301,32 @@ to retrieve each variant's report.
 Pass inputs under the calling job's `with:` key. Empty means the input can be
 omitted. Supply at least one of `build-targets` and `test-targets`.
 
-| Input | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `build-targets` | string | Empty | Targets to build before testing. Empty skips the build phase. |
-| `test-targets` | string | Empty | Targets to test or measure coverage for, including exclusions. Empty skips this phase. |
-| `test-command` | string | `test` | `test` or `coverage`. Coverage requires `test-targets` and the shared reporter target. |
-| `bazel-configs` | string | Empty | Whitespace-separated config names, applied in order to build and test/coverage. |
-| `bazel-args` | string | Empty | Extra command options for every Bazel invocation, including the coverage reporter. Follow the default `--lockfile_mode=error`. |
-| `build-args` | string | Empty | Extra command options for the build phase. |
-| `test-args` | string | Empty | Extra command options for the test or coverage phase. |
-| `working-directory` | string | `.` | Bazel workspace relative to the checkout. Must be an existing directory inside it. |
-| `cache-key` | string | Empty | Stable build-output cache name. Empty uses `bazel`; choose a distinct key for each job and matrix variant. |
-| `coverage-justifications` | string | Empty | Justification YAML path relative to the Bazel workspace, used for coverage reports. |
-| `coverage-threshold` | number | `100` | Minimum line coverage percentage after applying justifications. `0` disables the coverage gate. |
-| `apt-packages` | string | Empty | Additional APT packages to install, separated by whitespace. |
-| `disk-cleanup-level` | number | `2` | Disk cleanup level from 0 to 4, passed to `more-disk-space`. |
-| `setup-qnx-sdp` | boolean | `false` | Configure QNX licensing and download access. Requires all three QNX secrets. Selects QNX justifications for coverage reports. |
-| `qnx-license-server` | string | Empty | Optional license server, such as `6287@license-server`, used with QNX setup. |
-| `qnx-credential-helper` | string | `.github/tools/qnx_credential_helper.py` | Download helper path relative to the checkout root, used with QNX setup. The file must exist. Empty disables helper setup. |
-| `setup-qemu` | boolean | `false` | Install `qemu-system` and `qemu-utils` and enable KVM access. Requires a runner with KVM, sudo and udev. |
-| `runner-labels` | string | Empty | JSON runner label or array, such as `["self-hosted", "linux", "x64"]`. Overrides repository runner variables. |
-| `timeout-minutes` | number | `360` | Job timeout, including setup and execution. |
-| `artifact-name` | string | Empty | Uploaded report artifact name. Empty generates a unique name for the invocation. |
-| `retention-days` | number | `7` | Number of days to keep uploaded reports. |
-| `github-app-client-id` | string | Empty | GitHub App client ID for private dependencies. Supply `github-app-private-key` as a secret. |
+| Input                     | Type    | Default                                  | Meaning                                                                                                                           |
+| ------------------------- | ------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `build-targets`           | string  | Empty                                    | Targets to build before testing. Empty skips the build phase.                                                                     |
+| `test-targets`            | string  | Empty                                    | Targets to test or measure coverage for, including exclusions. Empty skips this phase.                                            |
+| `test-command`            | string  | `test`                                   | `test` or `coverage`. Coverage requires `test-targets` and the shared reporter target.                                            |
+| `bazel-configs`           | string  | Empty                                    | Whitespace-separated config names, applied in order to build and test/coverage.                                                   |
+| `bazel-args`              | string  | Empty                                    | Extra command options for every Bazel invocation, including the coverage reporter. Follow the default `--lockfile_mode=error`.    |
+| `build-args`              | string  | Empty                                    | Extra command options for the build phase.                                                                                        |
+| `test-args`               | string  | Empty                                    | Extra command options for the test or coverage phase.                                                                             |
+| `working-directory`       | string  | `.`                                      | Bazel workspace relative to the checkout. Must be an existing directory inside it.                                                |
+| `fork-pr-label`           | string  | Empty                                    | Label required for fork PR execution. Empty disables label filtering. Internal PRs, merge groups and other events always execute. |
+| `cache-key`               | string  | Empty                                    | Stable build-output cache name. Empty uses `bazel`; choose a distinct key for each job and matrix variant.                        |
+| `coverage-justifications` | string  | Empty                                    | Justification YAML path relative to the Bazel workspace, used for coverage reports.                                               |
+| `coverage-threshold`      | number  | `100`                                    | Minimum line coverage percentage after applying justifications. `0` disables the coverage gate.                                   |
+| `apt-packages`            | string  | Empty                                    | Additional APT packages to install, separated by whitespace.                                                                      |
+| `disk-cleanup-level`      | number  | `2`                                      | Disk cleanup level from 0 to 4, passed to `more-disk-space`.                                                                      |
+| `setup-qnx-sdp`           | boolean | `false`                                  | Configure QNX licensing and download access. Requires all three QNX secrets. Selects QNX justifications for coverage reports.     |
+| `environment-name`        | string  | `workflow-approval`                      | Protected caller environment for fork target-event approval. Must have environment `reviewers` configured in Otterdog.            |
+| `qnx-license-server`      | string  | Empty                                    | Optional license server, such as `6287@license-server`, used with QNX setup.                                                      |
+| `qnx-credential-helper`   | string  | `.github/tools/qnx_credential_helper.py` | Download helper path relative to the checkout root, used with QNX setup. The file must exist. Empty disables helper setup.        |
+| `setup-qemu`              | boolean | `false`                                  | Install `qemu-system` and `qemu-utils` and enable KVM access. Requires a runner with KVM, sudo and udev.                          |
+| `runner-labels`           | string  | Empty                                    | JSON runner label or array, such as `["self-hosted", "linux", "x64"]`. Overrides repository runner variables.                     |
+| `timeout-minutes`         | number  | `360`                                    | Job timeout, including setup and execution.                                                                                       |
+| `artifact-name`           | string  | Empty                                    | Uploaded report artifact name. Empty generates a unique name for the invocation.                                                  |
+| `retention-days`          | number  | `7`                                      | Number of days to keep uploaded reports.                                                                                          |
+| `github-app-client-id`    | string  | Empty                                    | GitHub App client ID for private dependencies. Supply `github-app-private-key` as a secret.                                       |
 
 Without `runner-labels`, selection uses repository variable
 `runner_labels_ghub_standard_x64`, then `REPO_RUNNER_LABELS`, then
@@ -193,19 +342,19 @@ so a phase can override a shared option such as `--lockfile_mode`.
 Pass secrets under the calling job's `secrets:` key. All are optional unless
 the corresponding setup is enabled.
 
-| Secret | Required when | Meaning |
-| --- | --- | --- |
-| `qnx-license` | `setup-qnx-sdp: true` | Base64-encoded QNX client license file. |
-| `qnx-user` | `setup-qnx-sdp: true` | QNX account username for downloads. |
-| `qnx-password` | `setup-qnx-sdp: true` | QNX account password for downloads. |
-| `netrc` | Using Netrc authentication | Complete file content for authenticated HTTP downloads. Omission keeps existing authentication. |
-| `github-app-private-key` | Using `github-app-client-id` | Private key for the GitHub App used to access private dependencies. |
-| `github-token` | Using token-based GitHub authentication | GitHub token with access to the required private dependencies, as an alternative to App credentials. |
+| Secret                   | Required when                           | Meaning                                                                                              |
+| ------------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `qnx-license`            | `setup-qnx-sdp: true`                   | Base64-encoded QNX client license file.                                                              |
+| `qnx-user`               | `setup-qnx-sdp: true`                   | QNX account username for downloads.                                                                  |
+| `qnx-password`           | `setup-qnx-sdp: true`                   | QNX account password for downloads.                                                                  |
+| `netrc`                  | Using Netrc authentication              | Complete file content for authenticated HTTP downloads. Omission keeps existing authentication.      |
+| `github-app-private-key` | Using `github-app-client-id`            | Private key for the GitHub App used to access private dependencies.                                  |
+| `github-token`           | Using token-based GitHub authentication | GitHub token with access to the required private dependencies, as an alternative to App credentials. |
 
 ### Outputs
 
 Read outputs from a dependent job through `needs.<job>.outputs.<name>`.
 
-| Output | Meaning |
-| --- | --- |
-| `artifact-name` | Name of the uploaded report artifact. Empty if no artifact was created, including build-only jobs and runs with no report files. |
+| Output          | Meaning                                                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `artifact-name` | Name of the uploaded report artifact. Empty if no artifact was created, including label-based skips, build-only jobs and runs with no report files. |
