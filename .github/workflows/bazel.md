@@ -182,6 +182,7 @@ name: QNX checks
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -219,6 +220,23 @@ checks the head commit and reports in the base context. QNX fork checks require
 `pull_request_target`; using `pull_request` for them fails with an explanation.
 `pull_request_target` is supported only with `setup-qnx-sdp: true`.
 
+### Start QNX checks manually (optional)
+
+The example includes `workflow_dispatch`. In Actions, select **QNX checks**,
+choose an internal feature or release branch, and run the workflow. The caller
+must exist on the default branch to offer manual runs, and on the selected
+branch with the settings needed to build that branch.
+
+A dispatch uses the selected branch's caller workflow and event commit, so a
+release branch can retain its build settings and pinned reusable-workflow
+version. By contrast, `pull_request_target` uses the default branch's workflow
+even for PRs targeting a release branch. Dispatch runs without fork approval
+or label filtering. It does not select code in a fork or grant a fork access to
+upstream secrets; use the approved PR-target path for fork QNX checks.
+
+Manual checks provide early feedback. If you use a merge queue, its required
+checks still need to validate the final merge-group revision.
+
 ### Select fork PRs by label (optional)
 
 Without a label filter, every fork PR waits for approval. To request QNX builds
@@ -249,9 +267,25 @@ they do not replace approval. The workflow reads labels from the event, so no
 additional token permission is needed. Pushes, manual dispatches and merge groups
 run independently of the filter when their triggers are configured.
 
-A label-filtered QNX check is optional: GitHub accepts skipped jobs as satisfied
-required checks. Requiring `Bazel` therefore does not enforce a QNX build or fork
-approval for every PR.
+This input implements one policy: automatic internal checks and optional fork
+checks. To make internal PR checks opt-in too, add this condition to the calling
+`qnx` job and keep the `labeled` and `unlabeled` triggers:
+
+```yaml
+jobs:
+  qnx:
+    # Labels select all early PR checks; queue and manual runs always execute.
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      contains(github.event.pull_request.labels.*.name, 'test-qnx')
+    # Keep uses, with and secrets from the QNX example above.
+```
+
+With label filtering enabled, unselected PR builds are skipped. Rejected fork
+approval also leaves the build skipped. GitHub accepts skipped jobs as satisfied
+required checks, so requiring `Bazel` does not enforce an early build on every
+PR. In a merge queue, QNX runs regardless of labels; configure its `Bazel` check
+as required so the build must succeed before merging.
 
 ### Use a merge queue (optional)
 
@@ -263,6 +297,7 @@ on:
     types: [opened, synchronize, reopened]
   merge_group:
     types: [checks_requested]
+  workflow_dispatch:
 ```
 
 If you use the label filter, keep `labeled` and `unlabeled` in the PR event types.
@@ -293,6 +328,45 @@ generate a unique name. Use `needs.<job>.outputs.artifact-name` to download the
 artifact from a dependent job. The output is empty if nothing was uploaded.
 For matrix jobs, choose distinct names such as `bazel-testlogs-${{ matrix.name }}`
 to retrieve each variant's report.
+
+## Replace an existing `qnx-build.yml` call
+
+Enable `setup-qnx-sdp: true` and translate the existing call as follows. Keep
+the protected `workflow-approval` environment and explicitly forward secrets.
+
+| Existing QNX call | Shared Bazel call |
+| --- | --- |
+| `bazel-target` (default `//...`) | `build-targets: //...`; no default target is selected. |
+| `bazel-config` (default `x86_64-qnx`) | `bazel-configs: x86_64-qnx`; no default configuration is selected. |
+| `bazel-test-target` | `test-targets`; also set `setup-qemu: true` for VM tests. |
+| `extra-bazel-flags` / `extra-bazel-test-flags` | `build-args` / `test-args`; use `bazel-args` for options shared by both phases. |
+| `credential-helper` | `qnx-credential-helper`; same default path, relative to the checkout root. |
+| `score-qnx-license-server` | `qnx-license-server` |
+| `bazel-disk-cache` | `cache-key`; choose a stable name per job or matrix variant. Existing cache names are not preserved. |
+| `test-log-artifact-name` (default `qnx-testlogs`) | `artifact-name`; omitted names are generated per run. Update artifact consumers or set the old name explicitly. |
+| `disk-space-level` (default `4`) | `disk-cleanup-level` (default `2`); set `4` to retain the cleanup level. |
+| `fetch-attempts` / `fetch-retry-delay` | No corresponding inputs; recognized dependency-download failures are retried automatically. |
+| `working-directory`, `environment-name`, `runner-labels`, `github-app-client-id` | Same input names. |
+| Secrets `score-qnx-license`, `score-qnx-user`, `score-qnx-password` | Secrets `qnx-license`, `qnx-user`, `qnx-password`; the backing repository secret names can stay unchanged. |
+| Secret `token` | Secret `github-token` for private GitHub dependencies. |
+| Secret `github-app-private-key` | Same secret name. |
+| Secret `qnx-sdp-github-token` | No direct equivalent: `bazel.yml` does not expose it as `GH_TOKEN` for SDP release downloads. |
+| Build check `Build QNX target` | Build check `Bazel`; update required-check entries to the full reported caller/check name. |
+
+If your module downloads SDP release assets using `GH_TOKEN`, keep its existing
+QNX caller until the download authentication is adapted. Passing `github-token`
+configures Git access; it does not provide `GH_TOKEN` to the download tool.
+
+Commands now use `--lockfile_mode=error`: update and commit the module's lockfile
+before adopting the workflow. Per-phase arguments remain distinct; flags in
+`build-args` are not automatically applied to tests. Argument values support
+quoting but no shell expansion. The old workflow automatically installed QEMU
+when tests were selected; the new workflow requires `setup-qemu: true` for VM
+setup. QNX fork PRs require `pull_request_target` and execute the immutable head
+commit from the event. Merge groups execute their merge-group commit.
+
+Update required-check names and any existing collector dependencies after
+replacing the call. In a merge queue, require the actual QNX build to succeed.
 
 ## Reference
 
