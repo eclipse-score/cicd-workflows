@@ -1,0 +1,22 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Internal to bazel.yml. The workflow supplies the validated request through
+# environment variables; execute.py runs it inside the selected workspace.
+name: Execute Bazel commands
+description: Execute a validated build, test or coverage request in one workspace
+inputs:
+  working-directory:
+    description: Validated Bazel workspace relative to the caller checkout
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run Bazel
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        # The script belongs to the action revision, while its working directory
+        # belongs to the module checkout. Keep these paths independent.
+        ACTION_DIRECTORY: ${{ github.action_path }}
+      run: python3 "$ACTION_DIRECTORY/execute.py"

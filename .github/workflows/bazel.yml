@@ -1,0 +1,298 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# One invocation executes one module-owned Bazel job. Event selection, matrices
+# and dependencies belong to the caller; this workflow owns its execution.
+name: Bazel
+
+on:
+  workflow_call:
+    inputs:
+      build-targets:
+        description: Space-separated targets to build before testing; empty skips this phase
+        type: string
+      test-targets:
+        description: Space-separated targets to test or collect coverage for, including exclusions; empty skips this phase
+        type: string
+      test-command:
+        description: Use test to run tests, or coverage to collect coverage and generate its report
+        type: string
+        default: test
+      bazel-configs:
+        description: Space-separated Bazel config names, applied in order to build and test or coverage
+        type: string
+      bazel-args:
+        description: Additional Bazel command options applied to all commands, after --lockfile_mode=error; startup options are not supported
+        type: string
+      build-args:
+        description: Additional flags applied only to the build
+        type: string
+      test-args:
+        description: Additional flags applied only to the test or coverage command, such as --test_timeout=600
+        type: string
+      working-directory:
+        description: Bazel workspace relative to the repository checkout
+        type: string
+        default: .
+      cache-key:
+        description: Stable cache name; choose a distinct value for each job and matrix variant
+        type: string
+
+      coverage-justifications:
+        description: Optional coverage justification YAML path, relative to the selected Bazel workspace
+        type: string
+      coverage-threshold:
+        description: Minimum line coverage percentage after applying justifications; 0 disables the coverage gate
+        type: number
+        default: 100
+
+      apt-packages:
+        description: Additional APT packages, such as qemu-user for emulated Linux tests
+        type: string
+      disk-cleanup-level:
+        description: Disk cleanup level (0-4), passed to more-disk-space
+        type: number
+        default: 2
+      setup-qnx-sdp:
+        description: Configure QNX licensing and SDK download access; requires the three qnx secrets
+        type: boolean
+        default: false
+      qnx-license-server:
+        description: Optional QNX license server address, such as 6287@license-server
+        type: string
+      qnx-credential-helper:
+        description: QNX download helper relative to the checkout root; empty disables helper setup
+        type: string
+        default: .github/tools/qnx_credential_helper.py
+      setup-qemu:
+        description: Install qemu-system and qemu-utils and enable KVM access; the module's Bazel targets start the VM
+        type: boolean
+        default: false
+
+      runner-labels:
+        description: Optional JSON runner label or array, overriding repository runner variables
+        type: string
+      timeout-minutes:
+        description: Job timeout, including setup, build and tests
+        type: number
+        default: 360
+
+      artifact-name:
+        description: Result artifact name; empty generates a unique name for this invocation
+        type: string
+      retention-days:
+        description: Number of days to keep uploaded reports
+        type: number
+        default: 7
+
+      github-app-client-id:
+        description: Optional GitHub App client ID for private dependencies
+        type: string
+    secrets:
+      qnx-license:
+        description: Base64-encoded QNX license file; required when setup-qnx-sdp is true
+        required: false
+      qnx-user:
+        description: QNX account username; required when setup-qnx-sdp is true
+        required: false
+      qnx-password:
+        description: QNX account password; required when setup-qnx-sdp is true
+        required: false
+      netrc:
+        description: Optional complete .netrc content for authenticated Bazel dependency downloads
+        required: false
+      github-app-private-key:
+        description: Optional private key paired with github-app-client-id
+        required: false
+      github-token:
+        description: Optional GitHub token for private dependencies, as an alternative to GitHub App credentials
+        required: false
+    outputs:
+      artifact-name:
+        description: Uploaded result artifact name; empty when no artifact was created
+        value: ${{ jobs.bazel.outputs.artifact-name }}
+
+jobs:
+  bazel:
+    name: Bazel
+    permissions:
+      contents: read
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    env:
+      BUILD_TARGETS: ${{ inputs.build-targets }}
+      TEST_TARGETS: ${{ inputs.test-targets }}
+      TEST_COMMAND: ${{ inputs.test-command }}
+      BAZEL_ARGS: ${{ inputs.bazel-args }}
+      BAZEL_CONFIGS: ${{ inputs.bazel-configs }}
+      BUILD_ARGS: ${{ inputs.build-args }}
+      TEST_ARGS: ${{ inputs.test-args }}
+    outputs:
+      artifact-name: ${{ steps.upload.outputs.artifact-id && steps.prepare.outputs.artifact-name || '' }}
+    steps:
+      # Reject privileged PR execution before checkout or dependency credentials.
+      # An empty job is a caller error, not a successful verification result.
+      - name: Validate request
+        id: validate
+        shell: python
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SETUP_QNX_SDP: ${{ inputs.setup-qnx-sdp }}
+          QNX_CREDENTIALS_PRESENT: ${{ secrets.qnx-license != '' && secrets.qnx-user != '' && secrets.qnx-password != '' }}
+        run: |
+          import os
+          import re
+          import shlex
+
+          if os.environ['EVENT_NAME'] == 'pull_request_target':
+              raise SystemExit('This workflow must not run on pull_request_target.')
+          if os.environ['SETUP_QNX_SDP'] == 'true' and os.environ['QNX_CREDENTIALS_PRESENT'] != 'true':
+              raise SystemExit('setup-qnx-sdp requires qnx-license, qnx-user and qnx-password secrets.')
+          if os.environ['TEST_COMMAND'] not in ('test', 'coverage'):
+              raise SystemExit('test-command must be test or coverage.')
+          values = {key: shlex.split(os.environ[key]) for key in
+                    ('BUILD_TARGETS', 'TEST_TARGETS', 'BAZEL_ARGS', 'BUILD_ARGS', 'TEST_ARGS')}
+          configs = os.environ['BAZEL_CONFIGS'].split()
+          if any(not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.+-]*', config) for config in configs):
+              raise SystemExit('bazel-configs must contain config names without --config flags.')
+          if not values['BUILD_TARGETS'] and not values['TEST_TARGETS']:
+              raise SystemExit('Supply build-targets, test-targets, or both.')
+          if os.environ['TEST_COMMAND'] == 'coverage' and not values['TEST_TARGETS']:
+              raise SystemExit('Coverage requires test-targets.')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"has-results={str(bool(values['TEST_TARGETS'])).lower()}\n")
+
+      - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
+        with:
+          level: ${{ inputs.disk-cleanup-level }}
+
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          lfs: true
+
+      - name: Prepare workspace and report paths
+        id: prepare
+        shell: python
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        run: |
+          import os
+          from pathlib import Path
+          import uuid
+
+          root = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+          relative = Path(os.environ['WORKING_DIRECTORY'])
+          directory = (root / relative).resolve()
+          if relative.is_absolute() or not directory.is_relative_to(root) or not directory.is_dir():
+              raise SystemExit('working-directory must be an existing directory inside the checkout.')
+          # Resolve standard Bazel test reports inside the selected workspace.
+          # These test reports also serve as the fallback if coverage cannot be archived.
+          paths = [str(directory / pattern) for pattern in
+                   ('bazel-testlogs/**/*.xml', 'bazel-testlogs/**/*.log')]
+          name = os.environ['ARTIFACT_NAME'] or f'bazel-tests-{uuid.uuid4().hex}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'artifact-name={name}\n')
+              output.write('result-paths<<REPORT_PATHS\n' + '\n'.join(paths) + '\nREPORT_PATHS\n')
+
+      # Register cleanup before cache setup so credentials outlive its post step.
+      - name: Configure Netrc for dependency downloads
+        uses: $/.github/actions/_setup-netrc
+        with:
+          content: ${{ secrets.netrc }}
+
+      - name: Configure access to private dependencies
+        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90
+        env:
+          HAS_KEY: ${{ secrets.github-app-private-key != '' }}
+          HAS_TOKEN: ${{ secrets.github-token != '' }}
+        if: ${{ env.HAS_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.github-app-client-id != '' }}
+        with:
+          token: ${{ secrets.github-token }}
+          github-app-client-id: ${{ inputs.github-app-client-id }}
+          github-app-private-key: ${{ secrets.github-app-private-key }}
+
+      # Configure licensing before cache setup, including any dependency resolution
+      # it performs. Cleanup then runs after the cache action's post step.
+      - name: Setup QNX SDP
+        if: ${{ inputs.setup-qnx-sdp }}
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@212bbf86267e9381da9d2daf962d12f6feafbc90
+        with:
+          qnx-license: ${{ secrets.qnx-license }}
+          qnx-user: ${{ secrets.qnx-user }}
+          qnx-password: ${{ secrets.qnx-password }}
+          qnx-license-server: ${{ inputs.qnx-license-server }}
+          qnx-credential-helper: ${{ inputs.qnx-credential-helper }}
+
+      - name: Install dependencies
+        if: ${{ inputs.apt-packages != '' }}
+        uses: eclipse-score/apt-install@d545215b973c4151236fcb3f75480dffcb914835
+        with:
+          packages: ${{ inputs.apt-packages }}
+          cache: false
+
+      - name: Setup QEMU
+        if: ${{ inputs.setup-qemu }}
+        uses: $/.github/actions/_setup-qemu
+
+      # Use the selected workspace's lockfile and Bazel version for cache setup.
+      # QNX SDK archives and extracted SDK files must stay out of Actions caches.
+      # The disk cache contains build outputs and test results and remains enabled.
+      - name: Setup Bazel with shared caching
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@ee1eb410c572e2a97ae27488f8401887ec331de3
+        with:
+          disk-cache-key: ${{ inputs.cache-key || github.job }}
+          working-directory: ${{ inputs.working-directory }}
+          repository-cache-restore: ${{ inputs.setup-qnx-sdp && 'false' || 'auto' }}
+          repository-cache-save: ${{ inputs.setup-qnx-sdp && 'false' || 'auto' }}
+          external-cache-restore: ${{ !inputs.setup-qnx-sdp }}
+          external-cache-save: ${{ !inputs.setup-qnx-sdp }}
+
+      # The sandbox action needs Bazel on PATH to locate its install base.
+      - name: Enable Bazel sandbox
+        uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@f540b4ba52b0ea29cd81e5a5b80b2088a39dfb98
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
+      # $/ selects the action from this workflow's repository and revision.
+      - name: Execute Bazel commands
+        uses: $/.github/actions/_bazel-execute
+        with:
+          working-directory: ${{ inputs.working-directory }}
+        env:
+          SETUP_QNX_SDP: ${{ inputs.setup-qnx-sdp }}
+          # QNX setup writes the license-server configuration at the checkout root.
+          # Nested workspaces must read that file as well as their own Bazel config.
+          QNX_BAZELRC: ${{ inputs.setup-qnx-sdp && inputs.qnx-license-server != '' && inputs.working-directory != '.' && format('{0}/user.bazelrc', github.workspace) || '' }}
+          COVERAGE_JUSTIFICATIONS: ${{ inputs.coverage-justifications }}
+          COVERAGE_THRESHOLD: ${{ inputs.coverage-threshold }}
+          COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
+
+      - name: Select coverage results
+        id: coverage-results
+        if: ${{ always() && inputs.test-command == 'coverage' && steps.prepare.outcome == 'success' }}
+        shell: python
+        env:
+          COVERAGE_REPORT_DIRECTORY: ${{ runner.temp }}/coverage-report
+        run: |
+          import os
+          from pathlib import Path
+
+          report = Path(os.environ['COVERAGE_REPORT_DIRECTORY'])
+          # Without an archive, leave this output empty so the upload falls back
+          # to test XML and logs while preserving the original command failure.
+          has_report = report.is_dir() and any(path.is_file() for path in report.rglob('*'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              if has_report:
+                  output.write(f'result-paths={report}\n')
+
+      - name: Upload results
+        id: upload
+        if: ${{ always() && steps.validate.outputs.has-results == 'true' && steps.prepare.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.prepare.outputs.artifact-name }}
+          path: ${{ steps.coverage-results.outputs.result-paths || steps.prepare.outputs.result-paths }}
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: warn

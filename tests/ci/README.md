@@ -97,3 +97,58 @@ These tests cover catalog validation, outcome assertions, pin edits and the
 publishing handoff. They do not execute the consumers' checks. The
 [consumer suite](../../.github/workflows/_test_consumers.yml) runs those
 checks in GitHub Actions using the candidate workflow implementation.
+
+The internal report collection action also has real-artifact self-tests in
+[the report self-test workflow](../../.github/workflows/_test_merge_test_reports.yml).
+They upload fixtures and invoke the candidate action for single and multiple
+artifacts, star patterns with one or multiple matches, overlapping selections,
+identical files, conflicts and missing exact names or patterns. Partially matched
+selections succeed when at least one artifact is downloaded; completely unmatched
+selections fail. Negative cases require the matching collection error code, so
+an API or runtime failure cannot pass as an expected report rejection. The PR
+workflow's `CI success` gate requires these self-tests as well as consumer
+compatibility.
+
+Local report tests execute the composite action's pattern preparation and merge
+commands. ZIP fixtures cover the flat single-artifact download layout and the
+per-artifact directories used for multiple matches, plus archive path validation
+and file conflicts. Selection and downloading use `actions/download-artifact`;
+real service behavior is covered by the GitHub self-tests.
+
+## Bazel workflow tests
+
+The [Bazel job guide](../../.github/workflows/bazel.md) describes the inputs and
+results for module callers. Its local tests cover these boundaries:
+
+- `test_bazel_execute.py` imports the execution helper and calls `main()`
+  directly. It records the commands that would be passed to Bazel, using a
+  replacement for `subprocess.run`. The tests verify target selection,
+  argument order and quoting, shared configurations, coverage reporter setup
+  and stopping after a failed command. They do not parse workflow YAML or need
+  a Bazel installation.
+- `test_bazel_workflow.py` executes the workflow's remaining inline Python for
+  early validation, workspace selection and report paths. One test also runs
+  the actual composite-action launcher against a small fake Bazel executable
+  to check that the script and module workspace can live in different places.
+- `test_setup_netrc.py` runs the credential action's Node entry points directly.
+  It checks private file permissions, literal content, omitted secrets, isolated
+  invocations and cleanup after setup failures. Node.js 24 must be on `PATH`.
+  The workflow boundary test checks ordering so cache post steps retain access.
+
+Run this focused subset from the repository root:
+
+```sh
+uv run --locked pytest tests/ci/test_bazel_execute.py tests/ci/test_bazel_workflow.py tests/ci/test_setup_netrc.py
+uv run --locked ruff check tests/ci .github/actions/_bazel-execute/execute.py
+```
+
+When changing execution behavior, update the direct Python tests. Changes to
+validation, report selection or the action launcher belong in the workflow
+tests. These local checks do not build modules, measure real coverage, resolve
+`$/` references on GitHub or upload/download real workflow artifacts.
+
+The Bazel tests also cover QNX credential validation, independent QNX/QEMU setup
+and cache policy, absolute download helpers and license-server configuration in
+nested workspaces. The QEMU shell step runs against a fake `sudo` to verify KVM
+rule installation and error propagation without changing the host. They do not
+download a QNX SDK, validate a license, install QEMU or boot a guest system.
