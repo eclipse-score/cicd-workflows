@@ -412,7 +412,8 @@ def test_missing_pr_repository_fails_before_approval_or_checkout(tmp_path, event
     result = run_step('Validate request', tmp_path, EVENT_NAME=event, BUILD_TARGETS='//...',
                       PR_HEAD_REPOSITORY='', SETUP_QNX_SDP='true', QNX_CREDENTIALS_PRESENT='true')
     assert result.returncode != 0
-    assert 'PR execution requires a head repository.' in result.stderr
+    assert ('Cannot run PR checks: the event does not identify '
+            'the repository containing the PR branch.') in result.stderr
     assert not (tmp_path / 'output').exists()
 
 

@@ -208,27 +208,35 @@ jobs:
           import re
           import shlex
 
-          repository = os.environ['REPOSITORY']
-          revision = os.environ['EVENT_SHA']
-          if os.environ['EVENT_NAME'] in ('pull_request', 'pull_request_target') and not os.environ['PR_HEAD_REPOSITORY']:
-              raise SystemExit('PR execution requires a head repository.')
-          if (os.environ['EVENT_NAME'] == 'pull_request' and os.environ['SETUP_QNX_SDP'] == 'true'
-                  and os.environ['PR_HEAD_REPOSITORY'] != repository):
+          event_name = os.environ['EVENT_NAME']
+          caller_repository = os.environ['REPOSITORY']
+          pr_repository = os.environ['PR_HEAD_REPOSITORY']
+          setup_qnx = os.environ['SETUP_QNX_SDP'] == 'true'
+          test_command = os.environ['TEST_COMMAND']
+          checkout_repository = caller_repository
+          checkout_revision = os.environ['EVENT_SHA']
+
+          if event_name in ('pull_request', 'pull_request_target') and not pr_repository:
+              raise SystemExit('Cannot run PR checks: the event does not identify '
+                               'the repository containing the PR branch.')
+          if event_name == 'pull_request' and setup_qnx and pr_repository != caller_repository:
               raise SystemExit('QNX fork PRs require pull_request_target with environment approval; '
                                'pull_request is not supported.')
-          if os.environ['EVENT_NAME'] == 'pull_request_target':
-              if os.environ['SETUP_QNX_SDP'] != 'true':
+          if event_name == 'pull_request_target':
+              if not setup_qnx:
                   raise SystemExit('pull_request_target requires setup-qnx-sdp.')
-              repository = os.environ['PR_HEAD_REPOSITORY']
-              revision = os.environ['PR_HEAD_SHA']
-              if repository != os.environ['REPOSITORY']:
+              checkout_repository = pr_repository
+              checkout_revision = os.environ['PR_HEAD_SHA']
+              # A fork's source repository differs from the repository running
+              # the workflow, so only that case needs environment approval.
+              if pr_repository != caller_repository:
                   if not os.environ['APPROVAL_ENVIRONMENT'] or os.environ['APPROVAL_RESULT'] != 'success':
                       raise SystemExit('Fork execution requires successful environment approval.')
-          if not re.fullmatch(r'[0-9a-fA-F]{40}', revision):
+          if not re.fullmatch(r'[0-9a-fA-F]{40}', checkout_revision):
               raise SystemExit('Checkout requires an immutable event commit SHA.')
-          if os.environ['SETUP_QNX_SDP'] == 'true' and os.environ['QNX_CREDENTIALS_PRESENT'] != 'true':
+          if setup_qnx and os.environ['QNX_CREDENTIALS_PRESENT'] != 'true':
               raise SystemExit('setup-qnx-sdp requires qnx-license, qnx-user and qnx-password secrets.')
-          if os.environ['TEST_COMMAND'] not in ('test', 'coverage'):
+          if test_command not in ('test', 'coverage'):
               raise SystemExit('test-command must be test or coverage.')
           values = {key: shlex.split(os.environ[key]) for key in
                     ('BUILD_TARGETS', 'TEST_TARGETS', 'BAZEL_ARGS', 'BUILD_ARGS', 'TEST_ARGS')}
@@ -237,11 +245,11 @@ jobs:
               raise SystemExit('bazel-configs must contain config names without --config flags.')
           if not values['BUILD_TARGETS'] and not values['TEST_TARGETS']:
               raise SystemExit('Supply build-targets, test-targets, or both.')
-          if os.environ['TEST_COMMAND'] == 'coverage' and not values['TEST_TARGETS']:
+          if test_command == 'coverage' and not values['TEST_TARGETS']:
               raise SystemExit('Coverage requires test-targets.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f"has-results={str(bool(values['TEST_TARGETS'])).lower()}\n")
-              output.write(f'checkout-repository={repository}\ncheckout-sha={revision}\n')
+              output.write(f'checkout-repository={checkout_repository}\ncheckout-sha={checkout_revision}\n')
 
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
         with:
