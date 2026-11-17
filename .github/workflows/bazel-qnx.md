@@ -35,6 +35,25 @@ wrapper start and stop the VM. Enable QEMU setup for other platforms as needed;
 QNX build-only jobs can omit it. For Linux user-mode emulation, use
 `apt-packages: qemu-user`.
 
+## Download SDP release assets from GitHub
+
+For SDP release downloads from `eclipse-score/qnx_sdp_pkg`, pass the shared
+SCORE secret `SCORE_BOT_QNX_PKG_PAT` through `github-token`. Supply it alongside
+the three QNX secrets in the calling job:
+
+```yaml
+secrets:
+  qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
+  qnx-user: ${{ secrets.SCORE_QNX_USER }}
+  qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
+  github-token: ${{ secrets.SCORE_BOT_QNX_PKG_PAT }}
+```
+
+The workflow uses this token for Git access and exports it as `GH_TOKEN` for
+subsequent download commands. If you use GitHub App credentials instead, its
+installation token is selected in preference to `github-token`; the App must
+have read access to `qnx_sdp_pkg` as well as any other private dependencies.
+
 ## Run QNX checks on pull requests
 
 Use this setup to run QNX checks on internal and fork PRs. Internal PRs run
@@ -230,12 +249,10 @@ the protected `workflow-approval` environment and explicitly forward secrets.
 | Secrets `score-qnx-license`, `score-qnx-user`, `score-qnx-password` | Secrets `qnx-license`, `qnx-user`, `qnx-password`; the backing repository secret names can stay unchanged. |
 | Secret `token` | Secret `github-token` for private GitHub dependencies. |
 | Secret `github-app-private-key` | Same secret name. |
-| Secret `qnx-sdp-github-token` | No direct equivalent: `bazel.yml` does not expose it as `GH_TOKEN` for SDP release downloads. |
+| Secret `qnx-sdp-github-token` | Pass `secrets.SCORE_BOT_QNX_PKG_PAT` as `github-token`; it is exported as `GH_TOKEN` for SDP release downloads. |
 | Build check `Build QNX target` | Build check `Bazel`; update required-check entries to the full reported caller/check name. |
 
-If your module downloads SDP release assets using `GH_TOKEN`, keep its existing
-QNX caller until the download authentication is adapted. Passing `github-token`
-configures Git access; it does not provide `GH_TOKEN` to the download tool.
+For SDP release downloads, follow [Download SDP release assets from GitHub](#download-sdp-release-assets-from-github).
 
 Commands now use `--lockfile_mode=error`: update and commit the module's lockfile
 before adopting the workflow. Per-phase arguments remain distinct; flags in

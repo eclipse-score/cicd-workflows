@@ -117,7 +117,7 @@ on:
         description: Optional private key paired with github-app-client-id
         required: false
       github-token:
-        description: Optional GitHub token for private dependencies, as an alternative to GitHub App credentials
+        description: Optional GitHub token for private dependencies and GH_TOKEN downloads, as an alternative to GitHub App credentials
         required: false
     outputs:
       artifact-name:
@@ -297,7 +297,7 @@ jobs:
           content: ${{ secrets.netrc }}
 
       - name: Configure access to private dependencies
-        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90
+        uses: eclipse-score/cicd-actions/inter-repo-access@d8f1ca7808fe21b755ef3277d3581a1d57dec15f
         env:
           HAS_KEY: ${{ secrets.github-app-private-key != '' }}
           HAS_TOKEN: ${{ secrets.github-token != '' }}

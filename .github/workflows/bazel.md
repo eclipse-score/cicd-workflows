@@ -91,7 +91,9 @@ applies Linux justifications.
 ## Access private dependencies
 
 For private GitHub dependencies, pass the `github-token` secret, or supply
-`github-app-client-id` with the `github-app-private-key` secret.
+`github-app-client-id` with the `github-app-private-key` secret. The selected
+token configures Git access and is exported as `GH_TOKEN` for download tools
+and GitHub CLI commands in subsequent steps.
 
 For authenticated HTTP downloads, store complete `.netrc` content in a secret,
 for example `machine packages.example.com login ci password TOKEN`. Pass it
@@ -199,7 +201,7 @@ the corresponding setup is enabled.
 | `qnx-password` | `setup-qnx-sdp: true` | QNX account password for downloads. |
 | `netrc` | Using Netrc authentication | Complete file content for authenticated HTTP downloads. Omission keeps existing authentication. |
 | `github-app-private-key` | Using `github-app-client-id` | Private key for the GitHub App used to access private dependencies. |
-| `github-token` | Using token-based GitHub authentication | GitHub token with access to the required private dependencies, as an alternative to App credentials. |
+| `github-token` | Using token-based GitHub authentication | GitHub token for Git access and downloads using `GH_TOKEN`, as an alternative to App credentials. Must have access to the dependencies. |
 
 ### Outputs
 
