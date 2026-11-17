@@ -36,16 +36,22 @@ def repo(tmp_path: Path) -> Path:
     _ = git(tmp_path, 'config', 'user.name', 'Release audit test')
     _ = git(tmp_path, 'config', 'user.email', 'release-audit@example.invalid')
     _ = git(tmp_path, 'config', 'commit.gpgsign', 'false')
-    _ = write(tmp_path, '.github/components.yml', '''bazel:
-  - .github/workflows/bazel.yml
-  - ".github/actions/_bazel-execute/**"
-  - ".github/actions/_setup-*/**"
-docs:
-  - .github/workflows/docs.yml
-  - ".github/actions/_merge-test-reports/**"
-daily:
-  - .github/workflows/daily.yml
-  - .github/workflows/_docs-cleanup.yml
+    _ = write(tmp_path, '.github/labeler.yml', '''comp-bazel:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/bazel.yml
+          - ".github/actions/_bazel-execute/**"
+          - ".github/actions/_setup-*/**"
+comp-docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/docs.yml
+          - ".github/actions/_merge-test-reports/**"
+comp-daily:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/daily.yml
+          - .github/workflows/_docs-cleanup.yml
 ''')
     for name in ['bazel', 'docs', 'daily', '_docs-cleanup']:
         _ = write(tmp_path, f'.github/workflows/{name}.yml', 'original\n')
@@ -148,7 +154,7 @@ def test_secondary_workflow_and_shared_helpers_have_component_specific_history(r
 
 
 def test_empty_path_selection_fails_instead_of_comparing_the_entire_repo(repo: Path) -> None:
-    _ = write(repo, '.github/components.yml', 'bazel: []\n')
+    _ = write(repo, '.github/labeler.yml', 'comp-bazel:\n  - changed-files:\n      - any-glob-to-any-file: []\n')
     with pytest.raises(ValueError, match='paths must not be empty'):
         _ = check(repo)
 
@@ -212,22 +218,53 @@ def test_installed_cli_audits_consumer_from_subdirectory_and_appends_summary(rep
 
 def test_installed_cli_reports_invalid_config_and_rejects_arguments(repo: Path) -> None:
     assert run_cli(repo, 'bazel').returncode == 2
-    _ = write(repo, '.github/components.yml', '{}\n')
+    _ = write(repo, '.github/labeler.yml', '{}\n')
     result = run_cli(repo)
     assert result.returncode == 1
-    assert 'nonempty components mapping' in result.stderr
+    assert 'nonempty labels mapping' in result.stderr
+
+
+def test_cli_uses_shared_labeler_patterns_and_ignores_other_labels(repo: Path) -> None:
+    """Scalar/list rules can share a helper; general PR labels do not become releases."""
+    _ = write(repo, '.github/labeler.yml', '''comp-bazel:
+  - changed-files:
+      - any-glob-to-any-file: ".github/actions/_bazel-execute/**"
+comp-docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/actions/_bazel-execute/**"
+ci:
+  - base-branch: main
+''')
+    commit(repo, 'chore: configure component labels')
+    _ = write(repo, '.github/actions/_bazel-execute/execute.py', 'improved helper\n')
+    commit(repo, 'fix: improve shared helper (#123)')
+    result = run_cli(repo)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.count('Changes need review') == 2
+    assert result.stdout.count('fix: improve shared helper (#123)') == 2
+    assert 'bazel/v0.1.0' in result.stdout and 'docs/v0.1.0' in result.stdout
+    assert 'First release needed' not in result.stdout
 
 
 @pytest.mark.parametrize(('configuration', 'error'), [
-    ('- bazel\n', 'nonempty components mapping'),
-    ('123: [workflow]\n', 'Component names must be nonempty strings'),
-    ('bazel: workflow\n', 'paths must be a list of nonempty strings'),
-    ('bazel: [123]\n', 'paths must be a list of nonempty strings'),
-    ('bazel: [" "]\n', 'paths must be a list of nonempty strings'),
+    ('- bazel\n', 'nonempty labels mapping'),
+    ('123: []\n', 'Label names must be strings'),
+    ('comp-: []\n', 'Component names must be nonempty strings'),
+    ('comp-bazel: workflow\n', 'expected a single changed-files rule'),
+    ('comp-bazel:\n  - changed-files:\n      - any-glob-to-any-file: [123]\n',
+     'paths must be a list of nonempty strings'),
+    ('comp-bazel:\n  - changed-files:\n      - any-glob-to-any-file: [" "]\n',
+     'paths must be a list of nonempty strings'),
+    ('documentation: []\n', 'at least one comp-* label'),
+    ('comp-bazel:\n  - changed-files:\n      - all-globs-to-any-file: [workflow]\n',
+     'expected a single any-glob-to-any-file rule'),
+    ('comp-bazel:\n  - changed-files:\n      - any-glob-to-any-file: [workflow]\n    base-branch: main\n',
+     'expected a single changed-files rule'),
 ])
 def test_cli_rejects_invalid_component_mapping_without_a_traceback(repo: Path, configuration: str, error: str) -> None:
     """Malformed YAML selections must fail rather than produce a misleading release status."""
-    _ = write(repo, '.github/components.yml', configuration)
+    _ = write(repo, '.github/labeler.yml', configuration)
     result = run_cli(repo)
     assert result.returncode == 1
     assert error in result.stderr

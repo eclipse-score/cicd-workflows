@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Component paths are shared by PR labels and the release overview.
+# Include each workflow and all its local helpers in its comp-* label.
+# * matches within one path segment; ** matches zero or more directory levels.
+# Quote patterns so YAML treats stars as text. New matching files count too.
+comp-bazel:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/bazel.yml
+          - ".github/actions/_bazel-execute/**"
+          - ".github/actions/_setup-*/**"
+
+comp-docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/docs.yml
+          - .github/workflows/docs-publish.yml
+          - ".github/actions/_merge-test-reports/**"
+          - ".github/actions/deploy-versioned-pages/**"
+
+comp-daily:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/daily.yml
+          - .github/workflows/_docs-cleanup.yml
+
+comp-on-pr:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/on-pr.yml
+
+comp-monorepo-releases:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/labeler.yml
+          - .github/workflows/label_pr.yml
+          - .github/workflows/monorepo-releases.yml
+          - "tools/monorepo-releases/**"
+          - pyproject.toml
+          - uv.lock

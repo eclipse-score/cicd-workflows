@@ -60,24 +60,59 @@ class Config:
     components: dict[str, list[str]]
 
 
+def single_labeler_rule(rules: object, key: str, label: str) -> object:
+    """Extract one rule, rejecting conditions the release check cannot evaluate."""
+    error = f"{label}: expected a single {key} rule"
+    if not isinstance(rules, list):
+        raise ValueError(error)
+    rules = cast(list[object], rules)
+    if len(rules) != 1:
+        raise ValueError(error)
+    rule = rules[0]
+    if not isinstance(rule, dict):
+        raise ValueError(error)
+    rule = cast(dict[str, object], rule)
+    if list(rule) != [key]:
+        raise ValueError(error)
+    return rule[key]
+
+
 def read_config(root: Path) -> Config:
-    """Read the component-to-path mapping from .github/components.yml."""
-    config_path = root / ".github/components.yml"
+    """Read simple comp-* path rules shared with actions/labeler.
+
+    Other labels are ignored. Component rules must use a single changed-files /
+    any-glob-to-any-file selection so Git can use the same list of file patterns.
+    """
+    config_path = root / ".github/labeler.yml"
     contents = cast(object, yaml.safe_load(config_path.read_text()))
     if not isinstance(contents, dict) or not contents:
-        raise ValueError("Configuration must contain a nonempty components mapping")
-    components = cast(dict[object, object], contents)
-    # An empty path selection would include the entire repository's history.
-    for name, paths in components.items():
-        if not isinstance(name, str) or not name.strip():
+        raise ValueError("Configuration must contain a nonempty labels mapping")
+
+    components: dict[str, list[str]] = {}
+    for label, rules in cast(dict[object, object], contents).items():
+        if not isinstance(label, str):
+            raise ValueError("Label names must be strings")
+        if not label.startswith("comp-"):
+            continue
+        name = label.removeprefix("comp-")
+        if not name.strip():
             raise ValueError("Component names must be nonempty strings")
+
+        changed_files = single_labeler_rule(rules, "changed-files", label)
+        paths = single_labeler_rule(changed_files, "any-glob-to-any-file", label)
+        if isinstance(paths, str):
+            paths = [paths]
         if not paths:
-            raise ValueError(f"{name}: paths must not be empty")
+            raise ValueError(f"{label}: paths must not be empty")
         if not isinstance(paths, list) or not all(
             isinstance(path, str) and path.strip() for path in cast(list[object], paths)
         ):
-            raise ValueError(f"{name}: paths must be a list of nonempty strings")
-    return Config(components=cast(dict[str, list[str]], components))
+            raise ValueError(f"{label}: paths must be a list of nonempty strings")
+        components[name] = cast(list[str], paths)
+
+    if not components:
+        raise ValueError("Configuration must contain at least one comp-* label")
+    return Config(components=components)
 
 
 def git(root: Path, *arguments: str) -> str:
