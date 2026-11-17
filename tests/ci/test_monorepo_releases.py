@@ -119,13 +119,13 @@ def test_numeric_tag_order_resolves_annotated_tags_and_ignores_prereleases(repo:
     assert not bazel.relevant_commits
 
 
-def test_missing_tag_reports_first_release_without_listing_files_or_all_history(repo: Path) -> None:
+def test_missing_tag_reports_unreleased_without_listing_files_or_all_history(repo: Path) -> None:
     _ = git(repo, 'tag', '-d', 'docs/v0.1.0')
     _ = git(repo, 'tag', 'v9.0.0')
     _ = write(repo, '.github/actions/_merge-test-reports/new.py', 'report helper\n')
     docs = component(repo, 'docs')
     assert docs.latest_release_tag is None
-    assert docs.status == 'First release needed'
+    assert docs.status == 'Unreleased'
     assert not docs.relevant_commits
     assert not check(repo).has_uncommitted_changes
     assert check(repo).has_untracked_files
@@ -244,7 +244,7 @@ ci:
     assert result.stdout.count('Changes need review') == 2
     assert result.stdout.count('fix: improve shared helper (#123)') == 2
     assert 'bazel/v0.1.0' in result.stdout and 'docs/v0.1.0' in result.stdout
-    assert 'First release needed' not in result.stdout
+    assert 'Unreleased' not in result.stdout
 
 
 @pytest.mark.parametrize(('configuration', 'error'), [
@@ -368,11 +368,11 @@ def test_cli_assesses_each_component_and_no_filter_only_expands_output(repo: Pat
         component_rows = [
             line for line in output.splitlines()
             if line.startswith(('bazel ', 'docs ', 'daily '))
-            and line.endswith(('Unchanged', 'First release needed', 'Changes need review'))
+            and line.endswith(('Unchanged', 'Unreleased', 'Changes need review'))
         ]
         assert len(component_rows) == 3
         assert component_rows[0].endswith('Unchanged')
-        assert component_rows[1].endswith('First release needed')
+        assert component_rows[1].endswith('Unreleased')
         assert component_rows[2].endswith('Changes need review')
         assert 'fix: clean obsolete documentation (#456)' in output
         assert 'feat: unrelated documentation (#789)' not in output
@@ -382,7 +382,7 @@ def test_cli_assesses_each_component_and_no_filter_only_expands_output(repo: Pat
     assert '/pull/123' in all_summary.read_text()
     for summary in [default_summary.read_text(), all_summary.read_text()]:
         assert '| `bazel` |' in summary and '| Unchanged |' in summary
-        assert '| `docs` | — | First release needed |' in summary
+        assert '| `docs` | — | Unreleased |' in summary
         assert '/pull/456' in summary and '/pull/789' not in summary
 
 

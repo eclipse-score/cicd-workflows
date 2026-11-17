@@ -33,7 +33,7 @@ def render_text(report: ReleaseReport, *, no_filter: bool = False) -> str:
     for component in report.component_reports:
         rows.append((component.component_name, component.latest_release_tag or '—', component.status))
 
-    # Include the header when sizing columns, so first releases with no tag
+    # Include the header when sizing columns, so unreleased components
     # and long component names still produce an aligned table.
     name_width = max(len(name) for name, _, _ in rows)
     release_width = max(len(release) for _, release, _ in rows)

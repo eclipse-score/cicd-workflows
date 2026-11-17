@@ -9,7 +9,7 @@ uv run --locked monorepo-releases
 
 The check lists commits on your current branch since each component's highest
 `component/vMAJOR.MINOR.PATCH` tag. Refresh local tags first if needed. No tag
-means a first release is needed; relevant commits mean a release needs review;
+means the component is unreleased; relevant commits mean a release needs review;
 otherwise no new release is needed. It does not create releases.
 Uncommitted changes and untracked files produce repository-wide warnings.
 Tags are expected to have equally named GitHub Releases; only tags are checked.

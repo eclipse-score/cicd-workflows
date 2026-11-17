@@ -20,7 +20,7 @@ class Commit:
 
 
 class ReleaseStatus(StrEnum):
-    FIRST_RELEASE = "First release needed"
+    UNRELEASED = "Unreleased"
     CHANGED = "Changes need review"
     UNCHANGED = "Unchanged"
 
@@ -37,7 +37,7 @@ class ComponentReport:
     @property
     def status(self) -> ReleaseStatus:
         if self.latest_release_tag is None:
-            return ReleaseStatus.FIRST_RELEASE
+            return ReleaseStatus.UNRELEASED
         if self.relevant_commits:
             return ReleaseStatus.CHANGED
         return ReleaseStatus.UNCHANGED
@@ -175,8 +175,8 @@ def check(root: Path) -> ReleaseReport:
         pathspecs = [f":(glob){path}" for path in paths]
         release_tag = latest_tag(name, tags)
         commits: list[Commit] = []
-        # Without a baseline, report a first release rather than listing the
-        # component's entire history. Fully qualified refs also resolve tag names
+        # Without a baseline, report the component as unreleased rather than listing its
+        # entire history. Fully qualified refs also resolve tag names
         # unambiguously when a branch happens to have the same name.
         if release_tag:
             ref = f"refs/tags/{release_tag}"
