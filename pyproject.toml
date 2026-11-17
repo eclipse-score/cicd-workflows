@@ -6,7 +6,10 @@ name = "score-cicd-workflows"
 version = "0.1.0"
 description = "Maintainer tooling and consumer compatibility tests for SCORE CI workflows"
 requires-python = ">=3.12"
-dependencies = ["PyYAML>=6.0.3,<7"]
+dependencies = ["PyYAML>=6.0.3,<7", "monorepo-releases"]
+
+[tool.uv.sources]
+monorepo-releases = { path = "tools/monorepo-releases", editable = true }
 
 [tool.uv]
 # These helpers run from the workflow checkout. They are repository tooling,
@@ -22,6 +25,10 @@ default = true
 # work identically under pytest locally and in the shared on-pr workflow.
 testpaths = ["tests/ci"]
 pythonpath = ["tests/ci"]
+
+[tool.basedpyright]
+# Resolve the tool's src layout even when the IDE has not selected the uv environment.
+extraPaths = ["tools/monorepo-releases/src"]
 
 [tool.ruff.lint]
 # Check undefined names and unused imports without imposing a formatting rewrite

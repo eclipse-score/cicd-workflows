@@ -1,0 +1,29 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Release ownership is explicit: include each workflow and all its local helpers.
+# * matches within one path segment; ** matches zero or more directory levels.
+# Quote patterns so YAML treats stars as text. New matching files count too.
+bazel:
+  - .github/workflows/bazel.yml
+  - ".github/actions/_bazel-execute/**"
+  - ".github/actions/_setup-*/**"
+
+docs:
+  - .github/workflows/docs.yml
+  - .github/workflows/docs-publish.yml
+  - ".github/actions/_merge-test-reports/**"
+  - ".github/actions/deploy-versioned-pages/**"
+
+daily:
+  - .github/workflows/daily.yml
+  - .github/workflows/_docs-cleanup.yml
+
+on-pr:
+  - .github/workflows/on-pr.yml
+
+monorepo-releases:
+  - .github/workflows/monorepo-releases.yml
+  - "tools/monorepo-releases/**"
+  - pyproject.toml
+  - uv.lock

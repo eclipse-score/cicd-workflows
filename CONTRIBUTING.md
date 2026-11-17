@@ -8,3 +8,6 @@ their compatibility contracts and commit pins.
 Python tooling is managed by the root `pyproject.toml` and `uv.lock`. Run
 `uv run --locked python -m pytest` for helper tests; the guide includes setup,
 linting and dependency update instructions.
+
+Before preparing a release, use [monorepo-releases](monorepo-releases.md) to check
+which components have relevant commits since their latest release tags.

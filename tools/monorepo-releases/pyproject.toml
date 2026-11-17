@@ -1,0 +1,16 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "monorepo-releases"
+version = "0.1.0"
+description = "Compare explicitly mapped components with their latest release tags"
+requires-python = ">=3.12"
+dependencies = ["PyYAML>=6.0.3,<7"]
+license = "Apache-2.0"
+
+[project.scripts]
+monorepo-releases = "monorepo_releases.cli:main"

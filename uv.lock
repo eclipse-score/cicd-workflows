@@ -21,6 +21,17 @@ wheels = [
 ]
 
 [[package]]
+name = "monorepo-releases"
+version = "0.1.0"
+source = { editable = "tools/monorepo-releases" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = ">=6.0.3,<7" }]
+
+[[package]]
 name = "packaging"
 version = "26.3"
 source = { registry = "https://pypi.org/simple" }
@@ -139,6 +150,7 @@ name = "score-cicd-workflows"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "monorepo-releases" },
     { name = "pyyaml" },
 ]
 
@@ -149,7 +161,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyyaml", specifier = ">=6.0.3,<7" }]
+requires-dist = [
+    { name = "monorepo-releases", editable = "tools/monorepo-releases" },
+    { name = "pyyaml", specifier = ">=6.0.3,<7" },
+]
 
 [package.metadata.requires-dev]
 dev = [
