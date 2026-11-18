@@ -80,9 +80,9 @@ def single_labeler_rule(rules: object, key: str, label: str) -> object:
 def read_config(root: Path) -> Config:
     """Read component names and path rules shared with actions/labeler.
 
-    Each label names a component and its version-tag prefix verbatim. Rules must
-    use a single changed-files / any-glob-to-any-file selection so Git can use
-    the same list of file patterns.
+    A final dot suffix of one to three characters is omitted from the component
+    name, so bazel.yml uses bazel/v… tags. Rules must use a single changed-files /
+    any-glob-to-any-file selection so Git can use the same list of file patterns.
     """
     config_path = root / ".github/labeler.yml"
     contents = cast(object, yaml.safe_load(config_path.read_text()))
@@ -93,8 +93,13 @@ def read_config(root: Path) -> Config:
     for label, rules in cast(dict[object, object], contents).items():
         if not isinstance(label, str):
             raise ValueError("Label names must be strings")
-        if not label.strip():
+        name = re.sub(r"\.[^.]{1,3}\Z", "", label)
+        if not name.strip():
             raise ValueError("Component names must be nonempty strings")
+        # Different labels can normalize to the same tag prefix. Reject them
+        # rather than silently dropping one label's file selection.
+        if name in components:
+            raise ValueError(f"{label}: duplicate release component {name!r}")
 
         changed_files = single_labeler_rule(rules, "changed-files", label)
         paths = single_labeler_rule(changed_files, "any-glob-to-any-file", label)
@@ -106,7 +111,7 @@ def read_config(root: Path) -> Config:
             isinstance(path, str) and path.strip() for path in cast(list[object], paths)
         ):
             raise ValueError(f"{label}: paths must be a list of nonempty strings")
-        components[label] = cast(list[str], paths)
+        components[name] = cast(list[str], paths)
 
     return Config(components=components)
 

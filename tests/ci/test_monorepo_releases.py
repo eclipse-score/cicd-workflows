@@ -245,10 +245,21 @@ docs:
     assert 'Unreleased' not in result.stdout
 
 
-@pytest.mark.parametrize('name', ['setup-qnx-sdp', 'comp-bazel'])
-def test_label_names_are_used_verbatim_for_release_tags(repo: Path, name: str) -> None:
-    """Labels have no reserved prefix; even comp- is part of the component name."""
-    _ = write(repo, '.github/labeler.yml', f"""{name}:
+@pytest.mark.parametrize(('label', 'name'), [
+    ('setup-qnx-sdp', 'setup-qnx-sdp'),
+    ('comp-bazel', 'comp-bazel'),
+    ('bazel.yml', 'bazel'),
+    ('docs.md', 'docs'),
+    ('tool.a', 'tool'),
+    ('tool.ab', 'tool'),
+    ('tool.abc', 'tool'),
+    ('tool.abcd', 'tool.abcd'),
+    ('tool.', 'tool.'),
+    ('tool.test.yml', 'tool.test'),
+])
+def test_label_suffixes_determine_release_tag_prefixes(repo: Path, label: str, name: str) -> None:
+    """Only the final 1–3 character dot suffix is omitted when locating release tags."""
+    _ = write(repo, '.github/labeler.yml', f"""{label}:
   - changed-files:
       - any-glob-to-any-file: .github/workflows/bazel.yml
 """)
@@ -265,10 +276,26 @@ def test_label_names_are_used_verbatim_for_release_tags(repo: Path, name: str) -
     assert reports[0].relevant_commits[0].subject == 'feat: improve component'
 
 
+@pytest.mark.parametrize('labels', [('bazel', 'bazel.yml'), ('bazel.yml', 'bazel.md')])
+def test_cli_rejects_labels_with_colliding_release_prefixes(repo: Path, labels: tuple[str, str]) -> None:
+    """A suffix collision must not silently overwrite another component's paths."""
+    configuration = ''.join(f"""{label}:
+  - changed-files:
+      - any-glob-to-any-file: .github/workflows/bazel.yml
+""" for label in labels)
+    _ = write(repo, '.github/labeler.yml', configuration)
+    result = run_cli(repo)
+    assert result.returncode == 1
+    assert "duplicate release component 'bazel'" in result.stderr
+    assert 'Traceback' not in result.stderr
+    assert not result.stdout
+
+
 @pytest.mark.parametrize(('configuration', 'error'), [
     ('- bazel\n', 'nonempty labels mapping'),
     ('123: []\n', 'Label names must be strings'),
     ('" ": []\n', 'Component names must be nonempty strings'),
+    ('.yml: []\n', 'Component names must be nonempty strings'),
     ('bazel: workflow\n', 'expected a single changed-files rule'),
     ('bazel:\n  - changed-files:\n      - any-glob-to-any-file: [123]\n',
      'paths must be a list of nonempty strings'),
