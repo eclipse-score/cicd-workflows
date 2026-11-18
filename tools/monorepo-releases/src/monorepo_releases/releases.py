@@ -78,10 +78,11 @@ def single_labeler_rule(rules: object, key: str, label: str) -> object:
 
 
 def read_config(root: Path) -> Config:
-    """Read simple comp-* path rules shared with actions/labeler.
+    """Read component names and path rules shared with actions/labeler.
 
-    Other labels are ignored. Component rules must use a single changed-files /
-    any-glob-to-any-file selection so Git can use the same list of file patterns.
+    Each label names a component and its version-tag prefix verbatim. Rules must
+    use a single changed-files / any-glob-to-any-file selection so Git can use
+    the same list of file patterns.
     """
     config_path = root / ".github/labeler.yml"
     contents = cast(object, yaml.safe_load(config_path.read_text()))
@@ -92,10 +93,7 @@ def read_config(root: Path) -> Config:
     for label, rules in cast(dict[object, object], contents).items():
         if not isinstance(label, str):
             raise ValueError("Label names must be strings")
-        if not label.startswith("comp-"):
-            continue
-        name = label.removeprefix("comp-")
-        if not name.strip():
+        if not label.strip():
             raise ValueError("Component names must be nonempty strings")
 
         changed_files = single_labeler_rule(rules, "changed-files", label)
@@ -108,10 +106,8 @@ def read_config(root: Path) -> Config:
             isinstance(path, str) and path.strip() for path in cast(list[object], paths)
         ):
             raise ValueError(f"{label}: paths must be a list of nonempty strings")
-        components[name] = cast(list[str], paths)
+        components[label] = cast(list[str], paths)
 
-    if not components:
-        raise ValueError("Configuration must contain at least one comp-* label")
     return Config(components=components)
 
 
