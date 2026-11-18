@@ -147,7 +147,7 @@ jobs:
 
       - name: Setup QNX SDP usage
         if: ${{ steps.check.outputs.any_changed == 'true' && env.DRY_RUN == 'false' && steps.qnx_secrets.outputs.has_all == 'true' }}
-        uses: eclipse-score/cicd-actions/setup-qnx-sdp@d8f1ca7808fe21b755ef3277d3581a1d57dec15f # setup-qnx-sdp/v0.0.0
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@212bbf86267e9381da9d2daf962d12f6feafbc90
         with:
           qnx-license: ${{ secrets.qnx-license || secrets.score-qnx-license }}
           qnx-user: ${{ secrets.qnx-user || secrets.score-qnx-user }}
