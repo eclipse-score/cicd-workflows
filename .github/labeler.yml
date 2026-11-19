@@ -13,6 +13,12 @@ bazel.yml:
           - ".github/actions/_bazel-execute/**"
           - ".github/actions/_setup-*/**"
 
+cache-maintenance.yml:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/cache-maintenance.yml
+          - .github/workflows/cache-maintenance.md
+
 docs.yml:
   - changed-files:
       - any-glob-to-any-file:
@@ -26,6 +32,11 @@ daily.yml:
       - any-glob-to-any-file:
           - .github/workflows/daily.yml
           - .github/workflows/_docs-cleanup.yml
+
+license-check.yml:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/license-check.yml
 
 on-pr.yml:
   - changed-files:
