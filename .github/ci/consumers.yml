@@ -28,13 +28,18 @@ consumers:
     ref: 9afc5f61582d64e2d1fcd628b7a7c32d328101d1
     required-checks: [pre-commit, format, copyright, module-tidy, lockfile]
 
-  # Persistency exposes its tooling from //tools through root entry points.
-  # This exercises capability detection and check execution with a different
-  # tooling layout while keeping the same default on-pr.yml configuration.
+  # Persistency runs its format and copyright checks from //tools.
   - name: persistency
     repository: eclipse-score/persistency
     ref: 22c9fa0080365ea4539c5c5a26cf0380ad4f13a7
     required-checks: [pre-commit, format, copyright, module-tidy, lockfile]
+    overrides:
+      format-target:
+        value: //tools:format.check
+        reason: The consumer PR workflow runs the formatter from //tools.
+      copyright-target:
+        value: //tools:copyright.check
+        reason: The consumer PR workflow runs the copyright checker from //tools.
 
   # Documentation tooling: pre-commit includes Bazel-backed IDE and type checks.
   - name: docs-as-code
@@ -119,3 +124,7 @@ consumers:
     repository: eclipse-score/cicd-actions
     ref: 1a9e5e23eb716e99568e4c80699e8a03894cbe3e
     required-checks: [pre-commit]
+    overrides:
+      skip-python-tests:
+        value: true
+        reason: The uv project supplies maintainer tooling, and the consumer PR workflow runs Python tests separately with unittest.
