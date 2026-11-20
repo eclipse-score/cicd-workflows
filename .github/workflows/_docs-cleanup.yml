@@ -110,6 +110,10 @@ jobs:
           fi
 
           for FOLDER in $CURRENT_FOLDERS; do
+            if [[ "$FOLDER" == "release" ]]; then
+              echo "Preserving release documentation"
+              continue
+            fi
             if ! echo "$VALID_ENTRIES" | grep -Fxq "$FOLDER"; then
               echo "Removing $FOLDER"
               rm -rf "$FOLDER"
@@ -117,7 +121,7 @@ jobs:
             fi
           done
 
-          jq '[.[] | select((.version | IN($folders[])))]' --argjson folders "$(ls -1 | jq -R -s -c 'split("\n")[:-1]')" versions_tmp.json > versions_tmp_clean.json
+          jq '[.[] | select((.version | startswith("release/")) or (.version | IN($folders[])))]' --argjson folders "$(ls -1 | jq -R -s -c 'split("\n")[:-1]')" versions_tmp.json > versions_tmp_clean.json
 
           jq --arg repo "${{ github.repository }}" \
              --arg owner "${{ github.repository_owner }}" \
