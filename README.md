@@ -4,6 +4,11 @@ This repository contains **reusable GitHub Actions workflows** designed to stand
 in `SCORE`.  
 These workflows integrate with **Bazel** and provide a consistent way to run **documentation builds, license checks, static analysis, tests, formatting checks and copyright verification**
 
+## Repository setup guidance
+
+See the [merge queue guidance for maintainers](docs/merge_queues.md) for a recommended setup,
+alternative configurations, and an overview of current SCORE repository setups.
+
 ## Available Workflows
 
 | Workflow                                       | Description                                                                                                                 |

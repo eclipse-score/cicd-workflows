@@ -1,4 +1,6 @@
 /.codex
+/.idea
+
 # Isolated checkouts retained from local consumer compatibility runs.
 /.ci-consumer-results/
 **/__pycache__/

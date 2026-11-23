@@ -25,51 +25,56 @@ consumers:
   # including its pre-commit hooks and root Bazel format/copyright targets.
   - name: module-template
     repository: eclipse-score/module_template
-    ref: aa24d96011b2e31d372f80769c95243b46d3c16c
+    ref: 9afc5f61582d64e2d1fcd628b7a7c32d328101d1
     required-checks: [pre-commit, format, copyright, module-tidy, lockfile]
 
-  # Persistency exposes its tooling from //tools through root entry points.
-  # This exercises capability detection and check execution with a different
-  # tooling layout while keeping the same default on-pr.yml configuration.
+  # Persistency runs its format and copyright checks from //tools.
   - name: persistency
     repository: eclipse-score/persistency
-    ref: 11f1c8a3b6894ae788126b485825acea270bb387
+    ref: 22c9fa0080365ea4539c5c5a26cf0380ad4f13a7
     required-checks: [pre-commit, format, copyright, module-tidy, lockfile]
+    overrides:
+      format-target:
+        value: //tools:format.check
+        reason: The consumer PR workflow runs the formatter from //tools.
+      copyright-target:
+        value: //tools:copyright.check
+        reason: The consumer PR workflow runs the copyright checker from //tools.
 
   # Documentation tooling: pre-commit includes Bazel-backed IDE and type checks.
   - name: docs-as-code
     repository: eclipse-score/docs-as-code
-    ref: 3794d9bc1ce39d22c461ccab4b8bff303f643089
+    ref: df1f6305b848df4c66238714fdb87637560f997e
     required-checks: [pre-commit, module-tidy, lockfile]
 
   # Coverage tooling: Bazel-backed pre-commit hooks without root check targets.
   - name: coverage-tool
     repository: eclipse-score/coverage_tool
-    ref: 9ebc6bca8e0537b016a1de56891b5d96cf230e28
+    ref: b23cc0d1de7b5a4eef1dfdbe937212d9b51e39b0
     required-checks: [pre-commit, module-tidy, lockfile]
 
   # Python tooling: covers the standalone uv/pytest path and pre-commit hooks.
   - name: tools
     repository: eclipse-score/tools
-    ref: 6b1829b13ec0800e90a54d83fee447b6fe2949cd
+    ref: f827f8a4eb1de0eb46274fe7d94e0ec8c5cde635
     required-checks: [pre-commit, python-tests, copyright]
 
   # Registry maintenance: covers Python checks in a repository without Bazel.
   - name: bazel-registry
     repository: eclipse-score/bazel_registry
-    ref: 9e44ded245eec85138663d480becc180ab26ae8c
+    ref: d51c2a83a3dc5fe20a818c987d7cfd62802a057e
     required-checks: [pre-commit, python-tests]
 
   # Toolchain definitions: root formatter/copyright checks without pre-commit.
   - name: bazel-cpp-toolchains
     repository: eclipse-score/bazel_cpp_toolchains
-    ref: e91b840c7832e4fcfdb98e1aae1a1604c4ad6425
+    ref: ff39e1e49a740e9049a24532b295ebdc7a73b6be
     required-checks: [format, copyright, module-tidy, lockfile]
 
   # C++ foundations: checks live in //tools; match its existing PR configuration.
   - name: baselibs
     repository: eclipse-score/baselibs
-    ref: 785365e679c78f5d18d039da537d74c19501c0bb
+    ref: 14ee90716d4146793cb05184d9fd021a97445ded
     required-checks: [format, copyright, module-tidy, lockfile]
     overrides:
       format-target:
@@ -85,7 +90,7 @@ consumers:
   # Time module: formatting and copyright entry points live in //tools.
   - name: time
     repository: eclipse-score/time
-    ref: 6833c113ccf15f1fdca6950bf654fc5100fcf0b6
+    ref: 31bdc1266ba8ff97391fb7dcbf7a272389cb4982
     required-checks: [format, copyright, module-tidy, lockfile]
     overrides:
       format-target:
@@ -98,7 +103,7 @@ consumers:
   # SBOM tooling: checks live in //tools rather than the root package.
   - name: sbom-tool
     repository: eclipse-score/sbom-tool
-    ref: b343f785db50d2aa19830ad9ec7264986e220383
+    ref: 5828889a7998ac5a73ba9d6255e94c11a2dca122
     required-checks: [format, copyright, module-tidy, lockfile]
     overrides:
       format-target:
@@ -111,11 +116,15 @@ consumers:
   # Process documentation: exercises a Bazel workspace with lockfile checks only.
   - name: process-description
     repository: eclipse-score/process_description
-    ref: 9f29bca8646bd554a28c0c770b910e82779c41ab
+    ref: 48ab0515f8dd3aca18cb9c436974399745b1a872
     required-checks: [module-tidy, lockfile]
 
   # Action implementations: a non-Bazel repository with Node-backed pre-commit builds.
   - name: cicd-actions
     repository: eclipse-score/cicd-actions
-    ref: b04e3349097576dd2f06850c62fb9423515d2963
+    ref: 1a9e5e23eb716e99568e4c80699e8a03894cbe3e
     required-checks: [pre-commit]
+    overrides:
+      skip-python-tests:
+        value: true
+        reason: The uv project supplies maintainer tooling, and the consumer PR workflow runs Python tests separately with unittest.

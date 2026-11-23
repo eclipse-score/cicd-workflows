@@ -1,8 +1,8 @@
 # Copyright (c) 2026 Contributors to the Eclipse Foundation
 # SPDX-License-Identifier: Apache-2.0
 
-# One invocation executes one module-owned Bazel job. Event selection, matrices
-# and dependencies belong to the caller; this workflow owns its execution.
+# One invocation executes one module-owned Bazel job. The caller chooses event
+# triggers, matrices and dependencies; this workflow selects and gates execution.
 name: Bazel
 
 on:
@@ -37,6 +37,14 @@ on:
       cache-key:
         description: Stable cache name; choose a distinct value for each job and matrix variant
         type: string
+      fork-pr-label:
+        description: >-
+          Run fork PR builds only when this label is present.
+          Matching is case-insensitive; empty disables label filtering.
+          Internal PRs and non-PR events always run.
+          Selected QNX fork PRs still require pull_request_target
+          and environment approval.
+        type: string
 
       coverage-justifications:
         description: Optional coverage justification YAML path, relative to the selected Bazel workspace
@@ -57,6 +65,10 @@ on:
         description: Configure QNX licensing and SDK download access; requires the three qnx secrets
         type: boolean
         default: false
+      environment-name:
+        description: Environment with required reviewers for fork pull_request_target approval; configure it in the caller repository
+        type: string
+        default: workflow-approval
       qnx-license-server:
         description: Optional QNX license server address, such as 6287@license-server
         type: string
@@ -105,7 +117,7 @@ on:
         description: Optional private key paired with github-app-client-id
         required: false
       github-token:
-        description: Optional GitHub token for private dependencies, as an alternative to GitHub App credentials
+        description: Optional GitHub token for private dependencies and GH_TOKEN downloads, as an alternative to GitHub App credentials
         required: false
     outputs:
       artifact-name:
@@ -113,7 +125,53 @@ on:
         value: ${{ jobs.bazel.outputs.artifact-name }}
 
 jobs:
+  approval:
+    # Ask a maintainer to review the immutable head commit before a selected
+    # QNX fork PR can run with credentials. Only pull_request_target events from
+    # another repository need this gate, and only when the optional label matches.
+    # Internal PRs, non-PR events and forks without the label skip it entirely.
+    # Required reviewers must be configured on this environment in the caller
+    # repository; GitHub waits for approval before starting the empty job.
+    # Invalid event/setup combinations or a missing environment are rejected by
+    # Bazel's request validation without requesting an unusable approval.
+    if: >-
+      github.event_name == 'pull_request_target' && inputs.setup-qnx-sdp &&
+      github.event.pull_request.head.repo.full_name != '' &&
+      github.event.pull_request.head.repo.full_name != github.repository &&
+      inputs.environment-name != '' &&
+      (inputs.fork-pr-label == '' || contains(github.event.pull_request.labels.*.name, inputs.fork-pr-label))
+    permissions:
+      contents: read
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    environment:
+      name: ${{ inputs.environment-name }}
+      # Review this immutable revision before allowing it access to credentials.
+      url: ${{ format('{0}/{1}/commit/{2}', github.server_url, github.event.pull_request.head.repo.full_name, github.event.pull_request.head.sha) }}
+    steps:
+      - name: Approve fork revision
+        run: 'true'
+
   bazel:
+    needs: approval
+    # Build, test or collect coverage for the event's immutable revision, with
+    # the requested toolchain setup, credentials, caching and report uploads.
+    # Internal PRs and non-PR events run directly. Other forks need the optional
+    # label, plus successful approval for QNX target events. A missing label or
+    # rejected approval leaves the actual build visibly skipped.
+    # Invalid requests still start this job so validation can explain the error
+    # before checkout: QNX fork PRs on pull_request, target events without QNX,
+    # missing PR metadata or a selected fork with no approval environment.
+    # The status function permits an intentionally skipped approval dependency
+    # while still respecting cancellation of the calling workflow.
+    if: >-
+      ${{ !cancelled() &&
+          ((github.event_name != 'pull_request' && github.event_name != 'pull_request_target') ||
+           github.event.pull_request.head.repo.full_name == github.repository ||
+           github.event.pull_request.head.repo.full_name == '' ||
+           (github.event_name == 'pull_request' && inputs.setup-qnx-sdp) ||
+           (github.event_name == 'pull_request_target' && !inputs.setup-qnx-sdp) ||
+           ((inputs.fork-pr-label == '' || contains(github.event.pull_request.labels.*.name, inputs.fork-pr-label)) &&
+            (github.event_name == 'pull_request' || inputs.environment-name == '' || needs.approval.result == 'success'))) }}
     name: Bazel
     permissions:
       contents: read
@@ -130,13 +188,19 @@ jobs:
     outputs:
       artifact-name: ${{ steps.upload.outputs.artifact-id && steps.prepare.outputs.artifact-name || '' }}
     steps:
-      # Reject privileged PR execution before checkout or dependency credentials.
+      # Validate privileged PR execution before checkout or dependency credentials.
       # An empty job is a caller error, not a successful verification result.
       - name: Validate request
         id: validate
         shell: python
         env:
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          APPROVAL_RESULT: ${{ needs.approval.result }}
+          APPROVAL_ENVIRONMENT: ${{ inputs.environment-name }}
           SETUP_QNX_SDP: ${{ inputs.setup-qnx-sdp }}
           QNX_CREDENTIALS_PRESENT: ${{ secrets.qnx-license != '' && secrets.qnx-user != '' && secrets.qnx-password != '' }}
         run: |
@@ -144,11 +208,35 @@ jobs:
           import re
           import shlex
 
-          if os.environ['EVENT_NAME'] == 'pull_request_target':
-              raise SystemExit('This workflow must not run on pull_request_target.')
-          if os.environ['SETUP_QNX_SDP'] == 'true' and os.environ['QNX_CREDENTIALS_PRESENT'] != 'true':
+          event_name = os.environ['EVENT_NAME']
+          caller_repository = os.environ['REPOSITORY']
+          pr_repository = os.environ['PR_HEAD_REPOSITORY']
+          setup_qnx = os.environ['SETUP_QNX_SDP'] == 'true'
+          test_command = os.environ['TEST_COMMAND']
+          checkout_repository = caller_repository
+          checkout_revision = os.environ['EVENT_SHA']
+
+          if event_name in ('pull_request', 'pull_request_target') and not pr_repository:
+              raise SystemExit('Cannot run PR checks: the event does not identify '
+                               'the repository containing the PR branch.')
+          if event_name == 'pull_request' and setup_qnx and pr_repository != caller_repository:
+              raise SystemExit('QNX fork PRs require pull_request_target with environment approval; '
+                               'pull_request is not supported.')
+          if event_name == 'pull_request_target':
+              if not setup_qnx:
+                  raise SystemExit('pull_request_target requires setup-qnx-sdp.')
+              checkout_repository = pr_repository
+              checkout_revision = os.environ['PR_HEAD_SHA']
+              # A fork's source repository differs from the repository running
+              # the workflow, so only that case needs environment approval.
+              if pr_repository != caller_repository:
+                  if not os.environ['APPROVAL_ENVIRONMENT'] or os.environ['APPROVAL_RESULT'] != 'success':
+                      raise SystemExit('Fork execution requires successful environment approval.')
+          if not re.fullmatch(r'[0-9a-fA-F]{40}', checkout_revision):
+              raise SystemExit('Checkout requires an immutable event commit SHA.')
+          if setup_qnx and os.environ['QNX_CREDENTIALS_PRESENT'] != 'true':
               raise SystemExit('setup-qnx-sdp requires qnx-license, qnx-user and qnx-password secrets.')
-          if os.environ['TEST_COMMAND'] not in ('test', 'coverage'):
+          if test_command not in ('test', 'coverage'):
               raise SystemExit('test-command must be test or coverage.')
           values = {key: shlex.split(os.environ[key]) for key in
                     ('BUILD_TARGETS', 'TEST_TARGETS', 'BAZEL_ARGS', 'BUILD_ARGS', 'TEST_ARGS')}
@@ -157,19 +245,25 @@ jobs:
               raise SystemExit('bazel-configs must contain config names without --config flags.')
           if not values['BUILD_TARGETS'] and not values['TEST_TARGETS']:
               raise SystemExit('Supply build-targets, test-targets, or both.')
-          if os.environ['TEST_COMMAND'] == 'coverage' and not values['TEST_TARGETS']:
+          if test_command == 'coverage' and not values['TEST_TARGETS']:
               raise SystemExit('Coverage requires test-targets.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f"has-results={str(bool(values['TEST_TARGETS'])).lower()}\n")
+              output.write(f'checkout-repository={checkout_repository}\ncheckout-sha={checkout_revision}\n')
 
       - uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
         with:
           level: ${{ inputs.disk-cleanup-level }}
 
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
+          repository: ${{ steps.validate.outputs.checkout-repository }}
+          ref: ${{ steps.validate.outputs.checkout-sha }}
+          persist-credentials: false
+          # Fork execution has passed the environment gate and SHA validation.
+          allow-unsafe-pr-checkout: ${{ github.event_name == 'pull_request_target' }}
 
       - name: Prepare workspace and report paths
         id: prepare
@@ -203,7 +297,7 @@ jobs:
           content: ${{ secrets.netrc }}
 
       - name: Configure access to private dependencies
-        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90
+        uses: eclipse-score/cicd-actions/inter-repo-access@d8f1ca7808fe21b755ef3277d3581a1d57dec15f
         env:
           HAS_KEY: ${{ secrets.github-app-private-key != '' }}
           HAS_TOKEN: ${{ secrets.github-token != '' }}

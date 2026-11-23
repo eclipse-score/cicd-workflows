@@ -5,6 +5,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -13,20 +14,28 @@ import yaml
 
 
 WORKFLOW = Path(__file__).resolve().parents[2] / '.github/workflows/bazel.yml'
-STEPS = yaml.safe_load(WORKFLOW.read_text())['jobs']['bazel']['steps']
+JOBS = yaml.safe_load(WORKFLOW.read_text())['jobs']
+STEPS = JOBS['bazel']['steps']
 EXECUTE = WORKFLOW.parents[1] / 'actions/_bazel-execute/execute.py'
 DEFAULTS = dict(BUILD_TARGETS='', TEST_TARGETS='', BAZEL_ARGS='', BUILD_ARGS='', TEST_ARGS='',
-                EVENT_NAME='pull_request', WORKING_DIRECTORY='.', ARTIFACT_NAME='', BAZEL_CONFIGS='',
+                EVENT_NAME='pull_request', EVENT_SHA='a' * 40, REPOSITORY='score/module',
+                PR_HEAD_SHA='b' * 40, PR_HEAD_REPOSITORY='contributor/module',
+                FORK_PR_LABEL='', APPROVAL_RESULT='skipped', APPROVAL_ENVIRONMENT='workflow-approval',
+                WORKING_DIRECTORY='.', ARTIFACT_NAME='', BAZEL_CONFIGS='',
                 TEST_COMMAND='test', COVERAGE_JUSTIFICATIONS='', COVERAGE_THRESHOLD='100',
                 SETUP_QNX_SDP='false', QNX_CREDENTIALS_PRESENT='false', QNX_BAZELRC='')
 
 
-def run_step(name, root, **values):
+def run_step(name, root, *, job='bazel', **values):
     """Run one inline workflow step with local paths replacing GitHub's runner environment."""
+    # GitHub provides a separate output file for each step. Remove earlier step
+    # outputs so failed steps cannot accidentally reuse a previous decision.
+    (root / 'output').unlink(missing_ok=True)
     environment = {**os.environ, **DEFAULTS, 'GITHUB_WORKSPACE': str(root),
                    'GITHUB_OUTPUT': str(root / 'output'),
                    'COVERAGE_REPORT_DIRECTORY': str(root / 'coverage-report'), **values}
-    step = next(step for step in STEPS if step.get('name') == name)
+    steps = JOBS[job]['steps']
+    step = next(step for step in steps if step.get('name') == name)
     command = [sys.executable, '-c', step['run']]
     return subprocess.run(command, cwd=root, env=environment,
                           text=True, capture_output=True)
@@ -100,11 +109,12 @@ def test_netrc_is_available_to_cache_setup_and_cleaned_after_its_post_step():
 
 def test_build_only_validation_disables_report_upload(tmp_path):
     assert run_step('Validate request', tmp_path, BUILD_TARGETS='//...').returncode == 0
-    assert (tmp_path / 'output').read_text() == 'has-results=false\n'
+    assert (tmp_path / 'output').read_text().splitlines()[0] == 'has-results=false'
 
 
 def test_qnx_setup_requires_all_credentials_before_checkout(tmp_path):
-    result = run_step('Validate request', tmp_path, BUILD_TARGETS='//...', SETUP_QNX_SDP='true')
+    result = run_step('Validate request', tmp_path, BUILD_TARGETS='//...', SETUP_QNX_SDP='true',
+                      PR_HEAD_REPOSITORY=DEFAULTS['REPOSITORY'])
     assert result.returncode != 0
     assert 'setup-qnx-sdp requires qnx-license, qnx-user and qnx-password secrets.' in result.stderr
     assert not (tmp_path / 'output').exists()
@@ -113,7 +123,8 @@ def test_qnx_setup_requires_all_credentials_before_checkout(tmp_path):
 @pytest.mark.parametrize('enabled, credentials', [('false', 'false'), ('false', 'true'), ('true', 'true')])
 def test_optional_qnx_setup_accepts_normal_jobs_and_complete_credentials(tmp_path, enabled, credentials):
     result = run_step('Validate request', tmp_path, BUILD_TARGETS='//...',
-                      SETUP_QNX_SDP=enabled, QNX_CREDENTIALS_PRESENT=credentials)
+                      SETUP_QNX_SDP=enabled, QNX_CREDENTIALS_PRESENT=credentials,
+                      PR_HEAD_REPOSITORY=DEFAULTS['REPOSITORY'])
     assert result.returncode == 0, result.stderr
 
 
@@ -256,3 +267,162 @@ def test_coverage_upload_selects_archive_or_nested_workspace_test_reports(tmp_pa
     selected_reports = {path.name for pattern in test_paths
                         for path in workspace.glob(str(Path(pattern).relative_to(workspace)))}
     assert selected_reports == {'test.xml', 'test.log', 'tool.log'}
+
+
+def evaluate_gate(expression, *, event='pull_request_target', fork=True, qnx=True,
+                  label='', labels=(), environment='workflow-approval', approval='skipped',
+                  cancelled=False, head_repository=None):
+    """Evaluate the workflow's boolean gates using explicit event and input values."""
+    if 'cancelled()' not in expression and cancelled:
+        return False
+    if head_repository is None:
+        head_repository = 'contributor/module' if fork else DEFAULTS['REPOSITORY']
+    values = {
+        'contains(github.event.pull_request.labels.*.name, inputs.fork-pr-label)':
+            label.casefold() in {item.casefold() for item in labels},
+        'github.event_name': event,
+        'github.event.pull_request.head.repo.full_name': head_repository,
+        'github.repository': DEFAULTS['REPOSITORY'],
+        'inputs.setup-qnx-sdp': qnx,
+        'inputs.fork-pr-label': label,
+        'inputs.environment-name': environment,
+        'needs.approval.result': approval,
+        'cancelled()': cancelled,
+    }
+    expression = expression.removeprefix('${{').removesuffix('}}').strip()
+    for key, value in values.items():
+        expression = expression.replace(key, repr(value))
+    expression = expression.replace('&&', ' and ').replace('||', ' or ')
+    expression = re.sub(r'!(?!=)', 'not ', expression)
+    return eval('(' + expression + ')', {'__builtins__': {}}, {})
+
+
+@pytest.mark.parametrize('event, fork, qnx, label, labels, approval, environment, cancelled, gate, outcome', [
+    ('pull_request_target', True, True, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'skipped'),
+    ('pull_request_target', True, True, 'test-qnx', ['test-qnx-extra'], 'skipped', 'workflow-approval', False, False, 'skipped'),
+    ('pull_request_target', True, True, 'test-qnx', ['test-qnx'], 'pending', 'workflow-approval', False, True, 'skipped'),
+    ('pull_request_target', True, True, 'test-qnx', ['test-qnx'], 'success', 'workflow-approval', False, True, 'success'),
+    ('pull_request_target', True, True, 'test-qnx', ['TEST-QNX'], 'success', 'workflow-approval', False, True, 'success'),
+    ('pull_request_target', True, True, 'TEST-QNX', ['test-qnx'], 'success', 'workflow-approval', False, True, 'success'),
+    ('pull_request_target', True, True, 'test-qnx', ['test-qnx'], 'failure', 'workflow-approval', False, True, 'skipped'),
+    ('pull_request_target', True, True, '', [], 'success', 'workflow-approval', False, True, 'success'),
+    ('pull_request_target', True, True, '', [], 'cancelled', 'workflow-approval', False, True, 'skipped'),
+    ('pull_request_target', True, True, '', [], 'skipped', 'workflow-approval', False, True, 'skipped'),
+    ('pull_request_target', True, True, '', [], 'success', 'workflow-approval', True, False, 'skipped'),
+    ('pull_request_target', True, True, 'test-qnx', [], 'skipped', '', False, False, 'skipped'),
+    ('pull_request_target', True, True, 'test-qnx', ['test-qnx'], 'skipped', '', False, False, 'failure'),
+    ('pull_request_target', True, False, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'failure'),
+    ('pull_request_target', True, False, 'test-qnx', ['test-qnx'], 'skipped', 'workflow-approval', False, False, 'failure'),
+    ('pull_request_target', False, True, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'success'),
+    ('pull_request_target', False, False, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'failure'),
+    ('pull_request', True, True, '', [], 'skipped', 'workflow-approval', False, False, 'failure'),
+    ('pull_request', True, True, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'failure'),
+    ('pull_request', True, True, 'test-qnx', ['test-qnx'], 'skipped', 'workflow-approval', False, False, 'failure'),
+    ('pull_request', True, False, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'skipped'),
+    ('pull_request', True, False, 'test-qnx', ['test-qnx'], 'skipped', 'workflow-approval', False, False, 'success'),
+    ('pull_request', True, False, '', [], 'skipped', '', False, False, 'success'),
+    ('pull_request', False, False, 'test-qnx', [], 'skipped', '', False, False, 'success'),
+    ('pull_request', False, True, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'success'),
+    ('merge_group', True, True, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'success'),
+    ('merge_group', False, False, 'test-qnx', [], 'skipped', '', False, False, 'success'),
+    ('push', True, True, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'success'),
+    ('push', False, False, 'test-qnx', [], 'skipped', '', False, False, 'success'),
+    ('workflow_dispatch', True, True, 'test-qnx', [], 'skipped', 'workflow-approval', False, False, 'success'),
+    ('workflow_dispatch', False, False, 'test-qnx', [], 'skipped', '', False, False, 'success'),
+])
+def test_event_label_approval_and_validation_paths(tmp_path, event, fork, qnx, label, labels,
+                                                   approval, environment, cancelled, gate, outcome):
+    """Optional builds remain skipped; invalid calls fail before checkout; approved calls pin the event SHA."""
+    context = dict(event=event, fork=fork, qnx=qnx, label=label, labels=labels,
+                   environment=environment, approval=approval, cancelled=cancelled)
+    assert evaluate_gate(JOBS['approval']['if'], **context) == gate
+    can_start = evaluate_gate(JOBS['bazel']['if'], **context)
+    if outcome == 'skipped':
+        assert not can_start
+        return
+    assert can_start
+    head = 'contributor/module' if fork else DEFAULTS['REPOSITORY']
+    result = run_step('Validate request', tmp_path, BUILD_TARGETS='//...', EVENT_NAME=event,
+                      PR_HEAD_REPOSITORY=head, APPROVAL_RESULT=approval,
+                      APPROVAL_ENVIRONMENT=environment, SETUP_QNX_SDP=str(qnx).lower(),
+                      QNX_CREDENTIALS_PRESENT='true')
+    if outcome == 'failure':
+        assert result.returncode != 0
+        assert not (tmp_path / 'output').exists()
+        if event == 'pull_request':
+            assert 'QNX fork PRs require pull_request_target with environment approval' in result.stderr
+        elif not qnx:
+            assert 'pull_request_target requires setup-qnx-sdp.' in result.stderr
+        else:
+            assert 'Fork execution requires successful environment approval.' in result.stderr
+        return
+    assert result.returncode == 0, result.stderr
+    outputs = dict(line.split('=', 1) for line in (tmp_path / 'output').read_text().splitlines())
+    target = event == 'pull_request_target'
+    assert outputs['checkout-sha'] == DEFAULTS['PR_HEAD_SHA' if target else 'EVENT_SHA']
+    assert outputs['checkout-repository'] == (head if target else DEFAULTS['REPOSITORY'])
+
+
+@pytest.mark.parametrize('revision', ['', 'main', 'refs/pull/42/head', 'abc123'])
+def test_privileged_checkout_rejects_mutable_or_missing_revision(tmp_path, revision):
+    result = run_step('Validate request', tmp_path, BUILD_TARGETS='//...',
+                      EVENT_NAME='pull_request_target', PR_HEAD_SHA=revision,
+                      APPROVAL_RESULT='success', SETUP_QNX_SDP='true', QNX_CREDENTIALS_PRESENT='true')
+    assert result.returncode != 0
+    assert 'immutable event commit SHA' in result.stderr
+    assert not (tmp_path / 'output').exists()
+
+
+def test_checkout_consumes_only_validated_revision_and_gate_has_no_checkout():
+    """Branch movement during approval cannot change the checkout's immutable input."""
+    assert set(JOBS) == {'approval', 'bazel'}
+    assert JOBS['bazel']['needs'] == 'approval'
+    assert 'needs' not in JOBS['approval']
+    assert JOBS['approval']['steps'] == [{'name': 'Approve fork revision', 'run': 'true'}]
+    assert JOBS['approval']['environment']['name'] == '${{ inputs.environment-name }}'
+    assert 'github.event.pull_request.head.sha' in JOBS['approval']['environment']['url']
+    checkout = next(step for step in STEPS if step.get('name') == 'Checkout repository')
+    assert checkout['with']['ref'] == '${{ steps.validate.outputs.checkout-sha }}'
+    assert checkout['with']['repository'] == '${{ steps.validate.outputs.checkout-repository }}'
+    assert checkout['with']['persist-credentials'] is False
+
+
+@pytest.mark.parametrize('event', ['pull_request', 'pull_request_target', 'merge_group',
+                                  'push', 'workflow_dispatch'])
+@pytest.mark.parametrize('approval', ['skipped', 'failure', 'cancelled'])
+def test_trusted_events_do_not_depend_on_approval_results(event, approval):
+    """A required queue or internal build must execute independently of optional fork approval."""
+    context = dict(event=event, fork=False, label='test-qnx', approval=approval)
+    assert not evaluate_gate(JOBS['approval']['if'], **context)
+    assert evaluate_gate(JOBS['bazel']['if'], **context)
+    assert not evaluate_gate(JOBS['bazel']['if'], cancelled=True, **context)
+
+
+def test_approval_honors_the_callers_runner_selection():
+    """Approval must remain usable when callers have only their configured runners."""
+    assert JOBS['approval']['runs-on'] == JOBS['bazel']['runs-on']
+
+
+@pytest.mark.parametrize('event', ['pull_request', 'pull_request_target'])
+def test_missing_pr_repository_fails_before_approval_or_checkout(tmp_path, event):
+    """A deleted head repository must produce a validation error instead of an invalid approval."""
+    context = dict(event=event, head_repository='', label='test-qnx', labels=['test-qnx'])
+    assert not evaluate_gate(JOBS['approval']['if'], **context)
+    assert evaluate_gate(JOBS['bazel']['if'], **context)
+    result = run_step('Validate request', tmp_path, EVENT_NAME=event, BUILD_TARGETS='//...',
+                      PR_HEAD_REPOSITORY='', SETUP_QNX_SDP='true', QNX_CREDENTIALS_PRESENT='true')
+    assert result.returncode != 0
+    assert ('Cannot run PR checks: the event does not identify '
+            'the repository containing the PR branch.') in result.stderr
+    assert not (tmp_path / 'output').exists()
+
+
+@pytest.mark.parametrize('credentials', ['false', 'true'])
+def test_qnx_fork_pull_request_is_rejected_even_with_credentials(tmp_path, credentials):
+    """Secret availability must never allow an ordinary fork PR to bypass approval."""
+    result = run_step('Validate request', tmp_path, BUILD_TARGETS='//...',
+                      SETUP_QNX_SDP='true', QNX_CREDENTIALS_PRESENT=credentials)
+    assert result.returncode != 0
+    assert 'QNX fork PRs require pull_request_target with environment approval' in result.stderr
+    assert 'setup-qnx-sdp requires qnx-license' not in result.stderr
+    assert not (tmp_path / 'output').exists()

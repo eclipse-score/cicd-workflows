@@ -125,7 +125,7 @@ jobs:
           repository-cache-restore: false
 
       # Required only while constructing a cache after a cache-writing event.
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@d8f1ca7808fe21b755ef3277d3581a1d57dec15f # unblock-user-namespace-for-linux-sandbox/v0.0.0
         if: ${{ steps.check.outputs.any_changed == 'true' && env.DRY_RUN == 'false' }}
 
       - name: Check QNX secret availability
@@ -155,7 +155,7 @@ jobs:
           qnx-license-dir: /opt/score_qnx/license
 
       - name: Configure access to private Bazel dependencies
-        uses: eclipse-score/cicd-actions/inter-repo-access@212bbf86267e9381da9d2daf962d12f6feafbc90 # main branch (2026-07-24)
+        uses: eclipse-score/cicd-actions/inter-repo-access@d8f1ca7808fe21b755ef3277d3581a1d57dec15f # inter-repo-access/v0.0.2
         env:
           HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
           HAS_TOKEN: ${{ secrets.token != '' }}
@@ -169,7 +169,7 @@ jobs:
       # must not upload a cache.
       - name: Validate variants and warm Bazel repository cache artifacts
         if: ${{ steps.check.outputs.any_changed == 'true' || env.DRY_RUN == 'true' }}
-        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@212bbf86267e9381da9d2daf962d12f6feafbc90
+        uses: eclipse-score/cicd-actions/warm-bazel-repository-cache@d8f1ca7808fe21b755ef3277d3581a1d57dec15f # warm-bazel-repository-cache/v0.0.0
         with:
           variants: ${{ inputs.variants }}
           dry-run: ${{ env.DRY_RUN }}

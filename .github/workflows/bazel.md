@@ -1,30 +1,37 @@
 # Build, test and collect coverage with Bazel
 
-Use `bazel.yml` to run one Bazel job on a Linux runner. It handles checkout,
-setup, caching and report uploads. You choose the targets, Bazel configurations,
-triggers, matrices and job dependencies. Start with [Run a job](#run-a-job), or
-look up a setting in the [Reference](#reference).
+Use `bazel.yml` to build, test or measure coverage on a Linux runner. You supply
+your targets and Bazel configurations; the workflow handles setup, caching and
+report uploads. Start with
+[Run a job](#run-a-job), or look up a setting in the [Reference](#reference).
 
 ## Run a job
 
-Add a job to your module's workflow. The selected targets and configurations
-must already work in your module.
+Create `.github/workflows/bazel-checks.yml` in your module with the following
+content, or add the `tests` job to an existing workflow. Replace the targets and
+configuration with ones that already work in your module.
 
 ```yaml
+name: Bazel checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   tests:
-    permissions:
-      contents: read
-    uses: eclipse-score/cicd-workflows/.github/workflows/bazel.yml@bazel-workflow
+    uses: eclipse-score/cicd-workflows/.github/workflows/bazel.yml@<sha>
     with:
       test-targets: //score/...
       bazel-configs: x86_64-linux
       cache-key: linux-x86_64
 ```
 
-The examples use the review branch. Pin the reviewed commit SHA when adopting
-the workflow. `//score/...` selects targets below `score`; `//...` selects all
-targets. Configuration names come from your module's `.bazelrc` files.
+Replace `<sha>` with the full commit SHA of the reviewed workflow version.
+`//score/...` selects targets below `score`; `//...` selects all targets. Configuration names come from your module's `.bazelrc` files.
 
 - **Test only** — supply `test-targets`. Bazel builds the selected tests first.
 - **Build only** — supply `build-targets` and omit `test-targets`.
@@ -84,7 +91,9 @@ applies Linux justifications.
 ## Access private dependencies
 
 For private GitHub dependencies, pass the `github-token` secret, or supply
-`github-app-client-id` with the `github-app-private-key` secret.
+`github-app-client-id` with the `github-app-private-key` secret. The selected
+token configures Git access and is exported as `GH_TOKEN` for download tools
+and GitHub CLI commands in subsequent steps.
 
 For authenticated HTTP downloads, store complete `.netrc` content in a secret,
 for example `machine packages.example.com login ci password TOKEN`. Pass it
@@ -102,33 +111,23 @@ An existing `~/.netrc` is preserved. Netrc and GitHub credentials can be combine
 
 ## Set up QNX and virtual machines
 
-For QNX tests in a VM, use the following inputs and secrets. All three secrets
-must be available to the job; `qnx-license` contains a base64-encoded license file.
+For QNX builds and tests, enable `setup-qnx-sdp` and supply the three QNX secrets.
+Follow the [QNX guide](bazel-qnx.md) for SDK and license setup, VM tests and
+replacing an existing `qnx-build.yml` call.
 
-```yaml
-with:
-  setup-qnx-sdp: true
-  setup-qemu: true
-  bazel-configs: score-qnx-x86_64
-  test-targets: //score/...
-  cache-key: qnx-x86_64
-secrets:
-  qnx-license: ${{ secrets.SCORE_QNX_LICENSE }}
-  qnx-user: ${{ secrets.SCORE_QNX_USER }}
-  qnx-password: ${{ secrets.SCORE_QNX_PASSWORD }}
-```
+For VM tests, enable `setup-qemu`. This installs `qemu-system` and `qemu-utils`,
+including `qemu-img`, and enables KVM access. The runner needs KVM, sudo and udev;
+your Bazel targets or test wrapper start and stop the VM. QEMU setup is independent
+of QNX setup and can be used for other platforms. For Linux user-mode emulation,
+use `apt-packages: qemu-user`.
 
-The setup switches are independent and default to `false`. QNX setup configures
-licensing and download access. Its download helper defaults to
-`.github/tools/qnx_credential_helper.py` in the checkout root. Set
-`qnx-credential-helper` for a different path, or to `''` to disable it. If you use
-`qnx-license-server`, a root workspace's `.bazelrc` must import `user.bazelrc`.
+## Run QNX checks on pull requests
 
-QEMU setup installs `qemu-system` and `qemu-utils`, including `qemu-img`, and
-enables KVM access. The runner needs KVM, sudo and udev. Your Bazel targets or test
-wrapper start and stop the VM. Enable QEMU setup for other platforms as needed;
-QNX build-only jobs can omit it. For Linux user-mode emulation, use
-`apt-packages: qemu-user`.
+Follow the [QNX PR guide](bazel-qnx.md#run-qnx-checks-on-pull-requests) for fork
+approval and a complete caller workflow. It also covers optional
+[label filtering](bazel-qnx.md#select-fork-prs-by-label-optional),
+[manual runs](bazel-qnx.md#start-qnx-checks-manually-optional) and
+[merge queues](bazel-qnx.md#use-a-merge-queue-optional).
 
 ## Find and reuse reports
 
@@ -164,12 +163,14 @@ omitted. Supply at least one of `build-targets` and `test-targets`.
 | `build-args` | string | Empty | Extra command options for the build phase. |
 | `test-args` | string | Empty | Extra command options for the test or coverage phase. |
 | `working-directory` | string | `.` | Bazel workspace relative to the checkout. Must be an existing directory inside it. |
+| `fork-pr-label` | string | Empty | Label required for fork PR execution. Empty disables label filtering. Internal PRs, merge groups and other events always execute. |
 | `cache-key` | string | Empty | Stable build-output cache name. Empty uses `bazel`; choose a distinct key for each job and matrix variant. |
 | `coverage-justifications` | string | Empty | Justification YAML path relative to the Bazel workspace, used for coverage reports. |
 | `coverage-threshold` | number | `100` | Minimum line coverage percentage after applying justifications. `0` disables the coverage gate. |
 | `apt-packages` | string | Empty | Additional APT packages to install, separated by whitespace. |
 | `disk-cleanup-level` | number | `2` | Disk cleanup level from 0 to 4, passed to `more-disk-space`. |
 | `setup-qnx-sdp` | boolean | `false` | Configure QNX licensing and download access. Requires all three QNX secrets. Selects QNX justifications for coverage reports. |
+| `environment-name` | string | `workflow-approval` | Protected caller environment for fork target-event approval. Must have environment `reviewers` configured in Otterdog. |
 | `qnx-license-server` | string | Empty | Optional license server, such as `6287@license-server`, used with QNX setup. |
 | `qnx-credential-helper` | string | `.github/tools/qnx_credential_helper.py` | Download helper path relative to the checkout root, used with QNX setup. The file must exist. Empty disables helper setup. |
 | `setup-qemu` | boolean | `false` | Install `qemu-system` and `qemu-utils` and enable KVM access. Requires a runner with KVM, sudo and udev. |
@@ -200,7 +201,7 @@ the corresponding setup is enabled.
 | `qnx-password` | `setup-qnx-sdp: true` | QNX account password for downloads. |
 | `netrc` | Using Netrc authentication | Complete file content for authenticated HTTP downloads. Omission keeps existing authentication. |
 | `github-app-private-key` | Using `github-app-client-id` | Private key for the GitHub App used to access private dependencies. |
-| `github-token` | Using token-based GitHub authentication | GitHub token with access to the required private dependencies, as an alternative to App credentials. |
+| `github-token` | Using token-based GitHub authentication | GitHub token for Git access and downloads using `GH_TOKEN`, as an alternative to App credentials. Must have access to the dependencies. |
 
 ### Outputs
 
@@ -208,4 +209,4 @@ Read outputs from a dependent job through `needs.<job>.outputs.<name>`.
 
 | Output | Meaning |
 | --- | --- |
-| `artifact-name` | Name of the uploaded report artifact. Empty if no artifact was created, including build-only jobs and runs with no report files. |
+| `artifact-name` | Name of the uploaded report artifact. Empty if no artifact was created, including label-based skips, build-only jobs and runs with no report files. |

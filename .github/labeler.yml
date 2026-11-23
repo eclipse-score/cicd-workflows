@@ -1,0 +1,54 @@
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Component paths are shared by PR labels and the release overview.
+# Include each workflow and all its local helpers in its component label.
+# A final dot suffix of 1-3 characters is omitted from the release tag prefix.
+# * matches within one path segment; ** matches zero or more directory levels.
+# Quote patterns so YAML treats stars as text. New matching files count too.
+bazel.yml:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/bazel.yml
+          - ".github/actions/_bazel-execute/**"
+          - ".github/actions/_setup-*/**"
+
+cache-maintenance.yml:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/cache-maintenance.yml
+          - .github/workflows/cache-maintenance.md
+
+docs.yml:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/docs.yml
+          - .github/workflows/docs-publish.yml
+          - ".github/actions/_merge-test-reports/**"
+          - ".github/actions/deploy-versioned-pages/**"
+
+daily.yml:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/daily.yml
+          - .github/workflows/_docs-cleanup.yml
+
+license-check.yml:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/license-check.yml
+
+on-pr.yml:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/on-pr.yml
+
+monorepo-releases:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/labeler.yml
+          - .github/workflows/label_pr.yml
+          - .github/workflows/monorepo-releases.yml
+          - "tools/monorepo-releases/**"
+          - pyproject.toml
+          - uv.lock
