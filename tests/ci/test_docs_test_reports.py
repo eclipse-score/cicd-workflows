@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Keep artifact collection format-neutral and reject ambiguous report trees."""
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -299,12 +300,153 @@ def test_empty_archives_do_not_produce_a_successful_documentation_report(tmp_pat
         reports.merge_downloads(downloads, tmp_path / 'merged')
 
 
-def verify_failure_scenario(scenario, error_code):
+def verify_scenario(scenario, error_code, *, outcome='failure', artifact_count=None, cwd=None):
     workflow = yaml.safe_load((ROOT / '.github/workflows/_test_merge_test_reports.yml').read_text())
     verify = workflow['jobs']['reports']['steps'][-1]['run']
-    return subprocess.run(['bash', '-e', '-c', verify], capture_output=True, text=True, env={
-        'PATH': os.environ['PATH'], 'SCENARIO': scenario, 'OUTCOME': 'failure', 'ERROR_CODE': error_code,
+    expected_count = (0 if scenario in ('missing-name', 'missing-pattern') else
+                      2 if scenario in ('multiple', 'pattern-multiple', 'overlap', 'identical', 'conflict') else 1)
+    if artifact_count is None:
+        artifact_count = expected_count
+    collection = {'outcome': outcome, 'outputs': {
+        'artifact-count': str(artifact_count), 'error-code': error_code,
+    }}
+    return subprocess.run(['bash', '-e', '-c', verify], capture_output=True, text=True, cwd=cwd, env={
+        'PATH': os.environ['PATH'], 'SCENARIO': scenario,
+        'COLLECTION': json.dumps(collection), 'EXPECTED_ARTIFACT_COUNT': str(expected_count),
     })
+
+
+def evaluate_collection_expression(expression, scenario, expected_count, results):
+    values = {
+        'matrix.scenario': scenario,
+        'steps.fixtures.outputs.expected-artifact-count': expected_count,
+    }
+    for identifier, result in results.items():
+        values[f'steps.{identifier}'] = result
+        values[f'steps.{identifier}.outcome'] = result['outcome']
+        for field in ('artifact-count', 'error-code'):
+            values[f'steps.{identifier}.outputs.{field}'] = result['outputs'].get(field, '')
+    expression = expression.removeprefix('${{').removesuffix('}}').strip()
+    for key in sorted(values, key=len, reverse=True):
+        expression = expression.replace(key, repr(values[key]))
+    expression = expression.replace('&&', ' and ').replace('||', ' or ')
+    return eval('(' + expression + ')', {'__builtins__': {}}, {
+        'fromJSON': json.loads, 'toJSON': json.dumps,
+    })
+
+
+@pytest.mark.parametrize('scenario, snapshots, success', [
+    ('multiple', (2,), True),
+    ('multiple', (1, 2), True),
+    ('multiple', (0, 1, 2), True),
+    ('multiple', (1, 1, 1), False),
+    ('pattern-multiple', (0, 1, 2), True),
+    ('overlap', (1, 2), True),
+    ('identical', (1, 2), True),
+    ('conflict', (2,), True),
+    ('conflict', (1, 2), True),
+    ('conflict', (0, 1, 2), True),
+    ('missing-pattern', (0,), True),
+    ('partial-missing-name', (1,), True),
+    ('partial-missing-pattern', (1,), True),
+    ('multiple', ('corrupt',), False),
+    ('multiple', (1, 'corrupt'), False),
+])
+def test_selftest_retries_only_incomplete_fixture_collections(tmp_path, scenario, snapshots, success):
+    workflow = yaml.safe_load((ROOT / '.github/workflows/_test_merge_test_reports.yml').read_text())
+    steps = workflow['jobs']['reports']['steps']
+    bin_directory = tmp_path / 'bin'
+    bin_directory.mkdir()
+    sleep = bin_directory / 'sleep'
+    sleep.write_text('#!/bin/sh\nprintf "%s\\n" "$1" >> "$SLEEP_LOG"\n')
+    sleep.chmod(0o755)
+    environment = {
+        'PATH': f'{bin_directory}:{os.environ["PATH"]}', 'SCENARIO': scenario,
+        'FIRST': f'selftest-reports-{scenario}-first-1',
+        'SECOND': f'selftest-reports-{scenario}-second-1',
+        'GITHUB_OUTPUT': str(tmp_path / 'fixtures-output'),
+        'SLEEP_LOG': str(tmp_path / 'sleeps'),
+    }
+    prepare = steps[0]['run'].replace('${{ github.run_attempt }}', '1')
+    prepared = subprocess.run(['bash', '-e', '-c', prepare], cwd=tmp_path,
+                              env=environment, capture_output=True, text=True)
+    assert prepared.returncode == 0, prepared.stderr
+    expected_count = next(line.split('=', 1)[1] for line in (tmp_path / 'fixtures-output').read_text().splitlines()
+                          if line.startswith('expected-artifact-count='))
+    collection_steps = steps[next(index for index, step in enumerate(steps) if step.get('id') == 'collect'):]
+    results = {step['id']: {'outcome': 'skipped', 'outputs': {}}
+               for step in collection_steps if 'uses' in step}
+    attempts = 0
+    verified = None
+    for step in collection_steps:
+        if 'if' in step and not evaluate_collection_expression(step['if'], scenario, expected_count, results):
+            continue
+        if 'uses' in step:
+            snapshot = snapshots[attempts]
+            downloads = tmp_path / f'downloads-{attempts}'
+            downloads.mkdir()
+            if snapshot == 'corrupt':
+                (downloads / 'broken.zip').write_bytes(b'not an archive')
+            else:
+                for fixture in ('first', 'second')[:snapshot]:
+                    root = tmp_path / 'fixtures' / fixture
+                    files = {path.relative_to(root).as_posix(): path.read_bytes()
+                             for path in root.rglob('*') if path.is_file()}
+                    download(downloads, f'{fixture}.zip', files)
+            output = tmp_path / f'output-{attempts}'
+            collected = run_merge(downloads, tmp_path / 'merged-reports', output)
+            results[step['id']] = {
+                'outcome': 'success' if collected.returncode == 0 else 'failure',
+                'outputs': dict(line.split('=', 1) for line in output.read_text().splitlines()),
+            }
+            attempts += 1
+            if collected.returncode and not step.get('continue-on-error'):
+                verified = collected
+                break
+        elif step is collection_steps[-1]:
+            verification_env = {
+                key: str(evaluate_collection_expression(value, scenario, expected_count, results))
+                for key, value in step['env'].items()
+            }
+            verified = subprocess.run(['bash', '-e', '-c', step['run']], cwd=tmp_path,
+                                      env={**environment, **verification_env}, capture_output=True, text=True)
+        else:
+            waited = subprocess.run(['bash', '-e', '-c', step['run']], cwd=tmp_path,
+                                    env=environment, capture_output=True, text=True)
+            assert waited.returncode == 0, waited.stderr
+            assert not (tmp_path / 'merged-reports').exists()
+    assert attempts == len(snapshots)
+    waits = (tmp_path / 'sleeps').read_text().splitlines() if (tmp_path / 'sleeps').exists() else []
+    assert waits == ['30', '60'][:attempts - 1]
+    assert verified is not None
+    assert (verified.returncode == 0) == success, verified.stdout + verified.stderr
+
+
+@pytest.mark.parametrize('count', [1, 2])
+def test_identical_selftest_requires_both_downloaded_archives(tmp_path, count):
+    files = {'unit/test.xml': b'<testsuite/>', 'unit/test.log': b'log'}
+    fixtures = tmp_path / 'fixtures'
+    fixtures.mkdir()
+    artifact(fixtures, 'first', files)
+    downloads = tmp_path / 'downloads'
+    for index in range(count):
+        download(downloads, f'{index}.zip', files)
+    merged = run_merge(downloads, tmp_path / 'merged-reports', tmp_path / 'output')
+    assert merged.returncode == 0, merged.stderr
+    verified = verify_scenario('identical', '', outcome='success', artifact_count=count, cwd=tmp_path)
+    assert (verified.returncode == 0) == (count == 2), verified.stderr
+
+
+def test_action_counts_archives_independently_of_deduplicated_files(tmp_path):
+    downloads = tmp_path / 'downloads'
+    for name in ('first', 'second'):
+        download(downloads, f'{name}.zip', {'unit/test.xml': b'<testsuite/>'})
+    output = tmp_path / 'output'
+    result = run_merge(downloads, tmp_path / 'merged', output)
+    assert result.returncode == 0, result.stderr
+    assert output.exists(), 'Collection must report how many archives it consumed'
+    assert output.read_text() == 'artifact-count=2\n'
+    assert len(list((tmp_path / 'merged').rglob('*.xml'))) == 1
 
 
 @pytest.mark.parametrize('scenario', ['missing-name', 'missing-pattern'])
@@ -315,8 +457,8 @@ def test_no_downloads_emit_the_specific_error_checked_by_the_selftest(tmp_path, 
     result = run_merge(downloads, tmp_path / 'merged', output)
     assert result.returncode != 0
     assert 'No test report artifacts were downloaded' in result.stderr
-    assert output.read_text() == 'error-code=no-reports\n'
-    assert verify_failure_scenario(scenario, 'no-reports').returncode == 0
+    assert output.read_text() == 'artifact-count=0\nerror-code=no-reports\n'
+    assert verify_scenario(scenario, 'no-reports').returncode == 0
 
 
 def test_conflicting_files_emit_the_specific_error_checked_by_the_selftest(tmp_path):
@@ -326,8 +468,8 @@ def test_conflicting_files_emit_the_specific_error_checked_by_the_selftest(tmp_p
     output = tmp_path / 'outputs'
     result = run_merge(downloads, tmp_path / 'merged', output)
     assert result.returncode != 0
-    assert output.read_text() == 'error-code=file-conflict\n'
-    assert verify_failure_scenario('conflict', 'file-conflict').returncode == 0
+    assert output.read_text() == 'artifact-count=2\nerror-code=file-conflict\n'
+    assert verify_scenario('conflict', 'file-conflict').returncode == 0
 
 
 def test_corrupt_download_does_not_pass_as_an_expected_missing_report(tmp_path):
@@ -338,14 +480,14 @@ def test_corrupt_download_does_not_pass_as_an_expected_missing_report(tmp_path):
     result = run_merge(downloads, tmp_path / 'merged', output)
     assert result.returncode != 0
     assert 'BadZipFile' in result.stderr
-    assert not output.exists()
-    assert verify_failure_scenario('missing-pattern', '').returncode != 0
+    assert output.read_text() == 'artifact-count=1\n'
+    assert verify_scenario('missing-pattern', '').returncode != 0
 
 
 @pytest.mark.parametrize('scenario', ['conflict', 'missing-name', 'missing-pattern'])
 @pytest.mark.parametrize('error_code', ['', 'unexpected-error'])
 def test_negative_selftests_reject_unexpected_failure_reasons(scenario, error_code):
-    assert verify_failure_scenario(scenario, error_code).returncode != 0
+    assert verify_scenario(scenario, error_code).returncode != 0
 
 
 @pytest.mark.parametrize('single, multiple, success, selected', [

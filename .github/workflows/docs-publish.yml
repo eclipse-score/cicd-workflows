@@ -305,9 +305,35 @@ jobs:
           name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: gh-pages-content
 
+      # deploy-pages can report no matching artifacts immediately after a successful upload.
+      # Work around https://github.com/actions/deploy-pages/issues/451 with two retries.
       - name: Deploy artifact to GitHub Pages
         if: steps.metadata.outputs.should_deploy == 'true' && inputs.deployment_type != 'legacy'
         id: deploy-pages
+        continue-on-error: true
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
+
+      - name: Wait before first Pages deployment retry
+        if: steps.metadata.outputs.should_deploy == 'true' && inputs.deployment_type != 'legacy' && steps.deploy-pages.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy artifact to GitHub Pages (retry 1)
+        if: steps.metadata.outputs.should_deploy == 'true' && inputs.deployment_type != 'legacy' && steps.deploy-pages.outcome == 'failure'
+        id: deploy-pages-retry-1
+        continue-on-error: true
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
+
+      - name: Wait before final Pages deployment retry
+        if: steps.metadata.outputs.should_deploy == 'true' && inputs.deployment_type != 'legacy' && steps.deploy-pages-retry-1.outcome == 'failure'
+        run: sleep 60
+
+      - name: Deploy artifact to GitHub Pages (retry 2)
+        if: steps.metadata.outputs.should_deploy == 'true' && inputs.deployment_type != 'legacy' && steps.deploy-pages-retry-1.outcome == 'failure'
+        id: deploy-pages-retry-2
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
         with:
           artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
@@ -316,7 +342,11 @@ jobs:
         if: steps.metadata.outputs.should_deploy == 'true'
         id: documentation-url
         env:
-          PAGES_BASE_URL: ${{ steps.deploy-pages.outputs.page_url || format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}
+          PAGES_BASE_URL: >-
+            ${{ steps.deploy-pages.outcome == 'success' && steps.deploy-pages.outputs.page_url ||
+                steps.deploy-pages-retry-1.outcome == 'success' && steps.deploy-pages-retry-1.outputs.page_url ||
+                steps.deploy-pages-retry-2.outcome == 'success' && steps.deploy-pages-retry-2.outputs.page_url ||
+                format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}
           TARGET_FOLDER: ${{ steps.target.outputs.folder }}
         run: echo "url=${PAGES_BASE_URL%/}/${TARGET_FOLDER}/" >> "$GITHUB_OUTPUT"
 

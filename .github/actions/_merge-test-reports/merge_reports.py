@@ -30,7 +30,7 @@ def artifact_patterns(value):
     return patterns
 
 
-def merge_downloads(downloads, destination):
+def merge_downloads(downloads, destination, *, output=None):
     """Extract separate ZIP downloads before checking their report paths.
 
     download-artifact flattens a single match but creates artifact directories
@@ -44,6 +44,9 @@ def merge_downloads(downloads, destination):
             raise ValueError('Test artifact download contains a symlink')
         if path.is_file():
             archives.append(path)
+    if output is not None:
+        with Path(output).open('a') as output_file:
+            output_file.write(f'artifact-count={len(archives)}\n')
     if not archives:
         raise CollectionError('no-reports', 'No test report artifacts were downloaded')
     with tempfile.TemporaryDirectory(prefix='docs-report-extract-') as temporary:
@@ -139,7 +142,8 @@ def main():
         with args.output.open('a') as output:
             output.write(f'pattern=@({"|".join(patterns)})\n')
         return
-    print(f'Merged {merge_downloads(args.downloads, args.destination)} test report files')
+    count = merge_downloads(args.downloads, args.destination, output=os.environ.get('GITHUB_OUTPUT') or None)
+    print(f'Merged {count} test report files')
 
 
 if __name__ == '__main__':
