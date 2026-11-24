@@ -37,6 +37,7 @@
     "eclipse-score/config_management",
     "eclipse-score/coverage_tool",
     "eclipse-score/devcontainer",
+    "eclipse-score/diagnostics",
     "eclipse-score/docs-as-code",
     "eclipse-score/inc_security_crypto",
     "eclipse-score/inc_someip_gateway",
