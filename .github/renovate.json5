@@ -56,7 +56,6 @@
     "eclipse-score/reference_integration",
     "eclipse-score/rules_imagefs",
     "eclipse-score/sbom-tool",
-    "eclipse-score/scrample",
     "eclipse-score/score",
     "eclipse-score/score-crates",
     "eclipse-score/score_cpp_policies",

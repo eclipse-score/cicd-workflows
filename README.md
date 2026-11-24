@@ -252,7 +252,7 @@ Use this workflow when you need QNX secrets for forked PRs and want a manual app
 **Usage Example**
 
 ```yaml
-name: Scrample QNX (gated)
+name: QNX build (gated)
 
 on:
   pull_request_target:
