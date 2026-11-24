@@ -305,6 +305,11 @@ jobs:
           name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: gh-pages-content
 
+      # GitHub can briefly omit a finalized upload from the artifact list (actions/deploy-pages#451).
+      - name: Allow the Pages artifact to become visible
+        if: steps.metadata.outputs.should_deploy == 'true' && inputs.deployment_type != 'legacy'
+        run: sleep 2
+
       - name: Deploy artifact to GitHub Pages
         if: steps.metadata.outputs.should_deploy == 'true' && inputs.deployment_type != 'legacy'
         id: deploy-pages
