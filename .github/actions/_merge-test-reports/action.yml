@@ -11,6 +11,9 @@ inputs:
     description: Directory in which to combine reports while preserving relative paths
     required: true
 outputs:
+  artifact-count:
+    description: Number of downloaded artifact archives
+    value: ${{ steps.merge.outputs.artifact-count }}
   error-code:
     description: Expected report error (no-reports or file-conflict); empty for unexpected failures
     value: ${{ steps.merge.outputs.error-code }}

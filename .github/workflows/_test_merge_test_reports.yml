@@ -37,6 +37,11 @@ jobs:
               ;;
           esac
           {
+            case "$SCENARIO" in
+              multiple|pattern-multiple|overlap|identical|conflict) echo 'expected-artifact-count=2' ;;
+              missing-name|missing-pattern) echo 'expected-artifact-count=0' ;;
+              *) echo 'expected-artifact-count=1' ;;
+            esac
             echo 'artifacts<<REPORT_PATTERNS'
             case "$SCENARIO" in
               single) echo "$FIRST" ;;
@@ -72,7 +77,45 @@ jobs:
           retention-days: 1
       - name: Collect selected reports
         id: collect
-        continue-on-error: ${{ contains(fromJSON('["conflict", "missing-name", "missing-pattern"]'), matrix.scenario) }}
+        continue-on-error: true
+        uses: $/.github/actions/_merge-test-reports
+        with:
+          artifacts: ${{ steps.fixtures.outputs.artifacts }}
+          destination: merged-reports
+      - name: Wait before retrying incomplete fixture collection
+        if: >-
+          (steps.collect.outcome == 'success' || steps.collect.outputs.error-code == 'no-reports') &&
+          steps.collect.outputs.artifact-count != '' &&
+          fromJSON(steps.collect.outputs.artifact-count) < fromJSON(steps.fixtures.outputs.expected-artifact-count)
+        run: |
+          sleep 30
+          rm -rf merged-reports
+      - name: Collect selected reports (retry 1)
+        id: collect-retry-1
+        if: >-
+          (steps.collect.outcome == 'success' || steps.collect.outputs.error-code == 'no-reports') &&
+          steps.collect.outputs.artifact-count != '' &&
+          fromJSON(steps.collect.outputs.artifact-count) < fromJSON(steps.fixtures.outputs.expected-artifact-count)
+        continue-on-error: true
+        uses: $/.github/actions/_merge-test-reports
+        with:
+          artifacts: ${{ steps.fixtures.outputs.artifacts }}
+          destination: merged-reports
+      - name: Wait before final incomplete fixture collection retry
+        if: >-
+          (steps.collect-retry-1.outcome == 'success' || steps.collect-retry-1.outputs.error-code == 'no-reports') &&
+          steps.collect-retry-1.outputs.artifact-count != '' &&
+          fromJSON(steps.collect-retry-1.outputs.artifact-count) < fromJSON(steps.fixtures.outputs.expected-artifact-count)
+        run: |
+          sleep 60
+          rm -rf merged-reports
+      - name: Collect selected reports (retry 2)
+        id: collect-retry-2
+        if: >-
+          (steps.collect-retry-1.outcome == 'success' || steps.collect-retry-1.outputs.error-code == 'no-reports') &&
+          steps.collect-retry-1.outputs.artifact-count != '' &&
+          fromJSON(steps.collect-retry-1.outputs.artifact-count) < fromJSON(steps.fixtures.outputs.expected-artifact-count)
+        continue-on-error: true
         uses: $/.github/actions/_merge-test-reports
         with:
           artifacts: ${{ steps.fixtures.outputs.artifacts }}
@@ -80,9 +123,21 @@ jobs:
       - name: Verify collection outcome and report contents
         env:
           SCENARIO: ${{ matrix.scenario }}
-          OUTCOME: ${{ steps.collect.outcome }}
-          ERROR_CODE: ${{ steps.collect.outputs.error-code }}
+          EXPECTED_ARTIFACT_COUNT: ${{ steps.fixtures.outputs.expected-artifact-count }}
+          COLLECTION: >-
+            ${{ toJSON(
+                steps.collect-retry-2.outcome != 'skipped' && steps.collect-retry-2 ||
+                steps.collect-retry-1.outcome != 'skipped' && steps.collect-retry-1 ||
+                steps.collect
+            ) }}
         run: |
+          OUTCOME=$(jq -r '.outcome' <<< "$COLLECTION")
+          ERROR_CODE=$(jq -r '.outputs["error-code"] // ""' <<< "$COLLECTION")
+          ARTIFACT_COUNT=$(jq -r '.outputs["artifact-count"] // ""' <<< "$COLLECTION")
+          if [[ "$ARTIFACT_COUNT" != "$EXPECTED_ARTIFACT_COUNT" ]]; then
+            echo "::error::Expected $EXPECTED_ARTIFACT_COUNT fixture artifacts, downloaded ${ARTIFACT_COUNT:-unknown}."
+            exit 1
+          fi
           case "$SCENARIO" in
             conflict)
               test "$OUTCOME" = failure
