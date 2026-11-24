@@ -70,6 +70,9 @@ jobs:
           path: fixtures/second
           if-no-files-found: error
           retention-days: 1
+      # A finalized upload can briefly be unavailable to the download action.
+      - name: Allow the report artifacts to become available
+        run: sleep 2
       - name: Collect selected reports
         id: collect
         continue-on-error: ${{ contains(fromJSON('["conflict", "missing-name", "missing-pattern"]'), matrix.scenario) }}
