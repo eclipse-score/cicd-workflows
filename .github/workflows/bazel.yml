@@ -319,6 +319,25 @@ jobs:
           qnx-license-server: ${{ inputs.qnx-license-server }}
           qnx-credential-helper: ${{ inputs.qnx-credential-helper }}
 
+      # The runner's default archive hosts share Canonical DNS. APT tries
+      # these independent mirrors after the runner's explicitly prioritized entries.
+      - name: Add APT fallback mirrors
+        if: >-
+          ${{ runner.environment == 'github-hosted' && runner.os == 'Linux' && runner.arch == 'X64'
+          && (inputs.apt-packages != '' || inputs.setup-qemu) }}
+        shell: bash
+        run: |
+          mirror_list=/etc/apt/apt-mirrors.txt
+          if [[ ! -f "$mirror_list" ]] || ! grep -Fqs "mirror+file:$mirror_list" \
+            /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; then
+            exit 0
+          fi
+
+          printf '%s\n' \
+            'https://mirror.leaseweb.net/ubuntu/' \
+            'https://mirror.arizona.edu/ubuntu/' \
+            | sudo tee -a "$mirror_list" >/dev/null
+
       - name: Install dependencies
         if: ${{ inputs.apt-packages != '' }}
         uses: eclipse-score/apt-install@d545215b973c4151236fcb3f75480dffcb914835
