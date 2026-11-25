@@ -64,7 +64,8 @@ on:
           Publish into this folder of the documentation site instead of the folder derived from the
           pull request number or source ref. Use it to publish an additional report (for example from a
           nightly build) without overwriting the regular documentation. Must start with a letter or digit
-          and contain only letters, digits, `.`, `_` and `-`. Keep the folder through the daily cleanup
+          and contain only letters, digits, `.`, `_` and `-`; `main`, `pr-*`, `versions.json` and
+          `index.html` are reserved. Keep the folder through the daily cleanup
           with the `keep-folders` input of `daily.yml` or `_docs-cleanup.yml`.
         required: false
         default: ""
@@ -171,8 +172,14 @@ jobs:
           TARGET_FOLDER_OVERRIDE: ${{ inputs.target-folder }}
         run: |
           if [[ -n "$TARGET_FOLDER_OVERRIDE" ]]; then
-            if [[ ! "$TARGET_FOLDER_OVERRIDE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ || "$TARGET_FOLDER_OVERRIDE" == *..* ]]; then
+            if [[ ! "$TARGET_FOLDER_OVERRIDE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
               echo "Invalid target-folder '$TARGET_FOLDER_OVERRIDE'." >&2
+              exit 1
+            fi
+            # These names belong to the regular documentation or to the site's own files.
+            if [[ "$TARGET_FOLDER_OVERRIDE" == "main" || "$TARGET_FOLDER_OVERRIDE" == pr-* \
+                  || "$TARGET_FOLDER_OVERRIDE" == "versions.json" || "$TARGET_FOLDER_OVERRIDE" == "index.html" ]]; then
+              echo "Reserved target-folder '$TARGET_FOLDER_OVERRIDE'." >&2
               exit 1
             fi
             echo "folder=$TARGET_FOLDER_OVERRIDE" >> "$GITHUB_OUTPUT"

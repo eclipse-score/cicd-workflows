@@ -59,6 +59,7 @@ on:
 jobs:
   docs-cleanup:
     name: Cleanup old documentation
+    timeout-minutes: 15
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       pages: write
@@ -109,8 +110,8 @@ jobs:
           ACTIVE_BRANCHES=$(gh api --paginate repos/${{ github.repository }}/branches --jq '.[].name')
           OPEN_PRS=$(gh api --paginate repos/${{ github.repository }}/pulls --jq '.[] | "pr-\(.number)"')
           TAGS=$(gh api --paginate repos/${{ github.repository }}/tags --jq '.[].name')
-          KEPT=$(echo "$KEEP_FOLDERS" | tr ', ' '\n\n' | sed '/^$/d')
-          VALID_ENTRIES=$(echo -e "$ACTIVE_BRANCHES\n$OPEN_PRS\n$TAGS\n$KEPT")
+          KEPT=$(printf '%s\n' "$KEEP_FOLDERS" | tr -s '[:space:],' '\n' | sed '/^$/d')
+          VALID_ENTRIES=$(printf '%s\n' "$ACTIVE_BRANCHES" "$OPEN_PRS" "$TAGS" "$KEPT")
           CURRENT_FOLDERS=$(find . -maxdepth 1 -type d -not -name '.' -not -path './.*' -exec basename {} \;)
 
           if [[ -f versions.json ]]; then
@@ -120,7 +121,8 @@ jobs:
           fi
 
           for FOLDER in $CURRENT_FOLDERS; do
-            if ! echo "$VALID_ENTRIES" | grep -Fxq "$FOLDER"; then
+            # A here-string avoids SIGPIPE from `grep -q` failing the pipeline and wrongly deleting the folder.
+            if ! grep -Fxq -- "$FOLDER" <<< "$VALID_ENTRIES"; then
               echo "Removing $FOLDER"
               rm -rf "$FOLDER"
               jq --arg ver "$FOLDER" 'map(select(.version != $ver))' versions_tmp.json > tmp.json && mv tmp.json versions_tmp.json
