@@ -125,7 +125,7 @@ jobs:
           repository-cache-restore: false
 
       # Required only while constructing a cache after a cache-writing event.
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@d8f1ca7808fe21b755ef3277d3581a1d57dec15f # unblock-user-namespace-for-linux-sandbox/v0.0.0
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@200452cc1decd28b69bf2c3ccc56b5a06e529522 # tolerate missing AppArmor kernel access (cicd-actions#102)
         if: ${{ steps.check.outputs.any_changed == 'true' && env.DRY_RUN == 'false' }}
 
       - name: Check QNX secret availability

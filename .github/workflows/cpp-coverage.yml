@@ -108,7 +108,7 @@ jobs:
           disk-cache-key: ${{ github.job }}
 
       # Needs bazel on PATH: the action resolves `bazel info install_base`.
-      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@63c3e9c93df76d76a1baca18e407745ddaeb2fca # main branch (2026-10-12)
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@200452cc1decd28b69bf2c3ccc56b5a06e529522 # tolerate missing AppArmor kernel access (cicd-actions#102)
 
       - name: Install lcov (+ bc for threshold check)
         run: |

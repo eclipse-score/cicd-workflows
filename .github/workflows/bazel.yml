@@ -345,7 +345,7 @@ jobs:
 
       # The sandbox action needs Bazel on PATH to locate its install base.
       - name: Enable Bazel sandbox
-        uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@f540b4ba52b0ea29cd81e5a5b80b2088a39dfb98
+        uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@200452cc1decd28b69bf2c3ccc56b5a06e529522 # tolerate missing AppArmor kernel access (cicd-actions#102)
         with:
           working-directory: ${{ inputs.working-directory }}
 
