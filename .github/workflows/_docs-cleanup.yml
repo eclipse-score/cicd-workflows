@@ -40,6 +40,14 @@ on:
         required: false
         default: ""
         type: string
+      keep-folders:
+        description: >-
+          Top-level documentation folders to keep although they are neither a branch, an open pull
+          request nor a tag, for example a report published with the `target-folder` input of
+          `docs-publish.yml`. One folder name per line or separated by spaces or commas.
+        required: false
+        default: ""
+        type: string
     secrets:
       github-app-private-key:
         description: GitHub App private key used with `github-app-client-id` to access private dependencies
@@ -92,6 +100,7 @@ jobs:
         working-directory: gh-pages-cleanup
         env:
           GH_TOKEN: ${{ github.token }}
+          KEEP_FOLDERS: ${{ inputs.keep-folders }}
         run: |
           set -euo pipefail
 
@@ -100,7 +109,8 @@ jobs:
           ACTIVE_BRANCHES=$(gh api --paginate repos/${{ github.repository }}/branches --jq '.[].name')
           OPEN_PRS=$(gh api --paginate repos/${{ github.repository }}/pulls --jq '.[] | "pr-\(.number)"')
           TAGS=$(gh api --paginate repos/${{ github.repository }}/tags --jq '.[].name')
-          VALID_ENTRIES=$(echo -e "$ACTIVE_BRANCHES\n$OPEN_PRS\n$TAGS")
+          KEPT=$(echo "$KEEP_FOLDERS" | tr ', ' '\n\n' | sed '/^$/d')
+          VALID_ENTRIES=$(echo -e "$ACTIVE_BRANCHES\n$OPEN_PRS\n$TAGS\n$KEPT")
           CURRENT_FOLDERS=$(find . -maxdepth 1 -type d -not -name '.' -not -path './.*' -exec basename {} \;)
 
           if [[ -f versions.json ]]; then

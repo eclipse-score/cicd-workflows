@@ -44,6 +44,13 @@ on:
         required: false
         default: false
         type: boolean
+      docs-keep-folders:
+        description: >-
+          Top-level documentation folders that the docs cleanup must keep (see `keep-folders` of
+          `_docs-cleanup.yml`). One folder name per line or separated by spaces or commas.
+        required: false
+        default: ""
+        type: string
     secrets:
       github-app-private-key:
         description: GitHub App private key used with `github-app-client-id` to access private dependencies
@@ -117,6 +124,7 @@ jobs:
     # configure inter-repo access too.
     with:
       github-app-client-id: ${{ inputs.github-app-client-id }}
+      keep-folders: ${{ inputs.docs-keep-folders }}
     secrets:
       github-app-private-key: ${{ secrets.github-app-private-key }}
       token: ${{ secrets.token }}

@@ -59,6 +59,16 @@ on:
         required: false
         default: ""
         type: string
+      target-folder:
+        description: >-
+          Publish into this folder of the documentation site instead of the folder derived from the
+          pull request number or source ref. Use it to publish an additional report (for example from a
+          nightly build) without overwriting the regular documentation. Must start with a letter or digit
+          and contain only letters, digits, `.`, `_` and `-`. Keep the folder through the daily cleanup
+          with the `keep-folders` input of `daily.yml` or `_docs-cleanup.yml`.
+        required: false
+        default: ""
+        type: string
     secrets:
       github-app-private-key:
         description: GitHub App private key used with `github-app-client-id` to access private dependencies
@@ -158,8 +168,15 @@ jobs:
         env:
           PR_NUMBER: ${{ steps.metadata.outputs.pr_number }}
           REF_NAME: ${{ steps.metadata.outputs.ref_name }}
+          TARGET_FOLDER_OVERRIDE: ${{ inputs.target-folder }}
         run: |
-          if [[ -n "$PR_NUMBER" ]]; then
+          if [[ -n "$TARGET_FOLDER_OVERRIDE" ]]; then
+            if [[ ! "$TARGET_FOLDER_OVERRIDE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ || "$TARGET_FOLDER_OVERRIDE" == *..* ]]; then
+              echo "Invalid target-folder '$TARGET_FOLDER_OVERRIDE'." >&2
+              exit 1
+            fi
+            echo "folder=$TARGET_FOLDER_OVERRIDE" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$PR_NUMBER" ]]; then
             echo "folder=pr-$PR_NUMBER" >> "$GITHUB_OUTPUT"
           else
             echo "folder=$REF_NAME" >> "$GITHUB_OUTPUT"
