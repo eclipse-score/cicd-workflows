@@ -25,7 +25,6 @@ docs.yml:
           - .github/workflows/docs.yml
           - .github/workflows/docs-publish.yml
           - ".github/actions/_merge-test-reports/**"
-          - ".github/actions/deploy-versioned-pages/**"
 
 daily.yml:
   - changed-files:
