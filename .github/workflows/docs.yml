@@ -127,12 +127,6 @@ jobs:
         with:
           disk-cache-key: ${{ github.job }}
 
-      - name: Install Graphviz
-        uses: eclipse-score/apt-install@bd30e2e74a4850389719cb8c3e312bb26aada4e0 # v1.0.0
-        with:
-          packages: graphviz
-          cache: false
-
       - name: Download test report
         if: inputs.tests-report-artifact != ''
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
