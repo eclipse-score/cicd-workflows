@@ -146,6 +146,12 @@ runs:
       with:
         path: gh-pages-content
 
+    # GitHub can briefly omit a finalized upload from the artifact list (actions/deploy-pages#451).
+    - name: Workflow Allow the Pages artifact to become visible
+      if: ${{ inputs.deployment_type == 'workflow' }}
+      shell: bash
+      run: sleep 2
+
     - name: Workflow Deploy site
       if: ${{ inputs.deployment_type == 'workflow' }}
       uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
