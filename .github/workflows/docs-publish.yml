@@ -150,6 +150,7 @@ jobs:
           echo "event_name=$EVENT_NAME" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "ref_name=$REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "is_pr_context=$IS_PR_CONTEXT" >> "$GITHUB_OUTPUT"
 
       - name: Determine target folder
@@ -265,22 +266,36 @@ jobs:
           TARGET: ${{ steps.target.outputs.folder }}
           REPOSITORY: ${{ github.repository }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
+          EVENT_NAME: ${{ steps.metadata.outputs.event_name }}
+          HEAD_SHA: ${{ steps.metadata.outputs.head_sha }}
         run: |
           # if versions.json does not exist, create it with an empty array as content
           if [ ! -f gh-pages-content/versions.json ]; then
             echo '[]' > gh-pages-content/versions.json
           fi
 
-          # Add new version entry to versions.json if it doesn't already exist
-          if jq -e --arg v "$TARGET" 'map(select(.version == $v)) | length > 0' gh-pages-content/versions.json > /dev/null; then
-            echo "Version '$TARGET' already exists in versions.json"
-          else
-            REPO_NAME=$(basename "$REPOSITORY")
-            OWNER_NAME="$REPOSITORY_OWNER"
-            PAGES_URL="https://${OWNER_NAME}.github.io/${REPO_NAME}"
-            jq --arg v "$TARGET" --arg u "${PAGES_URL}/${TARGET}/" \
-              '. + [{"version": $v, "url": $u}]' gh-pages-content/versions.json > gh-pages-content/tmp.json && mv gh-pages-content/tmp.json gh-pages-content/versions.json
+          REPO_NAME=$(basename "$REPOSITORY")
+          OWNER_NAME="$REPOSITORY_OWNER"
+          PAGES_URL="https://${OWNER_NAME}.github.io/${REPO_NAME}"
+          URL="${PAGES_URL}/${TARGET}/"
+
+          # Branches and PR previews are not stable, so they carry a
+          # human-readable `name` of the form "<version> (<short sha>)";
+          # tags/releases are immutable and keep the plain entry. A release
+          # event always marks a tag.
+          NAME=""
+          if [[ "$EVENT_NAME" != "release" && -n "$HEAD_SHA" ]]; then
+            NAME="$TARGET (${HEAD_SHA:0:7})"
           fi
+
+          # Add or refresh the entry; an empty `name` keeps it plain.
+          jq --arg v "$TARGET" --arg u "$URL" --arg n "$NAME" '
+            (map(select(.version == $v)) | length > 0) as $exists |
+            if $exists then
+              map(if .version == $v then (if $n != "" then .name = $n else . end) else . end)
+            else
+              . + [{"version": $v, "url": $u} + (if $n != "" then {"name": $n} else {} end)]
+            end' gh-pages-content/versions.json > gh-pages-content/tmp.json && mv gh-pages-content/tmp.json gh-pages-content/versions.json
 
       - name: Commit and push changes to gh-pages
         if: steps.metadata.outputs.should_deploy == 'true'
