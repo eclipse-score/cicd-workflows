@@ -150,10 +150,21 @@ runs:
     - name: Workflow Allow the Pages artifact to become visible
       if: ${{ inputs.deployment_type == 'workflow' }}
       shell: bash
-      run: sleep 2
+      run: sleep 10
 
     - name: Workflow Deploy site
+      id: deploy-pages
       if: ${{ inputs.deployment_type == 'workflow' }}
+      continue-on-error: true
+      uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+    - name: Workflow Wait before retrying the site deployment
+      if: ${{ inputs.deployment_type == 'workflow' && steps.deploy-pages.outcome == 'failure' }}
+      shell: bash
+      run: sleep 10
+
+    - name: Workflow Retry deploy site
+      if: ${{ inputs.deployment_type == 'workflow' && steps.deploy-pages.outcome == 'failure' }}
       uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
     - name: Find Comment
