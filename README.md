@@ -26,6 +26,12 @@ alternative configurations, and an overview of current SCORE repository setups.
 | **Required Approvals**                         | Enforces stricter CODEOWNERS rules for multi-team approvals                                                                 |
 | **QNX Build (Gated)**                          | Builds QNX Bazel targets with environment-gated secrets for forks                                                           |
 | **CodeQL Scan**                                | Performs security and quality analysis using GitHub CodeQL                                                                  |
+| **[Static Analysis CodeQL](.github/workflows/static-analysis-codeql.md)** | Bazel-based CodeQL analysis (pinned CLI and packs, GCC/QNX replay, QM/ASIL presets) with SARIF upload to Code Scanning      |
+
+> **Static Analysis CodeQL vs. CodeQL Scan:** [Static Analysis CodeQL](.github/workflows/static-analysis-codeql.md)
+> (`static-analysis-codeql.yml`) is the Bazel-based analysis from `score_tools` with pinned CodeQL CLI/query packs,
+> compile-command replay with the production compiler and a combined SARIF upload per category.
+> **CodeQL Scan** (`codeql.yml`) is the existing workflow based on `github/codeql-action` `init`/`analyze` and stays unchanged.
 
 ---
 

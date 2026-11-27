@@ -1,0 +1,461 @@
+# *******************************************************************************
+# Copyright (c) 2026 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+
+name: Static Analysis CodeQL (reusable)
+# User documentation: see static-analysis-codeql.md.
+#
+# Runs the Bazel based CodeQL analysis provided by `score_tools` (`//codeql`) and publishes the
+# results as workflow artifact, job summary and (optionally) GitHub Code Scanning alerts.
+# The caller must grant `contents: read`, `actions: read` and `security-events: write`.
+
+on:
+  workflow_call:
+    inputs:
+      sca-target:
+        description: >-
+          Bazel label of the runnable created by `codeql_sca()` (e.g. '//tools/codeql:sca_linux'),
+          or '@score_tools//codeql:sca' when everything is passed explicitly.
+        required: true
+        type: string
+      bazel-targets:
+        description: >-
+          Optional override of the Bazel targets to analyze (whitespace separated, negative
+          patterns like '-//foo/...' allowed). Empty uses the targets baked into `sca-target`.
+        required: false
+        default: ""
+        type: string
+      bazel-config:
+        description: >-
+          Optional override of the Bazel `--config` values used for the analysis build (comma or
+          whitespace separated). Empty uses the configs baked into `sca-target`.
+        required: false
+        default: ""
+        type: string
+      extra-bazel-flags:
+        description: Additional Bazel flags (whitespace separated) forwarded to the nested Bazel invocations as `--bazel-option`
+        required: false
+        default: ""
+        type: string
+      platform:
+        description: Platform of the analyzed build, `linux` or `qnx`
+        required: false
+        default: linux
+        type: string
+      safety-level:
+        description: Report preset, empty (use the preset baked into `sca-target`), `QM` or `ASIL`
+        required: false
+        default: ""
+        type: string
+      report:
+        description: Reports to generate (whitespace separated). Empty uses the reports of the safety-level preset or of `sca-target`.
+        required: false
+        default: ""
+        type: string
+      extra-args:
+        description: Additional arguments (whitespace separated, no quoting or shell evaluation) for the `sca` command line
+        required: false
+        default: ""
+        type: string
+      category:
+        description: >-
+          Code Scanning category of the uploaded analysis. Defaults to
+          `static-analysis-codeql/<platform>[/<safety-level>]`.
+        required: false
+        default: ""
+        type: string
+      artifact-name:
+        description: >-
+          Name of the uploaded results artifact (letters, digits, `.`, `_`, `-`). Defaults to
+          `static-analysis-codeql-<platform>[-<safety-level>]`.
+        required: false
+        default: ""
+        type: string
+      upload-sarif:
+        description: Publish the combined SARIF file to GitHub Code Scanning (always skipped for pull requests from forks and for pull_request_target events)
+        required: false
+        default: true
+        type: boolean
+      bazel-disk-cache:
+        description: Name to append to the Bazel disk cache name. The value can be a string to use as cache key for separating workflows
+        required: false
+        default: ""
+        type: string
+      disk-space-level:
+        description: >-
+          Level passed to eclipse-score/more-disk-space (0-4, higher frees more space). Use 0 to only
+          report available space without freeing any.
+        required: false
+        default: 4
+        type: number
+      runner-labels:
+        description: >-
+          Runner label(s) for this workflow's jobs, overriding the repository/organization runner
+          variables. Must be a JSON-encoded string: a single label as a JSON string (e.g.
+          '"self-hosted"') or a JSON array of labels (e.g. '["self-hosted", "linux", "x64"]').
+        required: false
+        default: ""
+        type: string
+      github-app-client-id:
+        description: GitHub App client ID used with `github-app-private-key` to access private dependencies; omit when using `token`
+        required: false
+        default: ""
+        type: string
+      environment-name:
+        description: Environment gating access to QNX secrets for pull requests from forks (only used when `platform` is `qnx`)
+        required: false
+        default: workflow-approval
+        type: string
+      credential-helper:
+        description: Relative or absolute path to the QNX credential helper script (only used when `platform` is `qnx`)
+        required: false
+        default: .github/tools/qnx_credential_helper.py
+        type: string
+      score-qnx-license-server:
+        description: >-
+          Address of the QNX license server (e.g. '6287@license-server-hostname'). Configures user.bazelrc with related action env vars
+          (only used when `platform` is `qnx`).
+        required: false
+        type: string
+    secrets:
+      github-app-private-key:
+        description: GitHub App private key used with `github-app-client-id` to access private dependencies
+        required: false
+      token:
+        description: Token for private dependencies; an alternative to GitHub App credentials
+        required: false
+      qnx-sdp-github-token:
+        description: >-
+          GitHub token used by the QNX build toolchain to download the QNX SDP release asset
+          from https://github.com/eclipse-score/qnx_sdp_pkg. Requires read access to that repository;
+          optional for SDP downloads from qnx.com.
+        required: false
+      score-qnx-license:
+        description: Base64-encoded QNX license content (required when `platform` is `qnx`)
+        required: false
+      score-qnx-user:
+        description: QNX account username (required when `platform` is `qnx`)
+        required: false
+      score-qnx-password:
+        description: QNX account password (required when `platform` is `qnx`)
+        required: false
+    outputs:
+      artifact-name:
+        description: Name of the uploaded results artifact
+        value: ${{ jobs.analyze.outputs.artifact-name }}
+      sarif-file:
+        description: Path of the combined SARIF file inside the results artifact; empty when none was produced
+        value: ${{ jobs.analyze.outputs.sarif-file }}
+
+jobs:
+  approval:
+    # Require approvals for QNX analyses of PRs from forks, but not for same-repository PRs or push events.
+    if: >-
+      inputs.platform == 'qnx' &&
+      github.event_name == 'pull_request_target' &&
+      (github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name)
+    environment: ${{ inputs.environment-name }}
+    # A new push to a PR supersedes a still pending approval of an older commit.
+    concurrency:
+      group: static-analysis-codeql-approval-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-${{ inputs.sca-target }}
+      cancel-in-progress: true
+    runs-on: >-
+      ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) ||
+      vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
+      vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Blocking on approval
+        run: 'true'
+
+  analyze:
+    name: Analyze (${{ inputs.platform }})
+    # run this job always unless the workflow was canceled; approval may still be skipped by intention
+    # Do not use always(), see https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#always
+    if: ${{ !cancelled() && (needs.approval.result == 'success' || needs.approval.result == 'skipped') }}
+    needs: approval
+    runs-on: >-
+      ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) ||
+      vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) ||
+      vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    outputs:
+      artifact-name: ${{ steps.prepare.outputs.artifact-name }}
+      sarif-file: ${{ steps.collect.outputs.sarif-file }}
+
+    env:
+      # Used by the QNX toolchain to download the QNX SDP release asset; empty for other platforms.
+      GH_TOKEN: ${{ inputs.platform == 'qnx' && secrets.qnx-sdp-github-token || '' }}
+
+    steps:
+      - name: Validate inputs
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          SAFETY_LEVEL: ${{ inputs.safety-level }}
+          SCA_TARGET: ${{ inputs.sca-target }}
+          CATEGORY: ${{ inputs.category }}
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          # An `if` condition cannot access secrets, so expose only their presence.
+          HAS_QNX_LICENSE: ${{ secrets.score-qnx-license != '' }}
+          HAS_QNX_USER: ${{ secrets.score-qnx-user != '' }}
+          HAS_QNX_PASSWORD: ${{ secrets.score-qnx-password != '' }}
+        run: |
+          set -euo pipefail
+
+          case "${PLATFORM}" in
+            linux | qnx) ;;
+            *)
+              echo "::error::Invalid platform '${PLATFORM}'. Must be 'linux' or 'qnx'."
+              exit 1
+              ;;
+          esac
+
+          case "${SAFETY_LEVEL}" in
+            "" | QM | ASIL) ;;
+            *)
+              echo "::error::Invalid safety-level '${SAFETY_LEVEL}'. Must be empty, 'QM' or 'ASIL'."
+              exit 1
+              ;;
+          esac
+
+          if [[ -z "${SCA_TARGET}" || "${SCA_TARGET}" == -* || "${SCA_TARGET}" =~ [[:space:][:cntrl:]] ]]; then
+            echo "::error::Invalid sca-target. It must be a single Bazel label that does not start with '-'."
+            exit 1
+          fi
+
+          if [[ -n "${ARTIFACT_NAME}" && ! "${ARTIFACT_NAME}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Invalid artifact-name '${ARTIFACT_NAME}'. Use only letters, digits, '.', '_' and '-'."
+            exit 1
+          fi
+
+          if [[ "${CATEGORY}" =~ [[:cntrl:]] ]]; then
+            echo "::error::Invalid category. It must not contain control characters."
+            exit 1
+          fi
+
+          if [[ "${PLATFORM}" == "qnx" ]]; then
+            missing=()
+            [[ "${HAS_QNX_LICENSE}" == "true" ]] || missing+=(score-qnx-license)
+            [[ "${HAS_QNX_USER}" == "true" ]] || missing+=(score-qnx-user)
+            [[ "${HAS_QNX_PASSWORD}" == "true" ]] || missing+=(score-qnx-password)
+            if [[ ${#missing[@]} -gt 0 ]]; then
+              echo "::error::platform 'qnx' requires the secret(s): ${missing[*]}. Pass them to this workflow; secrets are not available to pull requests from forks unless the caller uses pull_request_target."
+              exit 1
+            fi
+          fi
+
+      - name: Resolve category, artifact name and output directory
+        id: prepare
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          SAFETY_LEVEL: ${{ inputs.safety-level }}
+          CATEGORY: ${{ inputs.category }}
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        run: |
+          set -euo pipefail
+
+          default_category="static-analysis-codeql/${PLATFORM}"
+          default_artifact="static-analysis-codeql-${PLATFORM}"
+          if [[ -n "${SAFETY_LEVEL}" ]]; then
+            default_category+="/${SAFETY_LEVEL}"
+            default_artifact+="-${SAFETY_LEVEL}"
+          fi
+
+          {
+            echo "category=${CATEGORY:-${default_category}}"
+            echo "artifact-name=${ARTIFACT_NAME:-${default_artifact}}"
+            echo "output-dir=${RUNNER_TEMP}/static-analysis-codeql"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Free up disk space
+        uses: eclipse-score/more-disk-space@beee38c3b4426a7c43fdfeb2495d1af812179c3e # v1.3.0
+        with:
+          level: ${{ inputs.disk-space-level }}
+
+      - name: Checkout repository
+        if: ${{ inputs.platform != 'qnx' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Checkout repository (Handle all events)
+        if: ${{ inputs.platform == 'qnx' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+          ref: ${{ github.head_ref || github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          persist-credentials: false
+          # This job is gated by the approval job.
+          # A reviewer must validate the content before approving the workflow.
+          allow-unsafe-pr-checkout: true
+
+      - name: Configure access to private dependencies
+        uses: eclipse-score/cicd-actions/inter-repo-access@63c3e9c93df76d76a1baca18e407745ddaeb2fca # main branch (2026-10-12)
+        # An `if` condition cannot access secrets, so expose only their presence.
+        env:
+          HAS_GH_APP_PRIVATE_KEY: ${{ secrets.github-app-private-key != '' }}
+          HAS_TOKEN: ${{ secrets.token != '' }}
+        if: ${{ env.HAS_GH_APP_PRIVATE_KEY == 'true' || env.HAS_TOKEN == 'true' || inputs.github-app-client-id != '' }}
+        with:
+          token: ${{ secrets.token }}
+          github-app-client-id: ${{ inputs.github-app-client-id }}
+          github-app-private-key: ${{ secrets.github-app-private-key }}
+
+      # For QNX the SDP is proprietary and must not end up in the Actions cache.
+      # Its tarball lives in the repository cache and its extraction in the external cache, so both stay off.
+      # The disk cache only holds build outputs, so it is kept.
+      - name: Setup Bazel with shared caching
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@b04e3349097576dd2f06850c62fb9423515d2963 # 2026-11-02
+        with:
+          disk-cache-key: static-analysis-codeql-${{ inputs.platform }}${{ inputs.bazel-disk-cache }}
+          repository-cache-restore: ${{ inputs.platform == 'qnx' && 'false' || 'auto' }}
+          repository-cache-save: ${{ inputs.platform == 'qnx' && 'false' || 'auto' }}
+          external-cache-restore: ${{ inputs.platform == 'qnx' && 'false' || 'true' }}
+          external-cache-save: ${{ inputs.platform == 'qnx' && 'false' || 'true' }}
+
+      - uses: eclipse-score/cicd-actions/unblock-user-namespace-for-linux-sandbox@212bbf86267e9381da9d2daf962d12f6feafbc90 # 2025-06-04
+
+      - name: Setup QNX SDP usage
+        if: ${{ inputs.platform == 'qnx' }}
+        uses: eclipse-score/cicd-actions/setup-qnx-sdp@212bbf86267e9381da9d2daf962d12f6feafbc90 # 2026-05-19
+        with:
+          qnx-license: ${{ secrets.score-qnx-license }}
+          qnx-license-server: ${{ inputs.score-qnx-license-server }}
+          qnx-user: ${{ secrets.score-qnx-user }}
+          qnx-password: ${{ secrets.score-qnx-password }}
+          qnx-credential-helper: ${{ inputs.credential-helper }}
+          qnx-license-dir: /opt/score_qnx/license
+
+      # The pack directories are version-addressed, so stale entries are harmless.
+      - name: Cache CodeQL query packs
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/score-codeql/packs
+          key: static-analysis-codeql-packs-${{ hashFiles('MODULE.bazel.lock') }}
+          restore-keys: |
+            static-analysis-codeql-packs-
+
+      - name: Run CodeQL analysis
+        id: sca
+        env:
+          SCA_TARGET: ${{ inputs.sca-target }}
+          PLATFORM: ${{ inputs.platform }}
+          SAFETY_LEVEL: ${{ inputs.safety-level }}
+          BAZEL_CONFIG: ${{ inputs.bazel-config }}
+          REPORT: ${{ inputs.report }}
+          EXTRA_BAZEL_FLAGS: ${{ inputs.extra-bazel-flags }}
+          EXTRA_ARGS: ${{ inputs.extra-args }}
+          BAZEL_TARGETS: ${{ inputs.bazel-targets }}
+          CATEGORY: ${{ steps.prepare.outputs.category }}
+          OUTPUT_DIR: ${{ steps.prepare.outputs.output-dir }}
+          # Used by `codeql pack download` to access the query pack registry.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Split on whitespace only; the words are never evaluated or glob-expanded.
+          split_words() {
+            local -n out_array="$1"
+            local normalized="${2//[$'\t\r\n']/ }"
+            read -r -a out_array <<< "${normalized}"
+          }
+
+          args=()
+
+          split_words configs "${BAZEL_CONFIG//,/ }"
+          for config in "${configs[@]}"; do
+            args+=("--config=${config}")
+          done
+
+          args+=("--platform=${PLATFORM}")
+
+          if [[ -n "${SAFETY_LEVEL}" ]]; then
+            args+=("--safety-level=${SAFETY_LEVEL}")
+          fi
+
+          split_words reports "${REPORT}"
+          for report in "${reports[@]}"; do
+            args+=("--report=${report}")
+          done
+
+          args+=("--output-dir=${OUTPUT_DIR}" "--sarif-category=${CATEGORY}")
+
+          if [[ "${PLATFORM}" == "qnx" ]]; then
+            if [[ -z "${QNX_CREDENTIAL_HELPER:-}" ]]; then
+              echo "::error::QNX_CREDENTIAL_HELPER is not set; setup-qnx-sdp must run before the analysis."
+              exit 1
+            fi
+            args+=("--bazel-option=--credential_helper=*.qnx.com=${QNX_CREDENTIAL_HELPER}")
+          fi
+
+          split_words bazel_flags "${EXTRA_BAZEL_FLAGS}"
+          for flag in "${bazel_flags[@]}"; do
+            args+=("--bazel-option=${flag}")
+          done
+
+          split_words extra_args "${EXTRA_ARGS}"
+          args+=("${extra_args[@]}")
+
+          split_words targets "${BAZEL_TARGETS}"
+          args+=("${targets[@]}")
+
+          bazel run "${SCA_TARGET}" -- "${args[@]}"
+
+      - name: Collect results and job summary
+        id: collect
+        if: ${{ always() }}
+        env:
+          OUTPUT_DIR: ${{ steps.prepare.outputs.output-dir }}
+        run: |
+          set -euo pipefail
+
+          results="${OUTPUT_DIR}/results"
+          if [[ -f "${results}/code-scanning.sarif" ]]; then
+            echo "sarif-file=results/code-scanning.sarif" >> "${GITHUB_OUTPUT}"
+          else
+            echo "sarif-file=" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if [[ -f "${results}/summary.md" ]]; then
+            cat "${results}/summary.md" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload CodeQL results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.prepare.outputs.artifact-name }}
+          path: |
+            ${{ steps.prepare.outputs.output-dir }}/results
+            ${{ steps.prepare.outputs.output-dir }}/work/**/*.log
+            ${{ steps.prepare.outputs.output-dir }}/work/compile_commands.filtered.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Only the combined single-run SARIF file is uploaded; the per-report files stay in the artifact.
+      # Pull requests from forks have a read-only token that cannot write security events.
+      # pull_request_target runs in the context of the base branch, so its results must not be attributed to it.
+      - name: Upload SARIF to Code Scanning
+        if: >-
+          ${{ success() && inputs.upload-sarif && steps.collect.outputs.sarif-file != '' &&
+          github.event.pull_request.head.repo.fork != true && github.event_name != 'pull_request_target' }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ steps.prepare.outputs.output-dir }}/results/code-scanning.sarif
+          category: ${{ steps.prepare.outputs.category }}
