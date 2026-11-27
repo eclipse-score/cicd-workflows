@@ -50,7 +50,19 @@ callers should migrate to the replacement workflow.
 
 ## Using the Workflows in Your Repository
 
-To use a reusable workflow, create a workflow file inside **your repository** (e.g., `.github/workflows/ci.yml`) and reference the appropriate workflow from this repository.
+To use a reusable workflow, create a workflow file inside **your repository**
+(e.g., `.github/workflows/ci.yml`). Pin the workflow to a full commit SHA and add
+its published component release tag as a comment:
+
+```yaml
+uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@88cb460c47cb49efeb25cd7b73c8945dd1c5bce2 # on-pr/v0.0.0
+```
+
+The examples below use `@<SHA> # workflow/vX.Y.Z` as placeholders. Choose a
+published tag for that workflow and replace `<SHA>` with the full 40-character
+commit SHA that tag resolves to. Replace `X.Y.Z` with its major, minor and patch
+version. The comment must identify that same release. Workflows without a
+published component tag need one before they can use this update convention.
 
 See the [Documentation workflows](.github/workflows/docs.md) guide for the
 separate build and publishing workflows.
@@ -68,7 +80,7 @@ on:
 
 jobs:
   license-check:
-    uses: eclipse-score/cicd-workflows/.github/workflows/license-check.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/license-check.yml@<SHA> # license-check/vX.Y.Z
     with:
       repo-url: "${{ github.server_url }}/${{ github.repository }}" # optional, this is the default
       bazel-target: "run //:license-check" # optional, this is the default
@@ -100,7 +112,7 @@ on:
 
 jobs:
   static-analysis:
-    uses: eclipse-score/cicd-workflows/.github/workflows/static-analysis.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/static-analysis.yml@<SHA> # static-analysis/vX.Y.Z
     with:
       bazel-targets: "//..."            # optional, default
       bazel-config: "lint"             # optional, default
@@ -133,7 +145,7 @@ on:
 
 jobs:
   tests:
-    uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@<SHA> # tests/vX.Y.Z
 ```
 
 This workflow:  
@@ -162,7 +174,7 @@ on:
 
 jobs:
   rust-coverage:
-    uses: eclipse-score/cicd-workflows/.github/workflows/rust-coverage.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/rust-coverage.yml@<SHA> # rust-coverage/vX.Y.Z
     with:
       bazel-test-targets: "//src/rust/..."
       bazel-test-config-flags: "--config=per-x86_64-linux --config=ferrocene-coverage"
@@ -195,7 +207,7 @@ on:
 
 jobs:
   coverage-report:
-    uses: eclipse-score/cicd-workflows/.github/workflows/cpp-coverage.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/cpp-coverage.yml@<SHA> # cpp-coverage/vX.Y.Z
     with:
       bazel-target: "//..."
 ```
@@ -221,7 +233,7 @@ on:
 
 jobs:
   enforce:
-    uses: eclipse-score/cicd-workflows/.github/workflows/required-approvals.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/required-approvals.yml@<SHA> # required-approvals/vX.Y.Z
     with:
       pat_secret: SCORE_BOT_PAT
       # Optional overrides:
@@ -260,7 +272,7 @@ on:
 
 jobs:
   qnx-build:
-    uses: eclipse-score/cicd-workflows/.github/workflows/qnx-build.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/qnx-build.yml@<SHA> # qnx-build/vX.Y.Z
     permissions:
       contents: read
       pull-requests: read
@@ -310,7 +322,7 @@ on:
 
 jobs:
   codeql-scan:
-    uses: eclipse-score/cicd-workflows/.github/workflows/codeql.yml@main
+    uses: eclipse-score/cicd-workflows/.github/workflows/codeql.yml@<SHA> # codeql/vX.Y.Z
     with:
       build-script: "bazel build //..." # optional, default shown
 ```
@@ -327,11 +339,21 @@ jobs:
 
 ---
 
-##  How to Update Workflows
-Since these workflows are centralized, updates in the `cicd-workflows` repository will **automatically apply to all repositories using them**. If you need a specific version, reference a **tagged release** instead of `main`:
+## How to Update Workflows
+
+Use a full commit SHA with the workflow's component release tag in a comment:
+
 ```yaml
-uses: eclipse-score/cicd-workflows/.github/workflows/tests.yml@v1.0.0
+uses: eclipse-score/cicd-workflows/.github/workflows/on-pr.yml@88cb460c47cb49efeb25cd7b73c8945dd1c5bce2 # on-pr/v0.0.0
 ```
+
+The SHA fixes the workflow implementation until you explicitly update it.
+To adopt a newer release, update both the SHA and the component version comment
+in a reviewed PR. Use the full `workflow/vX.Y.Z` version in the comment so
+Renovate can compare component releases.
+
+See [Renovate component updates](renovate.md) for automated SHA-pin updates,
+Dependabot coexistence and the repository opt-in procedure.
 
 ---
 

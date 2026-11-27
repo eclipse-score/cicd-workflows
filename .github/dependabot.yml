@@ -19,6 +19,11 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # Component releases are updated by Renovate using their version comments.
+    # The trailing * covers both bare repository names and action/workflow paths.
+    ignore:
+      - dependency-name: "eclipse-score/cicd-actions*"
+      - dependency-name: "eclipse-score/cicd-workflows*"
     groups:
       github-actions:
         patterns:
