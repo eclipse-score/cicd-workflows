@@ -258,9 +258,17 @@ jobs:
       - name: Enable KVM group permissons
         if: inputs.bazel-test-target != ''
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          # On container-based runners /dev/kvm is provided (and made writable) by the
+          # host/device plugin, and udevd is not running, so the udev commands below
+          # would fail. The goal of this step is a writable /dev/kvm - if that is
+          # already the case, there is nothing to do.
+          if [ -w /dev/kvm ]; then
+            echo "/dev/kvm already writable; skipping udev configuration"
+          else
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+          fi
 
       - name: Test with QNX toolchain
         if: inputs.bazel-test-target != ''
