@@ -44,6 +44,13 @@ on:
         required: false
         default: false
         type: boolean
+      docs-keep-folders:
+        description: >-
+          Top-level documentation folders that the docs cleanup must keep (see `keep-folders` of
+          `_docs-cleanup.yml`). One folder name per line or separated by spaces or commas.
+        required: false
+        default: ""
+        type: string
     secrets:
       github-app-private-key:
         description: GitHub App private key used with `github-app-client-id` to access private dependencies
@@ -56,6 +63,7 @@ jobs:
   stale-prs:
     name: Mark and close stale pull requests
     if: ${{ !inputs.skip-stale-prs }}
+    timeout-minutes: 15
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
@@ -82,8 +90,10 @@ jobs:
             We are closing this pull request because it stayed stale for 10 more days without any new
             activity. If this is still relevant, please reopen it or open a fresh pull request when you
             are ready, and we will pick it up from there.
+
   detect-repo-capabilities:
     name: Detect repository capabilities
+    timeout-minutes: 5
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
@@ -116,7 +126,9 @@ jobs:
     # Forward the private-dependency credentials so the called workflow can
     # configure inter-repo access too.
     with:
+      runner-labels: ${{ inputs.runner-labels }}
       github-app-client-id: ${{ inputs.github-app-client-id }}
+      keep-folders: ${{ inputs.docs-keep-folders }}
     secrets:
       github-app-private-key: ${{ secrets.github-app-private-key }}
       token: ${{ secrets.token }}
@@ -131,6 +143,7 @@ jobs:
     needs: detect-repo-capabilities
     # Only repositories that publish documentation (GitHub Pages enabled) are checked.
     if: ${{ !inputs.skip-docs-link-check && needs.detect-repo-capabilities.outputs.should_run_docs_cleanup == 'true' }}
+    timeout-minutes: 60
     runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     permissions:
       contents: read
@@ -161,10 +174,11 @@ jobs:
 
   cache-cleanup:
     name: Cleanup old caches
+    timeout-minutes: 15
     permissions:
       actions: write # Required to delete GitHub Actions caches.
       contents: read
-    runs-on: ${{ vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.runner-labels && fromJSON(inputs.runner-labels) || vars.runner_labels_ghub_standard_x64 && fromJSON(vars.runner_labels_ghub_standard_x64) || vars.REPO_RUNNER_LABELS && fromJSON(vars.REPO_RUNNER_LABELS) || 'ubuntu-24.04' }}
     steps:
       - name: Prune obsolete cache generations
         uses: eclipse-score/cicd-actions/prune-cache@8e69f47b45778afd3b0d069c0456184c4ceeffe7 # prune-cache/v0.0.0

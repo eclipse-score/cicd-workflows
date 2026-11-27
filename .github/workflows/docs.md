@@ -228,3 +228,42 @@ as `/main/`. Pull requests are published under `/pr-<number>/`; a link to that
 preview is added to the pull request. Tags and releases are published under the
 tag name, such as `/v1.2.3/`. The workflow initializes the `gh-pages` branch
 when necessary and maintains its `versions.json` file.
+
+### Publishing an additional report
+
+By default, a run publishes into the folder derived from its pull request or
+source ref, so an additional report built from the same branch (for example a
+nightly build with more test evidence) would replace the regular documentation.
+Set `target-folder` in a dedicated publish workflow to publish it elsewhere. The
+input is static, so every run of that caller lands in the folder. Do not set it
+in the publish workflow that handles regular documentation builds; use a separate
+caller that only reacts to the report's build workflow:
+
+```yaml
+on:
+  workflow_run:
+    workflows: ["Nightly Full Evidence Docs"]
+    types: [completed]
+
+jobs:
+  docs-publish:
+    if: github.event.workflow_run.conclusion == 'success'
+    uses: eclipse-score/cicd-workflows/.github/workflows/docs-publish.yml@main
+    with:
+      target-folder: main-full-evidence
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      pages: write
+      pull-requests: write
+```
+
+The folder name must start with a letter or digit and contain only letters,
+digits, `.`, `_` and `-`. The names `main`, `pr-*`, `versions.json` and
+`index.html` are reserved. The folder is also listed in `versions.json`, so it
+appears in the documentation version switcher. If the report was built for a
+pull request, the preview comment links to this folder. The daily cleanup removes every top-level folder that is
+not a branch, an open pull request or a tag. List the folder in the
+`docs-keep-folders` input of `daily.yml` (or `keep-folders` of `_docs-cleanup.yml`)
+to keep it, and do so in every workflow that calls the cleanup.

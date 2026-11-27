@@ -41,10 +41,14 @@ serializing them prevents conflicting pushes. Keep the caller group distinct
 from the publisher's internal `cicd-pages-deploy` group to avoid a caller
 holding the lock its called workflow needs.
 
-The reusable workflow takes two optional boolean inputs, both default `false`:
+The reusable workflow takes these optional inputs:
 
-- `skip-stale-prs`: disables stale pull request handling
-- `skip-docs-link-check`: disables the documentation dead link check
+- `skip-stale-prs` (boolean, default `false`): disables stale pull request handling
+- `skip-docs-link-check` (boolean, default `false`): disables the documentation dead link check
+- `docs-keep-folders` (string, default empty): top-level documentation folders that
+  the cleanup keeps although they are neither a branch, an open pull request nor a
+  tag, for example a folder published with the `target-folder` input of
+  `docs-publish.yml`; one name per line or separated by spaces or commas
 
 For example, to keep documentation cleanup and cache pruning but skip stale
 pull request handling:
